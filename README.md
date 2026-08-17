@@ -1,20 +1,54 @@
-<<<<<<< HEAD
-# React + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
 # FinanceOS
-FinanceOS - The Complete Financial System for Personal Wealth Management
->>>>>>> f5eda8329289c26ec215d7eabaa6a942a6454826
+
+**FinanceOS - The Complete Financial Operating System for Personal Wealth Management**
+
+FinanceOS is a financial management system designed to help users manage and monitor their personal finances.
+
+## Features
+
+- User authentication with OTP
+- Personal financial dashboard
+- Monthly finance management
+- Investment management
+- Saving goals
+- Additional income tracking
+- Financial reports
+- Financial calendar
+- Admin dashboard
+- User management
+- Financial insights and calculations
+
+## Technology Stack
+
+- React.js
+- Vite
+- Node.js
+- Express.js
+- MongoDB
+- JWT
+- Nodemailer
+- Tailwind CSS
+
+## Project Structure
+
+```text
+FinanceOS/
+├── backend/
+│   ├── controllers/
+│   ├── middleware/
+│   ├── models/
+│   ├── routes/
+│   ├── utils/
+│   └── server.js
+│
+├── public/
+├── src/
+│   ├── components/
+│   ├── context/
+│   ├── pages/
+│   ├── utils/
+│   └── App.jsx
+│
+├── .gitignore
+├── package.json
+└── README.md
