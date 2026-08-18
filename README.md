@@ -6,6 +6,7 @@ FinanceOS is a financial management system designed to help users manage and mon
 
 ## Features
 
+- dip jivrajani
 - User authentication with OTP
 - Personal financial dashboard1
 - Monthly finance management
