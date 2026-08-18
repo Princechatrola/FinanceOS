@@ -7,7 +7,7 @@ FinanceOS is a financial management system designed to help users manage and mon
 ## Features
 
 - User authentication with OTP
-- Personal financial dashboard
+- Personal financial dashboard1
 - Monthly finance management
 - Investment management
 - Saving goals
