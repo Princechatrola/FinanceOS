@@ -9,24 +9,36 @@ const Investment = require("../models/Investment");
 // ============================================================
 
 const addInvestment = async (req, res) => {
-
   try {
+    console.log("REQ.USER:", req.user);
+    console.log("REQ.USER.ID:", req.user?.id);
+    console.log("REQ.USER._ID:", req.user?._id);
+
+    const investmentData = {
+      ...req.body,
+
+      user: req.user?.id || req.user?._id,
+
+      paymentSource:
+        req.body.paymentSource || undefined,
+    };
+
+    console.log(
+      "INVESTMENT USER:",
+      investmentData.user
+    );
 
     const investment =
-      await Investment.create({
-        user: req.user._id,
-        ...req.body,
-      });
+      await Investment.create(
+        investmentData
+      );
 
     res.status(201).json({
       success: true,
-      message:
-        "Investment added successfully.",
+      message: "Investment added successfully.",
       investment,
     });
-
   } catch (error) {
-
     console.error(
       "Add Investment:",
       error
@@ -38,9 +50,7 @@ const addInvestment = async (req, res) => {
         error.message ||
         "Failed to add investment.",
     });
-
   }
-
 };
 
 // ============================================================
@@ -48,11 +58,9 @@ const addInvestment = async (req, res) => {
 // ============================================================
 
 const getInvestments = async (req, res) => {
-
   try {
-
     const investments = await Investment.find({
-      user: req.user._id,
+      user: req.user?.id || req.user?._id,
     }).sort({
       createdAt: -1,
     });
@@ -62,16 +70,12 @@ const getInvestments = async (req, res) => {
       count: investments.length,
       investments,
     });
-
   } catch (error) {
-
     res.status(500).json({
       success: false,
       message: error.message,
     });
-
   }
-
 };
 
 // ============================================================
@@ -79,37 +83,29 @@ const getInvestments = async (req, res) => {
 // ============================================================
 
 const getInvestment = async (req, res) => {
-
   try {
-
     const investment = await Investment.findOne({
       _id: req.params.id,
-      user: req.user._id,
+      user: req.user?.id || req.user?._id,
     });
 
     if (!investment) {
-
       return res.status(404).json({
         success: false,
         message: "Investment not found.",
       });
-
     }
 
     res.status(200).json({
       success: true,
       investment,
     });
-
   } catch (error) {
-
     res.status(500).json({
       success: false,
       message: error.message,
     });
-
   }
-
 };
 
 // ============================================================
@@ -117,13 +113,11 @@ const getInvestment = async (req, res) => {
 // ============================================================
 
 const updateInvestment = async (req, res) => {
-
   try {
-
     const investment = await Investment.findOneAndUpdate(
       {
         _id: req.params.id,
-        user: req.user._id,
+        user: req.user?.id || req.user?._id,
       },
       req.body,
       {
@@ -133,12 +127,10 @@ const updateInvestment = async (req, res) => {
     );
 
     if (!investment) {
-
       return res.status(404).json({
         success: false,
         message: "Investment not found.",
       });
-
     }
 
     res.status(200).json({
@@ -146,16 +138,12 @@ const updateInvestment = async (req, res) => {
       message: "Investment updated successfully.",
       investment,
     });
-
   } catch (error) {
-
     res.status(500).json({
       success: false,
       message: error.message,
     });
-
   }
-
 };
 
 // ============================================================
@@ -163,21 +151,17 @@ const updateInvestment = async (req, res) => {
 // ============================================================
 
 const deleteInvestment = async (req, res) => {
-
   try {
-
     const investment = await Investment.findOne({
       _id: req.params.id,
-      user: req.user._id,
+      user: req.user?.id || req.user?._id,
     });
 
     if (!investment) {
-
       return res.status(404).json({
         success: false,
         message: "Investment not found.",
       });
-
     }
 
     await investment.deleteOne();
@@ -186,16 +170,12 @@ const deleteInvestment = async (req, res) => {
       success: true,
       message: "Investment deleted successfully.",
     });
-
   } catch (error) {
-
     res.status(500).json({
       success: false,
       message: error.message,
     });
-
   }
-
 };
 
 // ============================================================
@@ -203,21 +183,17 @@ const deleteInvestment = async (req, res) => {
 // ============================================================
 
 const recordFDInterest = async (req, res) => {
-
   try {
-
     const investment = await Investment.findOne({
       _id: req.params.id,
-      user: req.user._id,
+      user: req.user?.id || req.user?._id,
     });
 
     if (!investment) {
-
       return res.status(404).json({
         success: false,
         message: "Investment not found.",
       });
-
     }
 
     investment.interestTransactions.push(req.body);
@@ -231,16 +207,12 @@ const recordFDInterest = async (req, res) => {
       message: "FD interest recorded successfully.",
       investment,
     });
-
   } catch (error) {
-
     res.status(500).json({
       success: false,
       message: error.message,
     });
-
   }
-
 };
 
 // ============================================================
@@ -248,18 +220,17 @@ const recordFDInterest = async (req, res) => {
 // ============================================================
 
 const renewInvestment = async (req, res) => {
-
   try {
+    const userId = req.user?.id || req.user?._id;
 
     // --------------------------------------------------------
     // FIND OLD INVESTMENT
     // --------------------------------------------------------
 
-    const oldInvestment =
-      await Investment.findOne({
-        _id: req.params.id,
-        user: req.user._id,
-      });
+    const oldInvestment = await Investment.findOne({
+      _id: req.params.id,
+      user: userId,
+    });
 
     if (!oldInvestment) {
       return res.status(404).json({
@@ -343,130 +314,91 @@ const renewInvestment = async (req, res) => {
     // CREATE NEW INVESTMENT
     // --------------------------------------------------------
 
-    const newInvestment =
-      await Investment.create({
+    const newInvestment = await Investment.create({
+      user: userId,
 
-        user:
-          req.user._id,
+      name: oldInvestment.name,
 
-        name:
-          oldInvestment.name,
+      type: oldInvestment.type,
 
-        type:
-          oldInvestment.type,
+      amount: renewedAmount,
 
-        amount:
-          renewedAmount,
+      contributionType:
+        contributionType ??
+        oldInvestment.contributionType,
 
-        contributionType:
-          contributionType ??
-          oldInvestment.contributionType,
+      frequency:
+        frequency ??
+        oldInvestment.frequency,
 
-        frequency:
-          frequency ??
-          oldInvestment.frequency,
+      monthlyContribution:
+        oldInvestment.monthlyContribution || 0,
 
-        monthlyContribution:
-          oldInvestment.monthlyContribution || 0,
+      startDate: new Date(),
 
-        startDate:
-          new Date(),
+      nextContributionDate:
+        oldInvestment.nextContributionDate,
 
-        nextContributionDate:
-          oldInvestment.nextContributionDate,
+      maturityDate:
+        maturityDate ??
+        oldInvestment.maturityDate,
 
-        maturityDate:
-          maturityDate ??
-          oldInvestment.maturityDate,
+      status: "Active",
 
-        status:
-          "Active",
+      currentValue: renewedAmount,
 
-        currentValue:
-          renewedAmount,
+      institution: oldInvestment.institution,
 
-        // ----------------------------------------------------
-        // KEEP EXISTING INVESTMENT TERMS
-        // ----------------------------------------------------
+      principalAmount: renewedAmount,
 
-        institution:
-          oldInvestment.institution,
+      interestRate: oldInvestment.interestRate,
 
-        principalAmount:
-          renewedAmount,
+      interestMethod: oldInvestment.interestMethod,
 
-        interestRate:
-          oldInvestment.interestRate,
+      interestPayoutFrequency:
+        oldInvestment.interestPayoutFrequency,
 
-        interestMethod:
-          oldInvestment.interestMethod,
+      compoundingFrequency:
+        oldInvestment.compoundingFrequency,
 
-        interestPayoutFrequency:
-          oldInvestment.interestPayoutFrequency,
+      estimatedInterest: 0,
 
-        compoundingFrequency:
-          oldInvestment.compoundingFrequency,
+      estimatedAnnualInterest: 0,
 
-        // ----------------------------------------------------
-        // RESET INTEREST FOR NEW PERIOD
-        // ----------------------------------------------------
+      estimatedInterestPerPayout: 0,
 
-        estimatedInterest:
-          0,
+      estimatedMaturityAmount: 0,
 
-        estimatedAnnualInterest:
-          0,
+      totalInterestReceived: 0,
 
-        estimatedInterestPerPayout:
-          0,
+      interestTransactions: [],
 
-        estimatedMaturityAmount:
-          0,
+      renewedFromId: oldInvestment._id,
 
-        totalInterestReceived:
-          0,
+      renewedToId: null,
 
-        interestTransactions:
-          [],
+      renewalCount:
+        Number(
+          oldInvestment.renewalCount || 0
+        ) + 1,
 
-        // ----------------------------------------------------
-        // RENEWAL LINK
-        // ----------------------------------------------------
+      renewedAt: new Date(),
 
-        renewedFromId:
-          oldInvestment._id,
+      maturedAt: null,
 
-        renewedToId:
-          null,
+      closedAt: null,
 
-        renewalCount:
-          Number(
-            oldInvestment.renewalCount || 0
-          ) + 1,
+      reminder: oldInvestment.reminder,
 
-        renewedAt:
-          new Date(),
-
-        maturedAt:
-          null,
-
-        closedAt:
-          null,
-
-        reminder:
-          oldInvestment.reminder,
-
-        maturityReminder:
-          oldInvestment.maturityReminder,
-      });
+      maturityReminder:
+        oldInvestment.maturityReminder,
+    });
 
     // --------------------------------------------------------
     // LINK OLD → NEW
     // --------------------------------------------------------
 
-    oldInvestment.renewedToId =
-      newInvestment._id;
-
+    oldInvestment.renewedToId = newInvestment._id;
     await oldInvestment.save();
 
     // --------------------------------------------------------
@@ -474,42 +406,25 @@ const renewInvestment = async (req, res) => {
     // --------------------------------------------------------
 
     return res.status(201).json({
-
       success: true,
-
-      message:
-        "Investment renewed successfully.",
-
-      investment:
-        newInvestment,
-
-      renewedFromId:
-        oldInvestment._id,
-
-      renewedToId:
-        newInvestment._id,
-
+      message: "Investment renewed successfully.",
+      investment: newInvestment,
+      renewedFromId: oldInvestment._id,
+      renewedToId: newInvestment._id,
     });
-
   } catch (error) {
-
     console.error(
       "Renew Investment:",
       error
     );
 
     return res.status(500).json({
-
       success: false,
-
       message:
         error.message ||
         "Failed to renew investment.",
-
     });
-
   }
-
 };
 
 // ============================================================

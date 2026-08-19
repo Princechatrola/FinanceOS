@@ -109,11 +109,10 @@ const investmentSchema = new mongoose.Schema(
         "Cash",
         "Other",
       ],
-      default: "",
+      default: undefined,
     },
 
     paymentSourceDetails: {
-
       bankName: {
         type: String,
         default: "",
@@ -137,7 +136,6 @@ const investmentSchema = new mongoose.Schema(
         default: "",
         trim: true,
       },
-
     },
 
     startDate: Date,

@@ -9,6 +9,11 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
 
+console.log(
+  "AUTH MIDDLEWARE TYPE:",
+  typeof authMiddleware
+);
+
 const {
   sendLoginOTP,
   verifyLoginOTP,
@@ -465,7 +470,7 @@ router.get(
       // ======================================================
 
       const mongoUserId =
-        req.user?.id;
+        req.user?.id || req.user?._id;
 
 
       if (!mongoUserId) {
@@ -659,7 +664,7 @@ router.put(
       // ======================================================
 
       const mongoUserId =
-        req.user?.id;
+        req.user?.id || req.user?._id;
 
 
       if (!mongoUserId) {
