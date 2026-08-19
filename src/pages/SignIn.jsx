@@ -373,7 +373,7 @@ function SignIn() {
         );
 
         navigate(
-          "/admin-dashboard",
+          "/admin/dashboard",
           {
             replace: true,
           }
