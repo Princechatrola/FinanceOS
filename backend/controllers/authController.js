@@ -1,6 +1,6 @@
 // ============================================================
 // FINANCEOS - AUTH CONTROLLER
-// OTP BASED AUTHENTICATION
+// OTP BASED AUTHENTICATION 
 // ADMIN EMAIL:
 // princepatel0570@gmail.com
 // ============================================================
@@ -9,6 +9,7 @@ const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 
 const User = require("../models/User");
+const { logActivity } = require("../utils/activityLogger");
 
 // ============================================================
 // ADMIN EMAIL

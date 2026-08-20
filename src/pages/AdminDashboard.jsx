@@ -72,7 +72,7 @@ export default function AdminDashboard() {
       // Change "token" below if your project stores JWT
       // using another localStorage key.
       //
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
 
       const response = await fetch(API_URL, {
         method: "GET",
@@ -82,8 +82,8 @@ export default function AdminDashboard() {
 
           ...(token
             ? {
-                Authorization: `Bearer ${token}`,
-              }
+              Authorization: `Bearer ${token}`,
+            }
             : {}),
         },
       });
@@ -628,27 +628,23 @@ export default function AdminDashboard() {
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
 
               <Insight
-                text={`${stats.newThisMonth} new user${
-                  stats.newThisMonth === 1 ? "" : "s"
-                } registered this month.`}
+                text={`${stats.newThisMonth} new user${stats.newThisMonth === 1 ? "" : "s"
+                  } registered this month.`}
               />
 
               <Insight
-                text={`${stats.activeUsers} active user${
-                  stats.activeUsers === 1 ? "" : "s"
-                } currently have active accounts.`}
+                text={`${stats.activeUsers} active user${stats.activeUsers === 1 ? "" : "s"
+                  } currently have active accounts.`}
               />
 
               <Insight
-                text={`${stats.inactiveUsers} user${
-                  stats.inactiveUsers === 1 ? "" : "s"
-                } currently have inactive accounts.`}
+                text={`${stats.inactiveUsers} user${stats.inactiveUsers === 1 ? "" : "s"
+                  } currently have inactive accounts.`}
               />
 
               <Insight
-                text={`${stats.totalAdmins} administrator${
-                  stats.totalAdmins === 1 ? "" : "s"
-                } are registered in the system.`}
+                text={`${stats.totalAdmins} administrator${stats.totalAdmins === 1 ? "" : "s"
+                  } are registered in the system.`}
               />
             </div>
           </section>
@@ -847,11 +843,10 @@ function StatusBadge({ status }) {
 
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-        active
+      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${active
           ? "bg-[#edf6e7] text-[#57923d]"
           : "bg-[#fff6df] text-[#a67517]"
-      }`}
+        }`}
     >
       {status}
     </span>

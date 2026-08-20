@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   CalendarDays,
@@ -17,71 +17,20 @@ import AdminTopbar from "../components/AdminTopbar.jsx";
 
 
 // ============================================================
-// TEMPORARY USER DATA
-//
-// Later:
-// GET /api/admin/reports/users
+// API
 // ============================================================
 
-const users = [
-  {
-    id: "FOS-U-001248",
-    name: "Rahul Patel",
-    email: "rahul@example.com",
-    phone: "9876543210",
-    city: "Ahmedabad",
-    status: "Active",
-    registered: "2026-07-28",
-    income: 50000,
-  },
-  {
-    id: "FOS-U-001247",
-    name: "Priya Shah",
-    email: "priya@example.com",
-    phone: "9876501234",
-    city: "Rajkot",
-    status: "Active",
-    registered: "2026-07-27",
-    income: 65000,
-  },
-  {
-    id: "FOS-U-001246",
-    name: "Amit Mehta",
-    email: "amit@example.com",
-    phone: "9825012345",
-    city: "Surat",
-    status: "Inactive",
-    registered: "2026-07-18",
-    income: 42000,
-  },
-  {
-    id: "FOS-U-001245",
-    name: "Neha Joshi",
-    email: "neha@example.com",
-    phone: "9898012345",
-    city: "Vadodara",
-    status: "Suspended",
-    registered: "2026-06-11",
-    income: 78000,
-  },
-  {
-    id: "FOS-U-001244",
-    name: "Karan Desai",
-    email: "karan@example.com",
-    phone: "9824012345",
-    city: "Bhavnagar",
-    status: "Active",
-    registered: "2026-05-09",
-    income: 55000,
-  },
-];
-
+const API_URL =
+  "http://localhost:5000/api/admin/reports/users";
 
 // ============================================================
 // PAGE
 // ============================================================
 
 export default function AdminReports() {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("All");
   const [month, setMonth] = useState("All");
@@ -89,6 +38,81 @@ export default function AdminReports() {
   const [minIncome, setMinIncome] = useState("");
   const [maxIncome, setMaxIncome] = useState("");
   const [selectedUsers, setSelectedUsers] = useState([]);
+
+
+  // ==========================================================
+  // FETCH USERS
+  // ==========================================================
+
+  const fetchReportUsers = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+
+      const response = await fetch(API_URL, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token
+            ? {
+                Authorization: `Bearer ${token}`,
+              }
+            : {}),
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data.message || "Failed to load report users"
+        );
+      }
+
+      setUsers(data.users || []);
+    } catch (fetchError) {
+      console.error("Admin Reports Error:", fetchError);
+
+      setError(
+        fetchError.message || "Unable to load report users"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchReportUsers();
+  }, []);
+
+
+  // ==========================================================
+  // REGISTRATION YEARS
+  // ==========================================================
+
+  const registrationYears = useMemo(() => {
+    const years = new Set();
+
+    users.forEach((user) => {
+      if (!user.registered) {
+        return;
+      }
+
+      const date = new Date(user.registered);
+
+      if (!Number.isNaN(date.getTime())) {
+        years.add(String(date.getFullYear()));
+      }
+    });
+
+    return Array.from(years).sort(
+      (left, right) => Number(right) - Number(left)
+    );
+  }, [users]);
 
 
   // ==========================================================
@@ -111,17 +135,15 @@ export default function AdminReports() {
         status === "All" ||
         user.status === status;
 
-      const date = new Date(
-        `${user.registered}T00:00:00`
-      );
+      const date = new Date(user.registered);
 
-      const userMonth = String(
-        date.getMonth() + 1
-      ).padStart(2, "0");
+      const userMonth = Number.isNaN(date.getTime())
+        ? ""
+        : String(date.getMonth() + 1).padStart(2, "0");
 
-      const userYear = String(
-        date.getFullYear()
-      );
+      const userYear = Number.isNaN(date.getTime())
+        ? ""
+        : String(date.getFullYear());
 
       const matchesMonth =
         month === "All" ||
@@ -149,6 +171,7 @@ export default function AdminReports() {
       );
     });
   }, [
+    users,
     search,
     status,
     month,
@@ -284,7 +307,7 @@ export default function AdminReports() {
       user.id,
       user.name,
       user.email,
-      `+91 ${user.phone}`,
+      `+91 ${user.phone || "—"}`,
       user.city,
       formatDate(user.registered),
       user.income,
@@ -405,7 +428,7 @@ export default function AdminReports() {
             </td>
 
             <td>
-              +91 ${escapeHTML(user.phone)}
+              +91 ${escapeHTML(user.phone || "—")}
             </td>
 
             <td>
@@ -916,6 +939,19 @@ export default function AdminReports() {
 
               <div className="flex flex-wrap gap-2">
 
+                <button
+                  type="button"
+                  onClick={fetchReportUsers}
+                  disabled={loading}
+                  className="flex items-center gap-2 rounded-xl border border-[#dce4d8] bg-white px-4 py-2.5 text-sm font-semibold text-[#526459] transition hover:bg-[#f5f8f2] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <RefreshCcw
+                    size={16}
+                    className={loading ? "animate-spin" : ""}
+                  />
+
+                  Refresh
+                </button>
 
                 {/* CSV */}
 
@@ -945,6 +981,41 @@ export default function AdminReports() {
               </div>
 
             </div>
+
+
+            {error && (
+              <div className="mt-5 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-red-700">
+                    Failed to load report users
+                  </p>
+                  <p className="mt-1 text-xs text-red-600">
+                    {error}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchReportUsers}
+                  className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
+
+            {loading && (
+              <div className="mt-6 flex items-center gap-3 rounded-2xl border border-[#dfe6da] bg-white p-5">
+                <RefreshCcw
+                  size={18}
+                  className="animate-spin text-[#57923d]"
+                />
+
+                <p className="text-sm text-[#526459]">
+                  Loading users from MongoDB...
+                </p>
+              </div>
+            )}
 
 
             {/* ==================================================
@@ -1165,17 +1236,14 @@ export default function AdminReports() {
                     All Years
                   </option>
 
-                  <option value="2026">
-                    2026
-                  </option>
-
-                  <option value="2025">
-                    2025
-                  </option>
-
-                  <option value="2024">
-                    2024
-                  </option>
+                  {registrationYears.map((registrationYear) => (
+                    <option
+                      key={registrationYear}
+                      value={registrationYear}
+                    >
+                      {registrationYear}
+                    </option>
+                  ))}
 
                 </FilterSelect>
 
@@ -1343,7 +1411,7 @@ export default function AdminReports() {
                         )
                       )
 
-                    ) : (
+                    ) : loading ? null : (
 
                       <tr>
 
@@ -1512,7 +1580,7 @@ function UserRow({
 
             <Phone size={13} />
 
-            +91 {user.phone}
+            +91 {user.phone || "—"}
 
           </div>
 
@@ -1704,12 +1772,10 @@ function formatDate(value) {
     return "—";
   }
 
-  const date = new Date(
-    `${value}T00:00:00`
-  );
+  const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return value;
+    return "—";
   }
 
   return date.toLocaleDateString(

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -9,6 +9,7 @@ import {
   KeyRound,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   ShieldAlert,
   UserCheck,
@@ -20,75 +21,11 @@ import {
 import AdminSidebar from "../components/AdminSidebar.jsx";
 import AdminTopbar from "../components/AdminTopbar.jsx";
 
-
 // ============================================================
-// SAMPLE USER DATA
-// Later this will come from MongoDB.
+// API
 // ============================================================
 
-const initialUsers = [
-  {
-    id: 1,
-    userId: "FOS-U-001248",
-    name: "Rahul Patel",
-    email: "rahul@example.com",
-    mobile: "9876543210",
-    city: "Ahmedabad",
-    state: "Gujarat",
-    joined: "28 Jul 2026",
-    registrationGroup: "This Month",
-    status: "Active",
-  },
-  {
-    id: 2,
-    userId: "FOS-U-001247",
-    name: "Priya Shah",
-    email: "priya@example.com",
-    mobile: "9876501234",
-    city: "Rajkot",
-    state: "Gujarat",
-    joined: "27 Jul 2026",
-    registrationGroup: "This Month",
-    status: "Active",
-  },
-  {
-    id: 3,
-    userId: "FOS-U-001246",
-    name: "Amit Mehta",
-    email: "amit@example.com",
-    mobile: "9825012345",
-    city: "Surat",
-    state: "Gujarat",
-    joined: "18 Jul 2026",
-    registrationGroup: "This Month",
-    status: "Inactive",
-  },
-  {
-    id: 4,
-    userId: "FOS-U-001245",
-    name: "Neha Joshi",
-    email: "neha@example.com",
-    mobile: "9725012345",
-    city: "Vadodara",
-    state: "Gujarat",
-    joined: "04 Jun 2026",
-    registrationGroup: "Previous",
-    status: "Active",
-  },
-  {
-    id: 5,
-    userId: "FOS-U-001244",
-    name: "Karan Desai",
-    email: "karan@example.com",
-    mobile: "9625012345",
-    city: "Bhavnagar",
-    state: "Gujarat",
-    joined: "19 May 2026",
-    registrationGroup: "Previous",
-    status: "Suspended",
-  },
-];
-
+const API_URL = "http://localhost:5000/api/admin/users";
 
 // ============================================================
 // ADMIN USERS
@@ -97,62 +34,183 @@ const initialUsers = [
 export default function AdminUsers() {
   const navigate = useNavigate();
 
-  const [users, setUsers] = useState(initialUsers);
+  // ----------------------------------------------------------
+  // STATES
+  // ----------------------------------------------------------
+
+  const [users, setUsers] = useState([]);
+
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    activeUsers: 0,
+    inactiveUsers: 0,
+    suspendedUsers: 0,
+    newThisMonth: 0,
+  });
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
+
+  const [statusFilter, setStatusFilter] =
+    useState("All");
+
   const [registrationFilter, setRegistrationFilter] =
     useState("All");
 
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [actionMenu, setActionMenu] = useState(null);
+  const [selectedUser, setSelectedUser] =
+    useState(null);
 
+  const [actionMenu, setActionMenu] =
+    useState(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  const [updatingUser, setUpdatingUser] =
+    useState(null);
 
   // ==========================================================
-  // COUNTS
+  // FETCH USERS
   // ==========================================================
 
-  const totalUsers = users.length;
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      setError("");
 
-  const activeUsers = users.filter(
-    (user) => user.status === "Active"
-  ).length;
+      const token =
+        localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
 
-  const inactiveUsers = users.filter(
-    (user) => user.status === "Inactive"
-  ).length;
+      const response = await fetch(
+        API_URL,
+        {
+          method: "GET",
 
-  const suspendedUsers = users.filter(
-    (user) => user.status === "Suspended"
-  ).length;
+          headers: {
+            "Content-Type":
+              "application/json",
 
-  const newThisMonth = users.filter(
-    (user) => user.registrationGroup === "This Month"
-  ).length;
+            ...(token
+              ? {
+                Authorization:
+                  `Bearer ${token}`,
+              }
+              : {}),
+          },
+        }
+      );
 
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.message ||
+          "Failed to load users"
+        );
+      }
+
+      setUsers(data.users || []);
+
+      setStats({
+        totalUsers:
+          data.stats?.totalUsers || 0,
+
+        activeUsers:
+          data.stats?.activeUsers || 0,
+
+        inactiveUsers:
+          data.stats?.inactiveUsers || 0,
+
+        suspendedUsers:
+          data.stats?.suspendedUsers || 0,
+
+        newThisMonth:
+          data.stats?.newThisMonth || 0,
+      });
+    } catch (error) {
+      console.error(
+        "Admin Users Error:",
+        error
+      );
+
+      setError(
+        error.message ||
+        "Unable to load users"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ==========================================================
+  // INITIAL LOAD
+  // ==========================================================
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   // ==========================================================
   // FILTER USERS
   // ==========================================================
 
   const filteredUsers = useMemo(() => {
-    const query = search.toLowerCase().trim();
+    const query =
+      search
+        .toLowerCase()
+        .trim();
 
     return users.filter((user) => {
+      const userId =
+        String(user.userId || "")
+          .toLowerCase();
+
+      const name =
+        String(user.name || "")
+          .toLowerCase();
+
+      const email =
+        String(user.email || "")
+          .toLowerCase();
+
+      const mobile =
+        String(
+          user.mobile ||
+          user.phone ||
+          ""
+        );
+
+      const city =
+        String(user.city || "")
+          .toLowerCase();
+
       const matchesSearch =
-        user.userId.toLowerCase().includes(query) ||
-        user.name.toLowerCase().includes(query) ||
-        user.email.toLowerCase().includes(query) ||
-        user.mobile.includes(query) ||
-        user.city.toLowerCase().includes(query);
+        userId.includes(query) ||
+        name.includes(query) ||
+        email.includes(query) ||
+        mobile.includes(query) ||
+        city.includes(query);
 
       const matchesStatus =
         statusFilter === "All" ||
         user.status === statusFilter;
 
+      const registrationGroup =
+        getRegistrationGroup(
+          user.createdAt
+        );
+
       const matchesRegistration =
-        registrationFilter === "All" ||
-        user.registrationGroup === registrationFilter;
+        registrationFilter ===
+        "All" ||
+        registrationGroup ===
+        registrationFilter;
 
       return (
         matchesSearch &&
@@ -167,67 +225,217 @@ export default function AdminUsers() {
     registrationFilter,
   ]);
 
-
   // ==========================================================
-  // CHANGE USER STATUS
-  // Temporary frontend behavior.
+  // CHANGE STATUS
   // ==========================================================
 
-  function changeStatus(userId, newStatus) {
-    setUsers((currentUsers) =>
-      currentUsers.map((user) =>
-        user.id === userId
-          ? {
-              ...user,
-              status: newStatus,
-            }
-          : user
-      )
-    );
+  const changeStatus = async (
+    user,
+    newStatus
+  ) => {
+    try {
+      setUpdatingUser(user._id);
 
-    setActionMenu(null);
-  }
+      setActionMenu(null);
 
+      const token =
+        localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+
+      const response = await fetch(
+        `${API_URL}/${user._id}/status`,
+        {
+          method: "PATCH",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            ...(token
+              ? {
+                Authorization:
+                  `Bearer ${token}`,
+              }
+              : {}),
+          },
+
+          body: JSON.stringify({
+            status: newStatus,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.message ||
+          "Failed to update status"
+        );
+      }
+
+      // --------------------------------------------------------
+      // Update frontend immediately
+      // --------------------------------------------------------
+
+      setUsers(
+        (currentUsers) =>
+          currentUsers.map(
+            (currentUser) =>
+              currentUser._id ===
+                user._id
+                ? {
+                  ...currentUser,
+                  status:
+                    newStatus,
+                }
+                : currentUser
+          )
+      );
+
+      // --------------------------------------------------------
+      // Refresh statistics
+      // --------------------------------------------------------
+
+      await fetchUsers();
+
+    } catch (error) {
+      console.error(
+        "Change Status Error:",
+        error
+      );
+
+      alert(
+        error.message ||
+        "Failed to update user status"
+      );
+    } finally {
+      setUpdatingUser(null);
+    }
+  };
+
+  // ==========================================================
+  // ARCHIVE USER
+  // ==========================================================
+
+  const archiveUser = async (user) => {
+    const confirmed =
+      window.confirm(
+        `Are you sure you want to archive ${user.name}?`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setUpdatingUser(user._id);
+
+      setActionMenu(null);
+
+      const token =
+        localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+
+      const response = await fetch(
+        `${API_URL}/${user._id}`,
+        {
+          method: "DELETE",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            ...(token
+              ? {
+                Authorization:
+                  `Bearer ${token}`,
+              }
+              : {}),
+          },
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.message ||
+          "Failed to archive user"
+        );
+      }
+
+      setUsers(
+        (currentUsers) =>
+          currentUsers.filter(
+            (currentUser) =>
+              currentUser._id !==
+              user._id
+          )
+      );
+
+      setSelectedUser(null);
+
+      await fetchUsers();
+
+    } catch (error) {
+      console.error(
+        "Archive User Error:",
+        error
+      );
+
+      alert(
+        error.message ||
+        "Failed to archive user"
+      );
+    } finally {
+      setUpdatingUser(null);
+    }
+  };
 
   // ==========================================================
   // RESET FILTERS
   // ==========================================================
 
-  function resetFilters() {
+  const resetFilters = () => {
     setSearch("");
     setStatusFilter("All");
     setRegistrationFilter("All");
-  }
+  };
 
+  // ==========================================================
+  // RENDER
+  // ==========================================================
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f6f8f3]">
 
-      {/* ======================================================
-          SIDEBAR
-      ====================================================== */}
+      {/* SIDEBAR */}
 
       <AdminSidebar />
 
-
-      {/* ======================================================
-          MAIN
-      ====================================================== */}
+      {/* RIGHT AREA */}
 
       <div className="flex min-w-0 flex-1 flex-col">
 
         <AdminTopbar />
 
-
         <main className="flex-1 overflow-y-auto p-6">
 
           {/* ==================================================
-              HEADING
+              HEADER
           ================================================== */}
 
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 
             <div>
+
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#639a48]">
                 User Administration
               </p>
@@ -237,98 +445,164 @@ export default function AdminUsers() {
               </h1>
 
               <p className="mt-1 text-sm text-[#718177]">
-                Create, review, update and control FinanceOS user accounts.
+                Create, review, update and control
+                FinanceOS user accounts.
               </p>
+
             </div>
 
+            <div className="flex gap-3">
 
-            <button
-              type="button"
-              onClick={() =>
-                navigate("/admin/users/create")
-              }
-              className="
-                flex items-center justify-center gap-2
-                rounded-xl
-                bg-[#dff3ad]
-                px-5 py-2.5
-                text-sm font-semibold
-                text-[#173b2b]
-                transition
-                hover:bg-[#d5eba2]
-              "
-            >
-              <Plus size={17} />
+              {/* REFRESH */}
 
-              Add User
-            </button>
+              <button
+                type="button"
+                onClick={fetchUsers}
+                disabled={loading}
+                className="flex items-center justify-center gap-2 rounded-xl border border-[#dfe6da] bg-white px-4 py-2.5 text-sm font-semibold text-[#31523e] transition hover:bg-[#f5f8f2] disabled:opacity-60"
+              >
+                <RefreshCw
+                  size={16}
+                  className={
+                    loading
+                      ? "animate-spin"
+                      : ""
+                  }
+                />
+
+                Refresh
+              </button>
+
+              {/* ADD USER */}
+
+              <button
+                type="button"
+                onClick={() =>
+                  navigate(
+                    "/admin/users/create"
+                  )
+                }
+                className="flex items-center justify-center gap-2 rounded-xl bg-[#dff3ad] px-5 py-2.5 text-sm font-semibold text-[#173b2b] transition hover:bg-[#d5eba2]"
+              >
+                <Plus size={17} />
+
+                Add User
+              </button>
+
+            </div>
 
           </div>
 
+          {/* ==================================================
+              ERROR
+          ================================================== */}
+
+          {error && (
+            <div className="mt-5 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+
+              <div>
+
+                <p className="text-sm font-semibold text-red-700">
+                  Failed to load users
+                </p>
+
+                <p className="mt-1 text-xs text-red-600">
+                  {error}
+                </p>
+
+              </div>
+
+              <button
+                type="button"
+                onClick={fetchUsers}
+                className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white"
+              >
+                Try Again
+              </button>
+
+            </div>
+          )}
 
           {/* ==================================================
-              SUMMARY CARDS
+              LOADING
+          ================================================== */}
+
+          {loading && (
+            <div className="mt-6 flex items-center gap-3 rounded-2xl border border-[#dfe6da] bg-white p-5">
+
+              <RefreshCw
+                size={18}
+                className="animate-spin text-[#57923d]"
+              />
+
+              <p className="text-sm text-[#526459]">
+                Loading users from MongoDB...
+              </p>
+
+            </div>
+          )}
+
+          {/* ==================================================
+              SUMMARY
           ================================================== */}
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
 
             <SummaryCard
               title="Total Users"
-              value={totalUsers}
+              value={stats.totalUsers}
               icon={<Users size={19} />}
             />
 
             <SummaryCard
               title="Active"
-              value={activeUsers}
+              value={stats.activeUsers}
               icon={<UserCheck size={19} />}
             />
 
             <SummaryCard
               title="Inactive"
-              value={inactiveUsers}
+              value={stats.inactiveUsers}
               icon={<UserX size={19} />}
             />
 
             <SummaryCard
               title="Suspended"
-              value={suspendedUsers}
+              value={stats.suspendedUsers}
               icon={<ShieldAlert size={19} />}
             />
 
             <SummaryCard
               title="New This Month"
-              value={newThisMonth}
+              value={stats.newThisMonth}
               icon={<Plus size={19} />}
             />
 
           </div>
 
-
           {/* ==================================================
-              USERS SECTION
+              USER DIRECTORY
           ================================================== */}
 
           <section className="mt-6 overflow-hidden rounded-2xl border border-[#dfe6da] bg-white">
 
-            {/* ================================================
-                FILTER HEADER
-            ================================================ */}
+            {/* FILTER HEADER */}
 
             <div className="border-b border-[#e7ece4] p-5">
 
               <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
 
                 <div>
+
                   <h2 className="text-lg font-bold text-[#173b2b]">
                     User Directory
                   </h2>
 
                   <p className="mt-1 text-xs text-[#718177]">
-                    Search by User ID, name, email, mobile number or city.
+                    Showing real users from MongoDB.
                   </p>
-                </div>
 
+                </div>
 
                 <div className="flex flex-wrap gap-3">
 
@@ -338,37 +612,21 @@ export default function AdminUsers() {
 
                     <Search
                       size={16}
-                      className="
-                        absolute left-3 top-1/2
-                        -translate-y-1/2
-                        text-[#829087]
-                      "
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-[#829087]"
                     />
 
                     <input
                       value={search}
                       onChange={(event) =>
-                        setSearch(event.target.value)
+                        setSearch(
+                          event.target.value
+                        )
                       }
                       placeholder="Search users..."
-                      className="
-                        w-[280px]
-                        rounded-xl
-                        border border-[#dfe6da]
-                        bg-[#fbfcfa]
-                        py-2.5 pl-10 pr-4
-                        text-sm
-                        text-[#173b2b]
-                        outline-none
-                        placeholder:text-[#9aa59e]
-                        focus:border-[#9fbd82]
-                        focus:ring-2
-                        focus:ring-[#edf5e8]
-                      "
+                      className="w-[280px] rounded-xl border border-[#dfe6da] bg-[#fbfcfa] py-2.5 pl-10 pr-4 text-sm text-[#173b2b] outline-none placeholder:text-[#9aa59e] focus:border-[#9fbd82] focus:ring-2 focus:ring-[#edf5e8]"
                     />
 
                   </div>
-
 
                   {/* STATUS */}
 
@@ -376,29 +634,19 @@ export default function AdminUsers() {
 
                     <Filter
                       size={15}
-                      className="
-                        absolute left-3 top-1/2
-                        -translate-y-1/2
-                        text-[#718177]
-                      "
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-[#718177]"
                     />
 
                     <select
                       value={statusFilter}
                       onChange={(event) =>
-                        setStatusFilter(event.target.value)
+                        setStatusFilter(
+                          event.target.value
+                        )
                       }
-                      className="
-                        rounded-xl
-                        border border-[#dfe6da]
-                        bg-[#fbfcfa]
-                        py-2.5
-                        pl-9 pr-8
-                        text-sm
-                        text-[#526459]
-                        outline-none
-                      "
+                      className="rounded-xl border border-[#dfe6da] bg-[#fbfcfa] py-2.5 pl-9 pr-8 text-sm text-[#526459] outline-none"
                     >
+
                       <option value="All">
                         All Status
                       </option>
@@ -414,30 +662,25 @@ export default function AdminUsers() {
                       <option value="Suspended">
                         Suspended
                       </option>
+
                     </select>
 
                   </div>
 
-
                   {/* REGISTRATION */}
 
                   <select
-                    value={registrationFilter}
+                    value={
+                      registrationFilter
+                    }
                     onChange={(event) =>
                       setRegistrationFilter(
                         event.target.value
                       )
                     }
-                    className="
-                      rounded-xl
-                      border border-[#dfe6da]
-                      bg-[#fbfcfa]
-                      px-4 py-2.5
-                      text-sm
-                      text-[#526459]
-                      outline-none
-                    "
+                    className="rounded-xl border border-[#dfe6da] bg-[#fbfcfa] px-4 py-2.5 text-sm text-[#526459] outline-none"
                   >
+
                     <option value="All">
                       All Registrations
                     </option>
@@ -449,23 +692,15 @@ export default function AdminUsers() {
                     <option value="Previous">
                       Previous
                     </option>
-                  </select>
 
+                  </select>
 
                   {/* RESET */}
 
                   <button
                     type="button"
                     onClick={resetFilters}
-                    className="
-                      rounded-xl
-                      border border-[#dfe6da]
-                      px-4 py-2.5
-                      text-sm font-medium
-                      text-[#617268]
-                      transition
-                      hover:bg-[#f5f8f2]
-                    "
+                    className="rounded-xl border border-[#dfe6da] px-4 py-2.5 text-sm font-medium text-[#617268] transition hover:bg-[#f5f8f2]"
                   >
                     Reset
                   </button>
@@ -475,7 +710,6 @@ export default function AdminUsers() {
               </div>
 
             </div>
-
 
             {/* ==================================================
                 TABLE
@@ -487,14 +721,7 @@ export default function AdminUsers() {
 
                 <thead className="bg-[#f7faf5]">
 
-                  <tr
-                    className="
-                      text-[11px]
-                      uppercase
-                      tracking-[0.08em]
-                      text-[#718177]
-                    "
-                  >
+                  <tr className="text-[11px] uppercase tracking-[0.08em] text-[#718177]">
 
                     <th className="px-5 py-3 font-semibold">
                       User
@@ -524,287 +751,312 @@ export default function AdminUsers() {
 
                 </thead>
 
-
                 <tbody>
 
-                  {filteredUsers.map((user) => (
+                  {filteredUsers.map(
+                    (user) => (
+                      <tr
+                        key={user._id}
+                        className="border-t border-[#edf0eb] transition hover:bg-[#fbfcfa]"
+                      >
 
-                    <tr
-                      key={user.id}
-                      className="
-                        border-t
-                        border-[#edf0eb]
-                        transition
-                        hover:bg-[#fbfcfa]
-                      "
-                    >
+                        {/* USER */}
 
-                      {/* USER */}
+                        <td className="px-5 py-4">
 
-                      <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
 
-                        <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#edf5e8] text-sm font-bold text-[#57923d]">
 
-                          <div
-                            className="
-                              flex h-10 w-10
-                              items-center justify-center
-                              rounded-xl
-                              bg-[#edf5e8]
-                              text-sm font-bold
-                              text-[#57923d]
-                            "
-                          >
-                            {user.name.charAt(0)}
-                          </div>
+                              {getInitial(
+                                user.name
+                              )}
 
+                            </div>
 
-                          <div>
+                            <div>
 
-                            <p className="text-sm font-semibold text-[#173b2b]">
-                              {user.name}
-                            </p>
+                              <p className="text-sm font-semibold text-[#173b2b]">
+                                {user.name}
+                              </p>
 
-                            <p className="mt-0.5 text-[11px] font-medium text-[#729061]">
-                              {user.userId}
-                            </p>
+                              <p className="mt-0.5 text-[11px] font-medium text-[#729061]">
+                                {user.userId}
+                              </p>
+
+                            </div>
 
                           </div>
 
-                        </div>
+                        </td>
 
-                      </td>
+                        {/* CONTACT */}
 
+                        <td className="px-5 py-4">
 
-                      {/* CONTACT */}
+                          <p className="text-sm text-[#526459]">
+                            {user.email}
+                          </p>
 
-                      <td className="px-5 py-4">
+                          <p className="mt-1 text-xs text-[#829087]">
+                            +91{" "}
+                            {user.mobile ||
+                              user.phone ||
+                              "--"}
+                          </p>
 
-                        <p className="text-sm text-[#526459]">
-                          {user.email}
-                        </p>
+                        </td>
 
-                        <p className="mt-1 text-xs text-[#829087]">
-                          +91 {user.mobile}
-                        </p>
+                        {/* LOCATION */}
 
-                      </td>
+                        <td className="px-5 py-4">
 
+                          <p className="text-sm text-[#526459]">
+                            {user.city ||
+                              "--"}
+                          </p>
 
-                      {/* LOCATION */}
+                          <p className="mt-1 text-xs text-[#829087]">
+                            {user.state ||
+                              "--"}
+                          </p>
 
-                      <td className="px-5 py-4">
+                        </td>
 
-                        <p className="text-sm text-[#526459]">
-                          {user.city}
-                        </p>
+                        {/* JOINED */}
 
-                        <p className="mt-1 text-xs text-[#829087]">
-                          {user.state}
-                        </p>
+                        <td className="px-5 py-4 text-sm text-[#617268]">
 
-                      </td>
+                          {formatDate(
+                            user.createdAt
+                          )}
 
+                        </td>
 
-                      {/* JOINED */}
+                        {/* STATUS */}
 
-                      <td className="px-5 py-4 text-sm text-[#617268]">
-                        {user.joined}
-                      </td>
+                        <td className="px-5 py-4">
 
+                          {updatingUser ===
+                            user._id ? (
+                            <div className="flex items-center gap-2 text-xs text-[#718177]">
 
-                      {/* STATUS */}
+                              <RefreshCw
+                                size={13}
+                                className="animate-spin"
+                              />
 
-                      <td className="px-5 py-4">
-                        <StatusBadge
-                          status={user.status}
-                        />
-                      </td>
+                              Updating...
 
+                            </div>
+                          ) : (
+                            <StatusBadge
+                              status={
+                                user.status
+                              }
+                            />
+                          )}
 
-                      {/* ACTIONS */}
+                        </td>
 
-                      <td className="relative px-5 py-4">
+                        {/* ACTIONS */}
 
-                        <div className="flex items-center justify-end gap-2">
+                        <td className="relative px-5 py-4">
 
-                          {/* VIEW */}
+                          <div className="flex items-center justify-end gap-2">
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSelectedUser(user)
-                            }
-                            className="
-                              flex items-center gap-1.5
-                              rounded-lg
-                              border border-[#dce7d5]
-                              px-3 py-2
-                              text-xs font-semibold
-                              text-[#43822e]
-                              transition
-                              hover:bg-[#edf5e8]
-                            "
-                          >
-                            <Eye size={14} />
-
-                            View
-                          </button>
-
-
-                          {/* ACTION MENU */}
-
-                          <div className="relative">
+                            {/* VIEW */}
 
                             <button
                               type="button"
                               onClick={() =>
-                                setActionMenu(
-                                  actionMenu === user.id
-                                    ? null
-                                    : user.id
+                                setSelectedUser(
+                                  user
                                 )
                               }
-                              className="
-                                flex items-center gap-1
-                                rounded-lg
-                                border border-[#dce7d5]
-                                px-3 py-2
-                                text-xs font-semibold
-                                text-[#526459]
-                                transition
-                                hover:bg-[#f5f8f2]
-                              "
+                              className="flex items-center gap-1.5 rounded-lg border border-[#dce7d5] px-3 py-2 text-xs font-semibold text-[#43822e] transition hover:bg-[#edf5e8]"
                             >
-                              Manage
 
-                              <ChevronDown size={13} />
+                              <Eye size={14} />
+
+                              View
+
                             </button>
 
+                            {/* MANAGE */}
 
-                            {actionMenu === user.id && (
+                            <div className="relative">
 
-                              <div
-                                className="
-                                  absolute
-                                  right-0 top-10
-                                  z-30
-                                  w-[210px]
-                                  overflow-hidden
-                                  rounded-xl
-                                  border border-[#dfe6da]
-                                  bg-white
-                                  py-2
-                                  shadow-xl
-                                "
+                              <button
+                                type="button"
+                                disabled={
+                                  updatingUser ===
+                                  user._id
+                                }
+                                onClick={() =>
+                                  setActionMenu(
+                                    actionMenu ===
+                                      user._id
+                                      ? null
+                                      : user._id
+                                  )
+                                }
+                                className="flex items-center gap-1 rounded-lg border border-[#dce7d5] px-3 py-2 text-xs font-semibold text-[#526459] transition hover:bg-[#f5f8f2]"
                               >
 
-                                <ActionButton
-                                  icon={<Pencil size={14} />}
-                                  text="Edit User"
-                                  onClick={() => {
-                                    setActionMenu(null);
+                                Manage
 
-                                    navigate(
-                                      `/admin/users/${user.id}/edit`
-                                    );
-                                  }}
+                                <ChevronDown
+                                  size={13}
                                 />
 
+                              </button>
 
-                                <ActionButton
-                                  icon={<KeyRound size={14} />}
-                                  text="Manage Access"
-                                  onClick={() => {
-                                    setActionMenu(null);
+                              {actionMenu ===
+                                user._id && (
 
-                                    navigate(
-                                      `/admin/users/${user.id}/access`
-                                    );
-                                  }}
-                                />
+                                  <div className="absolute right-0 top-10 z-30 w-[210px] overflow-hidden rounded-xl border border-[#dfe6da] bg-white py-2 shadow-xl">
 
+                                    {/* EDIT */}
 
-                                <div className="my-2 border-t border-[#edf0eb]" />
+                                    <ActionButton
+                                      icon={
+                                        <Pencil
+                                          size={14}
+                                        />
+                                      }
+                                      text="Edit User"
+                                      onClick={() => {
+                                        setActionMenu(
+                                          null
+                                        );
 
+                                        navigate(
+                                          `/admin/users/${user._id}/edit`
+                                        );
+                                      }}
+                                    />
 
-                                {user.status !== "Active" && (
-                                  <ActionButton
-                                    icon={
-                                      <UserCheck size={14} />
-                                    }
-                                    text="Activate User"
-                                    onClick={() =>
-                                      changeStatus(
-                                        user.id,
-                                        "Active"
-                                      )
-                                    }
-                                  />
+                                    {/* ACCESS */}
+
+                                    <ActionButton
+                                      icon={
+                                        <KeyRound
+                                          size={14}
+                                        />
+                                      }
+                                      text="Manage Access"
+                                      onClick={() => {
+                                        setActionMenu(
+                                          null
+                                        );
+
+                                        navigate(
+                                          `/admin/users/${user._id}/access`
+                                        );
+                                      }}
+                                    />
+
+                                    <div className="my-2 border-t border-[#edf0eb]" />
+
+                                    {/* ACTIVATE */}
+
+                                    {user.status !==
+                                      "Active" && (
+
+                                        <ActionButton
+                                          icon={
+                                            <UserCheck
+                                              size={14}
+                                            />
+                                          }
+                                          text="Activate User"
+                                          onClick={() =>
+                                            changeStatus(
+                                              user,
+                                              "Active"
+                                            )
+                                          }
+                                        />
+
+                                      )}
+
+                                    {/* INACTIVE */}
+
+                                    {user.status !==
+                                      "Inactive" && (
+
+                                        <ActionButton
+                                          icon={
+                                            <UserX
+                                              size={14}
+                                            />
+                                          }
+                                          text="Set Inactive"
+                                          onClick={() =>
+                                            changeStatus(
+                                              user,
+                                              "Inactive"
+                                            )
+                                          }
+                                        />
+
+                                      )}
+
+                                    {/* SUSPEND */}
+
+                                    {user.status !==
+                                      "Suspended" && (
+
+                                        <ActionButton
+                                          icon={
+                                            <ShieldAlert
+                                              size={14}
+                                            />
+                                          }
+                                          text="Suspend User"
+                                          onClick={() =>
+                                            changeStatus(
+                                              user,
+                                              "Suspended"
+                                            )
+                                          }
+                                        />
+
+                                      )}
+
+                                    <div className="my-2 border-t border-[#edf0eb]" />
+
+                                    {/* ARCHIVE */}
+
+                                    <ActionButton
+                                      icon={
+                                        <Archive
+                                          size={14}
+                                        />
+                                      }
+                                      text="Archive User"
+                                      danger
+                                      onClick={() =>
+                                        archiveUser(
+                                          user
+                                        )
+                                      }
+                                    />
+
+                                  </div>
+
                                 )}
 
-
-                                {user.status !== "Inactive" && (
-                                  <ActionButton
-                                    icon={
-                                      <UserX size={14} />
-                                    }
-                                    text="Set Inactive"
-                                    onClick={() =>
-                                      changeStatus(
-                                        user.id,
-                                        "Inactive"
-                                      )
-                                    }
-                                  />
-                                )}
-
-
-                                {user.status !== "Suspended" && (
-                                  <ActionButton
-                                    icon={
-                                      <ShieldAlert size={14} />
-                                    }
-                                    text="Suspend User"
-                                    onClick={() =>
-                                      changeStatus(
-                                        user.id,
-                                        "Suspended"
-                                      )
-                                    }
-                                  />
-                                )}
-
-
-                                <div className="my-2 border-t border-[#edf0eb]" />
-
-
-                                <ActionButton
-                                  icon={<Archive size={14} />}
-                                  text="Archive User"
-                                  danger
-                                  onClick={() => {
-                                    setActionMenu(null);
-
-                                    alert(
-                                      `Archive confirmation for ${user.name} will be added next.`
-                                    );
-                                  }}
-                                />
-
-                              </div>
-
-                            )}
+                            </div>
 
                           </div>
 
-                        </div>
+                        </td>
 
-                      </td>
-
-                    </tr>
-
-                  ))}
+                      </tr>
+                    )
+                  )}
 
                 </tbody>
 
@@ -812,51 +1064,58 @@ export default function AdminUsers() {
 
             </div>
 
-
             {/* ==================================================
                 NO RESULTS
             ================================================== */}
 
-            {filteredUsers.length === 0 && (
+            {!loading &&
+              filteredUsers.length ===
+              0 && (
 
-              <div className="flex flex-col items-center justify-center px-6 py-16">
+                <div className="flex flex-col items-center justify-center px-6 py-16">
 
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#edf5e8]">
-                  <Users
-                    size={21}
-                    className="text-[#57923d]"
-                  />
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#edf5e8]">
+
+                    <Users
+                      size={21}
+                      className="text-[#57923d]"
+                    />
+
+                  </div>
+
+                  <p className="mt-3 text-sm font-semibold text-[#173b2b]">
+                    No users found
+                  </p>
+
+                  <p className="mt-1 text-xs text-[#718177]">
+                    Try changing your search
+                    or filters.
+                  </p>
+
                 </div>
 
-                <p className="mt-3 text-sm font-semibold text-[#173b2b]">
-                  No users found
-                </p>
+              )}
 
-                <p className="mt-1 text-xs text-[#718177]">
-                  Try changing your search or filters.
-                </p>
-
-              </div>
-
-            )}
-
-
-            {/* ==================================================
-                FOOTER
-            ================================================== */}
+            {/* FOOTER */}
 
             <div className="flex items-center justify-between border-t border-[#edf0eb] bg-[#fbfcfa] px-5 py-4">
 
               <p className="text-xs text-[#718177]">
+
                 Showing{" "}
+
                 <span className="font-semibold text-[#173b2b]">
                   {filteredUsers.length}
                 </span>{" "}
+
                 of{" "}
+
                 <span className="font-semibold text-[#173b2b]">
                   {users.length}
                 </span>{" "}
+
                 users
+
               </p>
 
             </div>
@@ -867,9 +1126,8 @@ export default function AdminUsers() {
 
       </div>
 
-
       {/* ======================================================
-          QUICK USER VIEW
+          USER VIEW MODAL
       ====================================================== */}
 
       {selectedUser && (
@@ -879,11 +1137,13 @@ export default function AdminUsers() {
           onClose={() =>
             setSelectedUser(null)
           }
-          onFullView={() =>
+          onFullView={() => {
             navigate(
-              `/admin/users/${selectedUser.id}`
-            )
-          }
+              `/admin/users/${selectedUser._id}`
+            );
+
+            setSelectedUser(null);
+          }}
         />
 
       )}
@@ -892,6 +1152,78 @@ export default function AdminUsers() {
   );
 }
 
+// ============================================================
+// REGISTRATION GROUP
+// ============================================================
+
+function getRegistrationGroup(
+  createdAt
+) {
+  if (!createdAt) {
+    return "Previous";
+  }
+
+  const date =
+    new Date(createdAt);
+
+  const now = new Date();
+
+  if (
+    date.getMonth() ===
+    now.getMonth() &&
+    date.getFullYear() ===
+    now.getFullYear()
+  ) {
+    return "This Month";
+  }
+
+  return "Previous";
+}
+
+// ============================================================
+// FORMAT DATE
+// ============================================================
+
+function formatDate(date) {
+  if (!date) {
+    return "--";
+  }
+
+  const parsedDate =
+    new Date(date);
+
+  if (
+    Number.isNaN(
+      parsedDate.getTime()
+    )
+  ) {
+    return "--";
+  }
+
+  return parsedDate.toLocaleDateString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }
+  );
+}
+
+// ============================================================
+// INITIAL
+// ============================================================
+
+function getInitial(name) {
+  if (!name) {
+    return "?";
+  }
+
+  return name
+    .trim()
+    .charAt(0)
+    .toUpperCase();
+}
 
 // ============================================================
 // SUMMARY CARD
@@ -914,11 +1246,10 @@ function SummaryCard({
           </p>
 
           <p className="mt-1 text-xl font-bold text-[#173b2b]">
-            {value}
+            {Number(value || 0).toLocaleString()}
           </p>
 
         </div>
-
 
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#edf5e8] text-[#57923d]">
           {icon}
@@ -930,12 +1261,13 @@ function SummaryCard({
   );
 }
 
-
 // ============================================================
 // STATUS BADGE
 // ============================================================
 
-function StatusBadge({ status }) {
+function StatusBadge({
+  status,
+}) {
   let style =
     "bg-[#edf6e7] text-[#57923d]";
 
@@ -951,20 +1283,12 @@ function StatusBadge({ status }) {
 
   return (
     <span
-      className={`
-        inline-flex
-        rounded-full
-        px-3 py-1
-        text-[11px]
-        font-semibold
-        ${style}
-      `}
+      className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold ${style}`}
     >
-      {status}
+      {status || "Active"}
     </span>
   );
 }
-
 
 // ============================================================
 // ACTION BUTTON
@@ -980,20 +1304,10 @@ function ActionButton({
     <button
       type="button"
       onClick={onClick}
-      className={`
-        flex w-full
-        items-center gap-3
-        px-4 py-2.5
-        text-left
-        text-xs font-medium
-        transition
-
-        ${
-          danger
-            ? "text-[#b45745] hover:bg-[#fff5f3]"
-            : "text-[#526459] hover:bg-[#f5f8f2] hover:text-[#315d36]"
-        }
-      `}
+      className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs font-medium transition ${danger
+          ? "text-[#b45745] hover:bg-[#fff5f3]"
+          : "text-[#526459] hover:bg-[#f5f8f2] hover:text-[#315d36]"
+        }`}
     >
       {icon}
 
@@ -1002,9 +1316,8 @@ function ActionButton({
   );
 }
 
-
 // ============================================================
-// USER QUICK VIEW MODAL
+// USER VIEW MODAL
 // ============================================================
 
 function UserViewModal({
@@ -1013,46 +1326,35 @@ function UserViewModal({
   onFullView,
 }) {
   return (
-    <div
-      className="
-        fixed inset-0 z-50
-        flex items-center justify-center
-        bg-black/30
-        p-5
-        backdrop-blur-[2px]
-      "
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-5 backdrop-blur-[2px]">
 
-      <div className="w-full max-w-[520px] rounded-2xl border border-[#dfe6da] bg-white shadow-2xl">
+      <div className="w-full max-w-[560px] rounded-2xl border border-[#dfe6da] bg-white shadow-2xl">
 
         {/* HEADER */}
 
         <div className="flex items-start justify-between border-b border-[#edf0eb] p-5">
 
-          <div>
+          <div className="flex items-center gap-3">
 
-            <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#edf5e8] text-lg font-bold text-[#57923d]">
+              {getInitial(
+                user.name
+              )}
+            </div>
 
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#edf5e8] text-lg font-bold text-[#57923d]">
-                {user.name.charAt(0)}
-              </div>
+            <div>
 
-              <div>
+              <h2 className="text-lg font-bold text-[#173b2b]">
+                {user.name}
+              </h2>
 
-                <h2 className="text-lg font-bold text-[#173b2b]">
-                  {user.name}
-                </h2>
-
-                <p className="mt-0.5 text-xs font-semibold text-[#729061]">
-                  {user.userId}
-                </p>
-
-              </div>
+              <p className="mt-0.5 text-xs font-semibold text-[#729061]">
+                {user.userId}
+              </p>
 
             </div>
 
           </div>
-
 
           <button
             type="button"
@@ -1064,12 +1366,11 @@ function UserViewModal({
 
         </div>
 
-
         {/* BODY */}
 
         <div className="p-5">
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-5 sm:grid-cols-2">
 
             <Detail
               label="Email"
@@ -1078,22 +1379,50 @@ function UserViewModal({
 
             <Detail
               label="Mobile"
-              value={`+91 ${user.mobile}`}
+              value={
+                user.mobile ||
+                user.phone ||
+                "--"
+              }
             />
 
             <Detail
               label="City"
-              value={user.city}
+              value={
+                user.city || "--"
+              }
             />
 
             <Detail
               label="State"
-              value={user.state}
+              value={
+                user.state || "--"
+              }
+            />
+
+            <Detail
+              label="Gender"
+              value={
+                user.gender || "--"
+              }
+            />
+
+            <Detail
+              label="Date of Birth"
+              value={
+                formatDate(
+                  user.dateOfBirth
+                )
+              }
             />
 
             <Detail
               label="Joined"
-              value={user.joined}
+              value={
+                formatDate(
+                  user.createdAt
+                )
+              }
             />
 
             <div>
@@ -1103,9 +1432,13 @@ function UserViewModal({
               </p>
 
               <div className="mt-1.5">
+
                 <StatusBadge
-                  status={user.status}
+                  status={
+                    user.status
+                  }
                 />
+
               </div>
 
             </div>
@@ -1113,7 +1446,6 @@ function UserViewModal({
           </div>
 
         </div>
-
 
         {/* FOOTER */}
 
@@ -1144,7 +1476,6 @@ function UserViewModal({
     </div>
   );
 }
-
 
 // ============================================================
 // DETAIL

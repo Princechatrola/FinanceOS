@@ -2,7 +2,7 @@
 // FINANCEOS - ADMIN USER ACTIVITY
 // ============================================================
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   Activity,
@@ -11,137 +11,217 @@ import {
   Search,
   UserCheck,
   UserPlus,
+  RefreshCw,
 } from "lucide-react";
 
 import AdminSidebar from "../components/AdminSidebar.jsx";
 import AdminTopbar from "../components/AdminTopbar.jsx";
 
+// ============================================================
+// API
+// ============================================================
+
+const API_URL =
+  "http://localhost:5000/api/admin/activities";
 
 // ============================================================
 // ADMIN ACTIVITY PAGE
 // ============================================================
 
 function AdminActivity() {
-
   // ==========================================================
-  // SAMPLE DATA
-  // Later this data will come from the backend + MongoDB.
+  // STATES
   // ==========================================================
 
-  const activities = [
-    {
-      id: 1,
-      type: "Registration",
-      user: "Rahul Patel",
-      email: "rahul@example.com",
-      description: "Created a new FinanceOS account",
-      date: "28 Jul 2026",
-      time: "10:42 AM",
-    },
-    {
-      id: 2,
-      type: "Sign In",
-      user: "Priya Shah",
-      email: "priya@example.com",
-      description: "Signed in to FinanceOS",
-      date: "28 Jul 2026",
-      time: "09:18 AM",
-    },
-    {
-      id: 3,
-      type: "Report",
-      user: "Amit Mehta",
-      email: "amit@example.com",
-      description: "Generated a financial report",
-      date: "27 Jul 2026",
-      time: "04:36 PM",
-    },
-    {
-      id: 4,
-      type: "Account",
-      user: "Neha Joshi",
-      email: "neha@example.com",
-      description: "Account status changed to Active",
-      date: "27 Jul 2026",
-      time: "12:14 PM",
-    },
-    {
-      id: 5,
-      type: "Sign In",
-      user: "Karan Desai",
-      email: "karan@example.com",
-      description: "Signed in to FinanceOS",
-      date: "26 Jul 2026",
-      time: "08:52 PM",
-    },
-    {
-      id: 6,
-      type: "Registration",
-      user: "Riya Desai",
-      email: "riya@example.com",
-      description: "Created a new FinanceOS account",
-      date: "26 Jul 2026",
-      time: "03:25 PM",
-    },
-    {
-      id: 7,
-      type: "Report",
-      user: "Jay Shah",
-      email: "jay@example.com",
-      description: "Generated a monthly financial report",
-      date: "25 Jul 2026",
-      time: "06:15 PM",
-    },
-  ];
+  const [activities, setActivities] =
+    useState([]);
 
+  const [stats, setStats] = useState({
+    totalActivity: 0,
+    registrationCount: 0,
+    signInCount: 0,
+    reportCount: 0,
+  });
+
+  const [search, setSearch] =
+    useState("");
+
+  const [filter, setFilter] =
+    useState("All");
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
 
   // ==========================================================
-  // STATE
+  // FETCH ACTIVITY
   // ==========================================================
 
-  const [search, setSearch] = useState("");
+  const fetchActivities = async () => {
+    try {
+      setLoading(true);
+      setError("");
 
-  const [filter, setFilter] = useState("All");
+      // ------------------------------------------------------
+      // JWT TOKEN
+      // ------------------------------------------------------
 
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+
+      // ------------------------------------------------------
+      // API REQUEST
+      // ------------------------------------------------------
+
+      const response = await fetch(
+        API_URL,
+        {
+          method: "GET",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            ...(token
+              ? {
+                  Authorization:
+                    `Bearer ${token}`,
+                }
+              : {}),
+          },
+        }
+      );
+
+      const data =
+        await response.json();
+
+      // ------------------------------------------------------
+      // ERROR
+      // ------------------------------------------------------
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.message ||
+            "Failed to load activity"
+        );
+      }
+
+      // ------------------------------------------------------
+      // SET ACTIVITIES
+      // ------------------------------------------------------
+
+      setActivities(
+        data.activities || []
+      );
+
+      // ------------------------------------------------------
+      // SET STATS
+      // ------------------------------------------------------
+
+      setStats({
+        totalActivity:
+          data.stats?.totalActivity || 0,
+
+        registrationCount:
+          data.stats?.registrationCount || 0,
+
+        signInCount:
+          data.stats?.signInCount || 0,
+
+        reportCount:
+          data.stats?.reportCount || 0,
+      });
+    } catch (error) {
+      console.error(
+        "Admin Activity Error:",
+        error
+      );
+
+      setError(
+        error.message ||
+          "Unable to load activity"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ==========================================================
+  // LOAD DATA
+  // ==========================================================
+
+  useEffect(() => {
+    fetchActivities();
+  }, []);
 
   // ==========================================================
   // FILTER ACTIVITY
   // ==========================================================
 
-  const filteredActivities = activities.filter((item) => {
+  const filteredActivities =
+    useMemo(() => {
+      const searchValue =
+        search
+          .toLowerCase()
+          .trim();
 
-    const searchValue = search.toLowerCase().trim();
+      return activities.filter(
+        (item) => {
+          const user =
+            String(
+              item.user || ""
+            ).toLowerCase();
 
-    const matchesSearch =
-      item.user.toLowerCase().includes(searchValue) ||
-      item.email.toLowerCase().includes(searchValue) ||
-      item.description.toLowerCase().includes(searchValue) ||
-      item.type.toLowerCase().includes(searchValue);
+          const email =
+            String(
+              item.email || ""
+            ).toLowerCase();
 
-    const matchesFilter =
-      filter === "All" ||
-      item.type === filter;
+          const description =
+            String(
+              item.description || ""
+            ).toLowerCase();
 
-    return matchesSearch && matchesFilter;
-  });
+          const type =
+            String(
+              item.type || ""
+            ).toLowerCase();
 
+          const matchesSearch =
+            user.includes(
+              searchValue
+            ) ||
+            email.includes(
+              searchValue
+            ) ||
+            description.includes(
+              searchValue
+            ) ||
+            type.includes(
+              searchValue
+            );
 
-  // ==========================================================
-  // COUNTS
-  // ==========================================================
+          const matchesFilter =
+            filter === "All" ||
+            item.type === filter;
 
-  const registrationCount = activities.filter(
-    (item) => item.type === "Registration"
-  ).length;
-
-  const signInCount = activities.filter(
-    (item) => item.type === "Sign In"
-  ).length;
-
-  const reportCount = activities.filter(
-    (item) => item.type === "Report"
-  ).length;
-
+          return (
+            matchesSearch &&
+            matchesFilter
+          );
+        }
+      );
+    }, [
+      activities,
+      search,
+      filter,
+    ]);
 
   // ==========================================================
   // RETURN
@@ -150,27 +230,17 @@ function AdminActivity() {
   return (
     <div className="flex h-screen overflow-hidden bg-[#f7f9f4]">
 
-
-      {/* ======================================================
-          SIDEBAR
-      ====================================================== */}
+      {/* SIDEBAR */}
 
       <div className="shrink-0">
         <AdminSidebar />
       </div>
 
-
-      {/* ======================================================
-          RIGHT SIDE
-      ====================================================== */}
+      {/* RIGHT SIDE */}
 
       <div className="flex min-w-0 flex-1 flex-col">
 
-
-        {/* TOPBAR */}
-
         <AdminTopbar />
-
 
         {/* ====================================================
             PAGE CONTENT
@@ -178,27 +248,98 @@ function AdminActivity() {
 
         <main className="flex-1 overflow-y-auto p-6">
 
-
           {/* ==================================================
               PAGE HEADING
           ================================================== */}
 
-          <div>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 
-            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#57923d]">
-              Administration
-            </p>
+            <div>
 
-            <h1 className="mt-1 text-2xl font-bold text-[#173b2b]">
-              User Activity
-            </h1>
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#57923d]">
+                Administration
+              </p>
 
-            <p className="mt-1 text-sm text-[#718177]">
-              Review recent user and account activity across FinanceOS.
-            </p>
+              <h1 className="mt-1 text-2xl font-bold text-[#173b2b]">
+                User Activity
+              </h1>
+
+              <p className="mt-1 text-sm text-[#718177]">
+                Review recent user and account activity across FinanceOS.
+              </p>
+
+            </div>
+
+            {/* REFRESH */}
+
+            <button
+              type="button"
+              onClick={fetchActivities}
+              disabled={loading}
+              className="flex items-center justify-center gap-2 rounded-xl border border-[#dfe6da] bg-white px-4 py-2.5 text-sm font-semibold text-[#31523e] transition hover:bg-[#f5f8f2] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw
+                size={16}
+                className={
+                  loading
+                    ? "animate-spin"
+                    : ""
+                }
+              />
+
+              Refresh
+            </button>
 
           </div>
 
+          {/* ==================================================
+              ERROR
+          ================================================== */}
+
+          {error && (
+            <div className="mt-5 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+
+              <div>
+
+                <p className="text-sm font-semibold text-red-700">
+                  Failed to load activity
+                </p>
+
+                <p className="mt-1 text-xs text-red-600">
+                  {error}
+                </p>
+
+              </div>
+
+              <button
+                type="button"
+                onClick={fetchActivities}
+                className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+              >
+                Try Again
+              </button>
+
+            </div>
+          )}
+
+          {/* ==================================================
+              LOADING
+          ================================================== */}
+
+          {loading && (
+            <div className="mt-6 flex items-center gap-3 rounded-2xl border border-[#dfe6da] bg-white p-5">
+
+              <RefreshCw
+                size={18}
+                className="animate-spin text-[#57923d]"
+              />
+
+              <p className="text-sm text-[#526459]">
+                Loading activity from MongoDB...
+              </p>
+
+            </div>
+          )}
 
           {/* ==================================================
               SUMMARY CARDS
@@ -206,48 +347,43 @@ function AdminActivity() {
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
-
-            {/* TOTAL ACTIVITY */}
-
             <ActivitySummary
               icon="activity"
               title="Total Activity"
-              value={activities.length}
+              value={
+                stats.totalActivity
+              }
               description="Recorded activity"
             />
-
-
-            {/* REGISTRATIONS */}
 
             <ActivitySummary
               icon="registration"
               title="Registrations"
-              value={registrationCount}
+              value={
+                stats.registrationCount
+              }
               description="New user accounts"
             />
-
-
-            {/* SIGN INS */}
 
             <ActivitySummary
               icon="signin"
               title="Sign Ins"
-              value={signInCount}
+              value={
+                stats.signInCount
+              }
               description="User sign-in activity"
             />
-
-
-            {/* REPORTS */}
 
             <ActivitySummary
               icon="report"
               title="Reports"
-              value={reportCount}
+              value={
+                stats.reportCount
+              }
               description="Reports generated"
             />
 
           </div>
-
 
           {/* ==================================================
               ACTIVITY SECTION
@@ -255,17 +391,11 @@ function AdminActivity() {
 
           <section className="mt-6 overflow-hidden rounded-2xl border border-[#dfe6da] bg-white">
 
-
-            {/* =================================================
-                SECTION HEADER
-            ================================================= */}
+            {/* HEADER */}
 
             <div className="border-b border-[#e5eae2] px-6 py-5">
 
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-
-
-                {/* LEFT */}
 
                 <div>
 
@@ -274,87 +404,46 @@ function AdminActivity() {
                   </h2>
 
                   <p className="mt-1 text-xs text-[#718177]">
-                    Track registrations, sign-ins, reports and account changes.
+                    Live activity records from MongoDB.
                   </p>
 
                 </div>
 
-
-                {/* RIGHT */}
-
                 <div className="flex flex-col gap-3 sm:flex-row">
 
-
-                  {/* ===========================================
-                      SEARCH
-                  =========================================== */}
+                  {/* SEARCH */}
 
                   <div className="relative">
 
                     <Search
                       size={17}
-                      className="
-                        absolute
-                        left-3
-                        top-1/2
-                        -translate-y-1/2
-                        text-[#829087]
-                      "
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-[#829087]"
                     />
 
                     <input
                       type="text"
                       value={search}
                       onChange={(event) =>
-                        setSearch(event.target.value)
+                        setSearch(
+                          event.target.value
+                        )
                       }
                       placeholder="Search activity..."
-                      className="
-                        w-full
-                        rounded-xl
-                        border border-[#dfe6da]
-                        bg-[#fbfcfa]
-                        py-2.5
-                        pl-10
-                        pr-4
-                        text-sm
-                        text-[#173b2b]
-                        outline-none
-                        transition
-                        placeholder:text-[#9ba69f]
-                        focus:border-[#9fbd82]
-                        focus:ring-2
-                        focus:ring-[#edf5e8]
-                        sm:w-[260px]
-                      "
+                      className="w-full rounded-xl border border-[#dfe6da] bg-[#fbfcfa] py-2.5 pl-10 pr-4 text-sm text-[#173b2b] outline-none placeholder:text-[#9ba69f] focus:border-[#9fbd82] focus:ring-2 focus:ring-[#edf5e8] sm:w-[260px]"
                     />
 
                   </div>
 
-
-                  {/* ===========================================
-                      FILTER
-                  =========================================== */}
+                  {/* FILTER */}
 
                   <select
                     value={filter}
                     onChange={(event) =>
-                      setFilter(event.target.value)
+                      setFilter(
+                        event.target.value
+                      )
                     }
-                    className="
-                      rounded-xl
-                      border border-[#dfe6da]
-                      bg-[#fbfcfa]
-                      px-4
-                      py-2.5
-                      text-sm
-                      text-[#526459]
-                      outline-none
-                      transition
-                      focus:border-[#9fbd82]
-                      focus:ring-2
-                      focus:ring-[#edf5e8]
-                    "
+                    className="rounded-xl border border-[#dfe6da] bg-[#fbfcfa] px-4 py-2.5 text-sm text-[#526459] outline-none focus:border-[#9fbd82] focus:ring-2 focus:ring-[#edf5e8]"
                   >
 
                     <option value="All">
@@ -377,6 +466,14 @@ function AdminActivity() {
                       Account Changes
                     </option>
 
+                    <option value="Settings">
+                      Settings
+                    </option>
+
+                    <option value="Other">
+                      Other
+                    </option>
+
                   </select>
 
                 </div>
@@ -385,22 +482,11 @@ function AdminActivity() {
 
             </div>
 
-
             {/* =================================================
-                ACTIVITY COLUMN HEADINGS
+                COLUMN HEADINGS
             ================================================= */}
 
-            <div
-              className="
-                hidden
-                grid-cols-[60px_210px_1fr_140px]
-                border-b border-[#edf0eb]
-                bg-[#f7faf5]
-                px-6
-                py-3
-                lg:grid
-              "
-            >
+            <div className="hidden grid-cols-[60px_210px_1fr_140px] border-b border-[#edf0eb] bg-[#f7faf5] px-6 py-3 lg:grid">
 
               <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#718177]">
                 Type
@@ -420,85 +506,72 @@ function AdminActivity() {
 
             </div>
 
-
             {/* =================================================
                 ACTIVITY LIST
             ================================================= */}
 
             <div>
 
-              {filteredActivities.map((item) => (
-                <ActivityRow
-                  key={item.id}
-                  activity={item}
-                />
-              ))}
+              {filteredActivities.map(
+                (item) => (
+                  <ActivityRow
+                    key={item._id}
+                    activity={item}
+                  />
+                )
+              )}
 
             </div>
-
 
             {/* =================================================
                 EMPTY STATE
             ================================================= */}
 
-            {filteredActivities.length === 0 && (
+            {!loading &&
+              filteredActivities.length ===
+                0 && (
 
-              <div className="flex flex-col items-center justify-center px-6 py-16">
+                <div className="flex flex-col items-center justify-center px-6 py-16">
 
-                <div
-                  className="
-                    flex
-                    h-12
-                    w-12
-                    items-center
-                    justify-center
-                    rounded-full
-                    bg-[#edf5e8]
-                  "
-                >
-                  <Activity
-                    size={22}
-                    className="text-[#57923d]"
-                  />
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#edf5e8]">
+
+                    <Activity
+                      size={22}
+                      className="text-[#57923d]"
+                    />
+
+                  </div>
+
+                  <p className="mt-3 text-sm font-semibold text-[#173b2b]">
+                    No activity found
+                  </p>
+
+                  <p className="mt-1 text-xs text-[#718177]">
+                    Try changing your search or activity filter.
+                  </p>
+
                 </div>
+              )}
 
-                <p className="mt-3 text-sm font-semibold text-[#173b2b]">
-                  No activity found
-                </p>
+            {/* FOOTER */}
 
-                <p className="mt-1 text-xs text-[#718177]">
-                  Try changing your search or activity filter.
-                </p>
+            {filteredActivities.length >
+              0 && (
 
-              </div>
-
-            )}
-
-
-            {/* =================================================
-                FOOTER
-            ================================================= */}
-
-            {filteredActivities.length > 0 && (
-
-              <div
-                className="
-                  flex
-                  items-center
-                  justify-between
-                  border-t border-[#edf0eb]
-                  bg-[#fbfcfa]
-                  px-6
-                  py-4
-                "
-              >
+              <div className="flex items-center justify-between border-t border-[#edf0eb] bg-[#fbfcfa] px-6 py-4">
 
                 <p className="text-xs text-[#718177]">
+
                   Showing{" "}
+
                   <span className="font-semibold text-[#173b2b]">
-                    {filteredActivities.length}
+                    {
+                      filteredActivities.length
+                    }
                   </span>{" "}
+
                   activities
+
                 </p>
 
                 <p className="text-xs text-[#8a978f]">
@@ -506,7 +579,6 @@ function AdminActivity() {
                 </p>
 
               </div>
-
             )}
 
           </section>
@@ -519,7 +591,6 @@ function AdminActivity() {
   );
 }
 
-
 // ============================================================
 // ACTIVITY SUMMARY CARD
 // ============================================================
@@ -530,22 +601,10 @@ function ActivitySummary({
   value,
   description,
 }) {
-
   return (
-    <div
-      className="
-        rounded-2xl
-        border border-[#dfe6da]
-        bg-white
-        p-5
-        shadow-[0_4px_18px_rgba(45,75,50,0.03)]
-      "
-    >
+    <div className="rounded-2xl border border-[#dfe6da] bg-white p-5 shadow-[0_4px_18px_rgba(45,75,50,0.03)]">
 
       <div className="flex items-start justify-between">
-
-
-        {/* CONTENT */}
 
         <div>
 
@@ -554,26 +613,14 @@ function ActivitySummary({
           </p>
 
           <p className="mt-2 text-2xl font-bold text-[#173b2b]">
-            {value}
+            {Number(
+              value || 0
+            ).toLocaleString()}
           </p>
 
         </div>
 
-
-        {/* ICON */}
-
-        <div
-          className="
-            flex
-            h-11
-            w-11
-            items-center
-            justify-center
-            rounded-xl
-            bg-[#edf5e8]
-            text-[#43822e]
-          "
-        >
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#edf5e8] text-[#43822e]">
 
           {icon === "activity" && (
             <Activity size={20} />
@@ -595,7 +642,6 @@ function ActivitySummary({
 
       </div>
 
-
       <p className="mt-3 text-xs text-[#8a978f]">
         {description}
       </p>
@@ -604,79 +650,51 @@ function ActivitySummary({
   );
 }
 
-
 // ============================================================
 // ACTIVITY ROW
 // ============================================================
 
-function ActivityRow({ activity }) {
-
+function ActivityRow({
+  activity,
+}) {
   return (
-    <div
-      className="
-        border-b
-        border-[#edf0eb]
-        px-6
-        py-4
-        transition
-        last:border-b-0
-        hover:bg-[#fbfcfa]
-      "
-    >
+    <div className="border-b border-[#edf0eb] px-6 py-4 transition last:border-b-0 hover:bg-[#fbfcfa]">
 
-      <div
-        className="
-          flex
-          flex-col
-          gap-4
-          lg:grid
-          lg:grid-cols-[60px_210px_1fr_140px]
-          lg:items-center
-        "
-      >
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[60px_210px_1fr_140px] lg:items-center">
 
-
-        {/* ====================================================
-            ICON
-        ==================================================== */}
+        {/* ICON */}
 
         <div>
 
-          <div
-            className="
-              flex
-              h-10
-              w-10
-              items-center
-              justify-center
-              rounded-xl
-              bg-[#edf5e8]
-              text-[#43822e]
-            "
-          >
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#edf5e8] text-[#43822e]">
 
-            {activity.type === "Registration" && (
+            {activity.type ===
+              "Registration" && (
               <UserPlus size={18} />
             )}
 
-            {activity.type === "Sign In" && (
+            {activity.type ===
+              "Sign In" && (
               <LogIn size={18} />
             )}
 
-            {activity.type === "Report" && (
+            {activity.type ===
+              "Report" && (
               <FileText size={18} />
             )}
 
-            {activity.type === "Account" && (
+            {activity.type ===
+              "Account" && (
               <UserCheck size={18} />
             )}
 
-            {![
-              "Registration",
-              "Sign In",
-              "Report",
-              "Account",
-            ].includes(activity.type) && (
+            {activity.type ===
+              "Settings" && (
+              <Activity size={18} />
+            )}
+
+            {activity.type ===
+              "Other" && (
               <Activity size={18} />
             )}
 
@@ -684,10 +702,7 @@ function ActivityRow({ activity }) {
 
         </div>
 
-
-        {/* ====================================================
-            USER
-        ==================================================== */}
+        {/* USER */}
 
         <div className="min-w-0">
 
@@ -701,25 +716,11 @@ function ActivityRow({ activity }) {
 
         </div>
 
-
-        {/* ====================================================
-            DESCRIPTION
-        ==================================================== */}
+        {/* DESCRIPTION */}
 
         <div className="min-w-0">
 
-          <span
-            className="
-              inline-flex
-              rounded-full
-              bg-[#f0f6eb]
-              px-2.5
-              py-1
-              text-[10px]
-              font-semibold
-              text-[#57923d]
-            "
-          >
+          <span className="inline-flex rounded-full bg-[#f0f6eb] px-2.5 py-1 text-[10px] font-semibold text-[#57923d]">
             {activity.type}
           </span>
 
@@ -729,19 +730,20 @@ function ActivityRow({ activity }) {
 
         </div>
 
-
-        {/* ====================================================
-            DATE + TIME
-        ==================================================== */}
+        {/* DATE */}
 
         <div className="lg:text-right">
 
           <p className="text-xs font-medium text-[#526459]">
-            {activity.date}
+            {formatDate(
+              activity.createdAt
+            )}
           </p>
 
           <p className="mt-1 text-[11px] text-[#8a978f]">
-            {activity.time}
+            {formatTime(
+              activity.createdAt
+            )}
           </p>
 
         </div>
@@ -752,6 +754,64 @@ function ActivityRow({ activity }) {
   );
 }
 
+// ============================================================
+// FORMAT DATE
+// ============================================================
+
+function formatDate(date) {
+  if (!date) {
+    return "--";
+  }
+
+  const parsedDate =
+    new Date(date);
+
+  if (
+    Number.isNaN(
+      parsedDate.getTime()
+    )
+  ) {
+    return "--";
+  }
+
+  return parsedDate.toLocaleDateString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }
+  );
+}
+
+// ============================================================
+// FORMAT TIME
+// ============================================================
+
+function formatTime(date) {
+  if (!date) {
+    return "--";
+  }
+
+  const parsedDate =
+    new Date(date);
+
+  if (
+    Number.isNaN(
+      parsedDate.getTime()
+    )
+  ) {
+    return "--";
+  }
+
+  return parsedDate.toLocaleTimeString(
+    "en-IN",
+    {
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  );
+}
 
 // ============================================================
 // EXPORT
