@@ -1037,6 +1037,55 @@ function InvestmentForm({
 
 
     // ========================================================
+    // PAYMENT SOURCE VALIDATION
+    // ========================================================
+
+    if (!paymentSource) {
+      setError(
+        "Select a payment source for this investment."
+      );
+
+      return;
+    }
+
+    if (
+      paymentSource === "Bank Account" &&
+      !bankName.trim()
+    ) {
+      setError("Enter the bank name.");
+      return;
+    }
+
+    if (
+      paymentSource === "Bank Account" &&
+      accountLast4.length !== 4
+    ) {
+      setError(
+        "Enter the last 4 digits of the bank account."
+      );
+      return;
+    }
+
+    if (
+      paymentSource === "UPI" &&
+      !upiId.trim()
+    ) {
+      setError("Enter the UPI ID.");
+      return;
+    }
+
+    if (
+      paymentSource === "Other" &&
+      !otherPaymentDetails.trim()
+    ) {
+      setError(
+        "Enter the payment source details."
+      );
+      return;
+    }
+
+
+    // ========================================================
     // FD VALIDATION
     // ========================================================
 
@@ -1386,7 +1435,7 @@ function InvestmentForm({
       // ------------------------------------------------------
 
       paymentSource:
-        paymentSource || "",
+        paymentSource || undefined,
 
       paymentSourceDetails: {
 
@@ -3325,8 +3374,8 @@ function InvestmentForm({
                   label={
                     interestMethod ===
                     "Cumulative"
-                      ? "Maturity Amount"
-                      : "Principal Return"
+                      ? "Expected Maturity"
+                      : "Principal at Maturity"
                   }
 
                   value={`₹${formatMoney(
