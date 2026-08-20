@@ -6,7 +6,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
-
+const adminRoutes = require("./routes/adminRoutes");
 // ============================================================
 // ENVIRONMENT VARIABLES
 // ============================================================
@@ -26,7 +26,7 @@ const app = express();
 app.use(cors());
 
 app.use(express.json());
-
+app.use("/api/admin", adminRoutes);
 // ============================================================
 // ROUTES
 // ============================================================
