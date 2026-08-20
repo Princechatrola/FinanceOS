@@ -354,6 +354,7 @@ function FinanceProvider({ children }) {
 
   const additionalIncome = useMemo(
     () => getAdditionalIncomeForMonth(monthlyFinance.month, monthlyFinance.year),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [additionalIncomeTransactions, monthlyFinance.month, monthlyFinance.year]
   );
 
