@@ -22,7 +22,7 @@ import AdminTopbar from "../components/AdminTopbar.jsx";
 // ============================================================
 
 const API_URL =
-  "http://localhost:5000/api/admin/activity";
+  "http://localhost:5000/api/admin/activities";
 
 // ============================================================
 // ADMIN ACTIVITY PAGE
@@ -69,7 +69,8 @@ function AdminActivity() {
       // ------------------------------------------------------
 
       const token =
-        localStorage.getItem("token");
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
 
       // ------------------------------------------------------
       // API REQUEST

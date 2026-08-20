@@ -3,8 +3,11 @@
 // ============================================================
 
 const mongoose = require("mongoose");
+
 const User = require("../models/User");
 const Activity = require("../models/Activity");
+const MonthlyFinance = require("../models/MonthlyFinance");
+
 const { logActivity } = require("../utils/activityLogger");
 
 // ============================================================
@@ -412,8 +415,6 @@ const archiveUser = async (req, res) => {
 
     // If your User model supports these fields,
     // they will be useful later.
-    user.archived = true;
-    user.archivedAt = new Date();
 
     await user.save();
 
@@ -455,15 +456,119 @@ const getAdminActivities = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    const normalizedActivities = activities.map((activity) => ({
+      _id: activity._id,
+      user: activity.userName,
+      email: activity.userEmail,
+      type: activity.type,
+      description: activity.description,
+      createdAt: activity.createdAt,
+    }));
+
+    const stats = {
+      totalActivity: activities.length,
+      registrationCount: activities.filter(
+        (activity) => activity.type === "Registration"
+      ).length,
+      signInCount: activities.filter(
+        (activity) => activity.type === "Sign In"
+      ).length,
+      reportCount: activities.filter(
+        (activity) => activity.type === "Report"
+      ).length,
+    };
+
     return res.status(200).json({
       success: true,
-      activities,
+      activities: normalizedActivities,
+      stats,
     });
   } catch (error) {
     console.error("Get Admin Activities Error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to load admin activities.",
+      error: error.message,
+    });
+  }
+};
+
+// ============================================================
+// GET ADMIN REPORT USERS
+// GET /api/admin/reports/users
+// ============================================================
+
+const getAdminReportUsers = async (req, res) => {
+  try {
+    const users = await User.find({
+      role: {
+        $nin: ["admin", "administrator"],
+      },
+    })
+      .sort({ createdAt: -1 })
+      .select(
+        "userId name email phone city status createdAt"
+      )
+      .lean();
+
+    const userIds = users.map((user) => user._id);
+
+    const latestFinances = userIds.length
+      ? await MonthlyFinance.aggregate([
+          {
+            $match: {
+              user: { $in: userIds },
+            },
+          },
+          {
+            $sort: {
+              year: -1,
+              month: -1,
+            },
+          },
+          {
+            $group: {
+              _id: "$user",
+              income: { $first: "$income" },
+            },
+          },
+        ])
+      : [];
+
+    const incomeByUserId = latestFinances.reduce(
+      (accumulator, record) => {
+        accumulator[String(record._id)] =
+          record.income || 0;
+
+        return accumulator;
+      },
+      {}
+    );
+
+    const reportUsers = users.map((user) => ({
+      id: user.userId,
+      name: user.name,
+      email: user.email,
+      phone: user.phone || "",
+      city: user.city || "",
+      status: user.status || "Active",
+      registered: user.createdAt || null,
+      income: incomeByUserId[String(user._id)] || 0,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      users: reportUsers,
+    });
+  } catch (error) {
+    console.error(
+      "Get Admin Report Users Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load report users.",
       error: error.message,
     });
   }
@@ -480,110 +585,5 @@ module.exports = {
   updateUserStatus,
   archiveUser,
   getAdminActivities,
-};
-
-// ============================================================
-// FINANCEOS - ADMIN USER CONTROLLER
-// ============================================================
-
-const User = require("../models/User");
-const Activity = require("../models/Activity");
-
-
-// ============================================================
-// GET ALL USERS
-// ============================================================
-
-const getAllUsers = async (req, res) => {
-  try {
-    const users = await User.find()
-      .select("-password")
-      .sort({ createdAt: -1 });
-
-    res.status(200).json({
-      success: true,
-      count: users.length,
-      users,
-    });
-
-  } catch (error) {
-    console.error("GET USERS ERROR:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch users",
-      error: error.message,
-    });
-  }
-};
-
-
-// ============================================================
-// GET USER ACTIVITY
-// ============================================================
-
-const getUserActivity = async (req, res) => {
-  try {
-
-    const activities = await Activity.find()
-      .populate("userId", "name email")
-      .sort({ createdAt: -1 });
-
-    res.status(200).json({
-      success: true,
-      count: activities.length,
-      activities,
-    });
-
-  } catch (error) {
-    console.error("GET ACTIVITY ERROR:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch activity",
-      error: error.message,
-    });
-  }
-};
-
-
-// ============================================================
-// GET ACTIVITY BY USER
-// ============================================================
-
-const getActivityByUser = async (req, res) => {
-  try {
-
-    const { userId } = req.params;
-
-    const activities = await Activity.find({ userId })
-      .populate("userId", "name email")
-      .sort({ createdAt: -1 });
-
-    res.status(200).json({
-      success: true,
-      count: activities.length,
-      activities,
-    });
-
-  } catch (error) {
-    console.error("GET USER ACTIVITY ERROR:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch user activity",
-      error: error.message,
-    });
-  }
-};
-
-
-// ============================================================
-// EXPORT
-// ============================================================
-
-module.exports = {
-  getAllUsers,
-  getUserActivity,
-  getActivityByUser,
+  getAdminReportUsers,
 };

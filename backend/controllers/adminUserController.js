@@ -5,7 +5,6 @@
 const User = require("../models/User");
 const Activity = require("../models/Activity");
 
-
 // ============================================================
 // GET ALL USERS
 // GET /api/admin/users
@@ -13,7 +12,6 @@ const Activity = require("../models/Activity");
 
 const getAllUsers = async (req, res) => {
   try {
-
     const users = await User.find({
       role: {
         $nin: ["admin", "administrator"],
@@ -28,13 +26,8 @@ const getAllUsers = async (req, res) => {
       count: users.length,
       users,
     });
-
   } catch (error) {
-
-    console.error(
-      "GET USERS ERROR:",
-      error
-    );
+    console.error("GET USERS ERROR:", error);
 
     return res.status(500).json({
       success: false,
@@ -44,7 +37,6 @@ const getAllUsers = async (req, res) => {
   }
 };
 
-
 // ============================================================
 // GET ALL USER ACTIVITY
 // GET /api/admin/activities
@@ -52,7 +44,6 @@ const getAllUsers = async (req, res) => {
 
 const getUserActivity = async (req, res) => {
   try {
-
     const activities = await Activity.find({})
       .sort({ createdAt: -1 })
       .lean();
@@ -62,13 +53,8 @@ const getUserActivity = async (req, res) => {
       count: activities.length,
       activities,
     });
-
   } catch (error) {
-
-    console.error(
-      "GET ACTIVITY ERROR:",
-      error
-    );
+    console.error("GET ACTIVITY ERROR:", error);
 
     return res.status(500).json({
       success: false,
@@ -78,7 +64,6 @@ const getUserActivity = async (req, res) => {
   }
 };
 
-
 // ============================================================
 // GET ACTIVITY BY USER
 // GET /api/admin/activities/user/:userId
@@ -86,7 +71,6 @@ const getUserActivity = async (req, res) => {
 
 const getActivityByUser = async (req, res) => {
   try {
-
     const { userId } = req.params;
 
     const activities = await Activity.find({
@@ -100,13 +84,8 @@ const getActivityByUser = async (req, res) => {
       count: activities.length,
       activities,
     });
-
   } catch (error) {
-
-    console.error(
-      "GET USER ACTIVITY ERROR:",
-      error
-    );
+    console.error("GET USER ACTIVITY ERROR:", error);
 
     return res.status(500).json({
       success: false,
@@ -115,7 +94,6 @@ const getActivityByUser = async (req, res) => {
     });
   }
 };
-
 
 // ============================================================
 // EXPORT

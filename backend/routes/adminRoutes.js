@@ -6,9 +6,8 @@ const express = require("express");
 
 const router = express.Router();
 
-
 // ============================================================
-// CONTROLLERS
+// ADMIN CONTROLLER
 // ============================================================
 
 const {
@@ -18,32 +17,43 @@ const {
   updateUserStatus,
   archiveUser,
   getAdminActivities,
+  getAdminReportUsers,
 } = require("../controllers/adminController");
 
-
-const {
-  getAllUsers,
-  getUserActivity,
-  getActivityByUser,
-} = require("../controllers/adminUserController");
-
-
 // ============================================================
-// MIDDLEWARE
+// AUTH MIDDLEWARE
 // ============================================================
 
 const authMiddleware = require("../middleware/authMiddleware");
 
+// ============================================================
+// CHECK CONTROLLER FUNCTIONS
+// ============================================================
+
+console.log("ADMIN CONTROLLER CHECK:");
+console.log("getAdminDashboard:", typeof getAdminDashboard);
+console.log("getAdminUsers:", typeof getAdminUsers);
+console.log("getAdminUserById:", typeof getAdminUserById);
+console.log("updateUserStatus:", typeof updateUserStatus);
+console.log("archiveUser:", typeof archiveUser);
+console.log("getAdminActivities:", typeof getAdminActivities);
 
 // ============================================================
 // ADMIN AUTHORIZATION
 // ============================================================
 
 const adminOnly = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
+  }
 
   if (
-    !req.user ||
-    req.user.role !== "admin"
+    !["admin", "administrator"].includes(
+      req.user.role
+    )
   ) {
     return res.status(403).json({
       success: false,
@@ -54,19 +64,15 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
+// ============================================================
+// AUTHENTICATION
+// ============================================================
+
+router.use(authMiddleware);
+router.use(adminOnly);
 
 // ============================================================
-// APPLY AUTH + ADMIN CHECK
-// ============================================================
-
-router.use(
-  authMiddleware,
-  adminOnly
-);
-
-
-// ============================================================
-// DASHBOARD
+// ADMIN DASHBOARD
 // ============================================================
 
 router.get(
@@ -74,9 +80,8 @@ router.get(
   getAdminDashboard
 );
 
-
 // ============================================================
-// USERS
+// ADMIN USERS
 // ============================================================
 
 router.get(
@@ -99,21 +104,23 @@ router.delete(
   archiveUser
 );
 
-
 // ============================================================
-// ACTIVITIES
+// ADMIN ACTIVITIES
 // ============================================================
 
 router.get(
   "/activities",
-  getUserActivity
+  getAdminActivities
 );
+
+// ============================================================
+// ADMIN REPORTS
+// ============================================================
 
 router.get(
-  "/activities/user/:userId",
-  getActivityByUser
+  "/reports/users",
+  getAdminReportUsers
 );
-
 
 // ============================================================
 // EXPORT
