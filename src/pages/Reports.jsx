@@ -240,28 +240,28 @@ function Reports() {
     finance?.monthlyFinance || {};
 
 
-  const monthlyHistory =
+  const monthlyHistory = useMemo(() =>
     Array.isArray(
       finance?.monthlyHistory
     )
       ? finance.monthlyHistory
-      : [];
+      : [], [finance]);
 
 
-  const netWorthSnapshots =
+  const netWorthSnapshots = useMemo(() =>
     Array.isArray(
       finance?.netWorthSnapshots
     )
       ? finance.netWorthSnapshots
-      : [];
+      : [], [finance]);
 
 
-  const savingGoals =
+  const savingGoals = useMemo(() =>
     Array.isArray(
       finance?.savingGoals
     )
       ? finance.savingGoals
-      : [];
+      : [], [finance]);
 
 
   const investments =
