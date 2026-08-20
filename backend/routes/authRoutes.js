@@ -7,6 +7,7 @@ const express = require("express");
 
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
+const { logActivity } = require("../utils/activityLogger");
 
 console.log(
   "AUTH MIDDLEWARE TYPE:",
@@ -350,6 +351,13 @@ router.post(
 
         });
 
+      await logActivity({
+        userId: user._id,
+        userName: user.name,
+        userEmail: user.email,
+        type: "Registration",
+        description: "Created a new FinanceOS account",
+      });
 
       // ======================================================
       // RESPONSE

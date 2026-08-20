@@ -9,6 +9,7 @@ const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 
 const User = require("../models/User");
+const { logActivity } = require("../utils/activityLogger");
 
 // ============================================================
 // ADMIN EMAIL
