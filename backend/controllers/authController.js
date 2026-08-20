@@ -14,7 +14,7 @@ const User = require("../models/User");
 // ADMIN EMAIL
 // ============================================================
 
-const ADMIN_EMAIL = "princepatel0570@gmail.com";
+const ADMIN_EMAIL = "financeos.system@gmail.com";
 
 
 // ============================================================
@@ -49,7 +49,7 @@ const transporter = nodemailer.createTransport({
 // VERIFY EMAIL CONNECTION
 // ============================================================
 
-transporter.verify((error, success) => {
+transporter.verify((error) => {
   if (error) {
     console.error(
       "Email transporter error:",

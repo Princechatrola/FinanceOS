@@ -294,44 +294,44 @@ function Topbar() {
   // SAFE ARRAYS
   // ==========================================================
 
-  const goals =
+  const goals = useMemo(() => 
     Array.isArray(
       savingGoals
     )
       ? savingGoals
-      : [];
+      : [], [savingGoals]);
 
 
-  const investmentRecords =
+  const investmentRecords = useMemo(() => 
     Array.isArray(
       investments
     )
       ? investments
-      : [];
+      : [], [investments]);
 
 
-  const insuranceRecords =
+  const insuranceRecords = useMemo(() => 
     Array.isArray(
       insurancePolicies
     )
       ? insurancePolicies
-      : [];
+      : [], [insurancePolicies]);
 
 
-  const liabilityRecords =
+  const liabilityRecords = useMemo(() => 
     Array.isArray(
       liabilities
     )
       ? liabilities
-      : [];
+      : [], [liabilities]);
 
 
-  const storedNotifications =
+  const storedNotifications = useMemo(() => 
     Array.isArray(
       sharedNotifications
     )
       ? sharedNotifications
-      : [];
+      : [], [sharedNotifications]);
 
 
   // ==========================================================
@@ -384,6 +384,7 @@ function Topbar() {
   // ==========================================================
   // ACTIVE FINANCIAL REMINDERS
   // ==========================================================
+
 
   const activeReminders =
     useMemo(
