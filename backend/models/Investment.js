@@ -33,6 +33,41 @@ const interestTransactionSchema = new mongoose.Schema(
 );
 
 // ============================================================
+// SIP CONTRIBUTION SCHEMA
+// ============================================================
+
+const sipContributionSchema = new mongoose.Schema(
+  {
+    amount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    dueDate: {
+      type: Date,
+      required: true,
+    },
+    paidDate: {
+      type: Date,
+      default: null,
+    },
+    status: {
+      type: String,
+      enum: ["Paid", "Not Paid", "Skipped"],
+      default: "Not Paid",
+    },
+    note: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+  },
+  {
+    _id: true,
+  }
+);
+
+// ============================================================
 // INVESTMENT SCHEMA
 // ============================================================
 
@@ -121,6 +156,54 @@ const investmentSchema = new mongoose.Schema(
         default: "",
         trim: true,
       },
+    },
+
+    // --------------------------------------------------------
+    // SIP AUTOPAY
+    // --------------------------------------------------------
+    autoPay: {
+      enabled: {
+        type: Boolean,
+        default: false,
+      },
+      status: {
+        type: String,
+        enum: ["Active", "Inactive"],
+        default: "Inactive",
+      },
+      paymentMethod: {
+        type: String,
+        enum: ["Bank Account", "UPI"],
+        default: null,
+      },
+      bankName: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+      accountLast4: {
+        type: String,
+        default: "",
+        maxlength: 4,
+      },
+      upiApp: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+      upiId: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+    },
+
+    // --------------------------------------------------------
+    // SIP CONTRIBUTION HISTORY
+    // --------------------------------------------------------
+    sipContributions: {
+      type: [sipContributionSchema],
+      default: [],
     },
 
     startDate: Date,

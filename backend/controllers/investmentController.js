@@ -200,6 +200,217 @@ const recordFDInterest = async (req, res) => {
 };
 
 // ============================================================
+// GET SIP CONTRIBUTIONS
+// ============================================================
+
+const getSIPContributions = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    const investment = await Investment.findOne({
+      _id: req.params.id,
+      user: userId,
+    });
+
+    if (!investment) {
+      return res.status(404).json({
+        success: false,
+        message: "Investment not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: (investment.sipContributions || []).length,
+      contributions: investment.sipContributions || [],
+    });
+  } catch (error) {
+    console.error("Get SIP Contributions:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to fetch SIP contributions.",
+    });
+  }
+};
+
+// ============================================================
+// ADD SIP CONTRIBUTION
+// ============================================================
+
+const addSIPContribution = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    const investment = await Investment.findOne({
+      _id: req.params.id,
+      user: userId,
+    });
+
+    if (!investment) {
+      return res.status(404).json({
+        success: false,
+        message: "Investment not found.",
+      });
+    }
+
+    const { amount, dueDate, paidDate, status, note } = req.body;
+
+    const contributionAmount = Number(amount ?? investment.monthlyContribution ?? investment.amount ?? 0);
+    if (!Number.isFinite(contributionAmount) || contributionAmount < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Contribution amount must be a valid non-negative number.",
+      });
+    }
+
+    if (!dueDate) {
+      return res.status(400).json({
+        success: false,
+        message: "Due date is required.",
+      });
+    }
+
+    const contributionStatus = status || "Not Paid";
+    const allowedStatuses = ["Paid", "Not Paid", "Skipped"];
+    if (!allowedStatuses.includes(contributionStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contribution status.",
+      });
+    }
+
+    const contribution = {
+      amount: contributionAmount,
+      dueDate: new Date(dueDate),
+      paidDate: contributionStatus === "Paid" ? (paidDate ? new Date(paidDate) : new Date()) : null,
+      status: contributionStatus,
+      note: note || "",
+    };
+
+    if (!Array.isArray(investment.sipContributions)) {
+      investment.sipContributions = [];
+    }
+
+    investment.sipContributions.push(contribution);
+    await investment.save();
+
+    const createdContribution = investment.sipContributions[investment.sipContributions.length - 1];
+
+    return res.status(201).json({
+      success: true,
+      message: "SIP contribution added successfully.",
+      contribution: createdContribution,
+      investment,
+    });
+  } catch (error) {
+    console.error("Add SIP Contribution:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to add SIP contribution.",
+    });
+  }
+};
+
+// ============================================================
+// UPDATE SIP CONTRIBUTION
+// ============================================================
+
+const updateSIPContribution = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    const investment = await Investment.findOne({
+      _id: req.params.id,
+      user: userId,
+    });
+
+    if (!investment) {
+      return res.status(404).json({
+        success: false,
+        message: "Investment not found.",
+      });
+    }
+
+    const contribution = investment.sipContributions.id(req.params.contributionId);
+    if (!contribution) {
+      return res.status(404).json({
+        success: false,
+        message: "SIP contribution not found.",
+      });
+    }
+
+    const { amount, dueDate, paidDate, status, note } = req.body;
+
+    // --------------------------------------------------------
+    // UPDATE AMOUNT
+    // --------------------------------------------------------
+
+    if (amount !== undefined) {
+      const newAmount = Number(amount);
+      if (!Number.isFinite(newAmount) || newAmount < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Contribution amount must be a valid number.",
+        });
+      }
+      contribution.amount = newAmount;
+    }
+
+    // --------------------------------------------------------
+    // UPDATE DUE DATE
+    // --------------------------------------------------------
+
+    if (dueDate !== undefined) {
+      contribution.dueDate = new Date(dueDate);
+    }
+
+    // --------------------------------------------------------
+    // UPDATE STATUS
+    // --------------------------------------------------------
+
+    if (status !== undefined) {
+      const allowedStatuses = ["Paid", "Not Paid", "Skipped"];
+      if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid contribution status.",
+        });
+      }
+
+      contribution.status = status;
+
+      if (status === "Paid") {
+        contribution.paidDate = paidDate ? new Date(paidDate) : contribution.paidDate || new Date();
+      } else {
+        contribution.paidDate = null;
+      }
+    } else if (paidDate !== undefined) {
+      contribution.paidDate = paidDate ? new Date(paidDate) : null;
+    }
+
+    // --------------------------------------------------------
+    // UPDATE NOTE
+    // --------------------------------------------------------
+
+    if (note !== undefined) {
+      contribution.note = note;
+    }
+
+    await investment.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "SIP contribution updated successfully.",
+      contribution,
+      investment,
+    });
+  } catch (error) {
+    console.error("Update SIP Contribution:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update SIP contribution.",
+    });
+  }
+};
+
+// ============================================================
 // RECORD INVESTMENT MATURITY
 // ============================================================
 
@@ -219,11 +430,28 @@ const recordInvestmentMaturity = async (req, res) => {
       });
     }
 
-    const { totalContributions: reqContributions, actualMaturityValue: reqMaturityValue } = req.body;
+    const {
+      actualMaturityValue: reqMaturityValue,
+    } = req.body;
 
-    const totalContributions = Number(
-      reqContributions !== undefined ? reqContributions : investment.totalContributions || investment.amount || 0
-    );
+    // --------------------------------------------------------
+    // CALCULATE TOTAL CONTRIBUTIONS
+    // --------------------------------------------------------
+
+    let totalContributions = 0;
+
+    if (investment.type === "SIP") {
+      totalContributions = (investment.sipContributions || [])
+        .filter((contribution) => contribution.status === "Paid")
+        .reduce((total, contribution) => total + Number(contribution.amount || 0), 0);
+    } else {
+      totalContributions = Number(
+        investment.totalContributions ||
+          investment.principalAmount ||
+          investment.amount ||
+          0
+      );
+    }
 
     const actualMaturityValue = Number(
       reqMaturityValue !== undefined ? reqMaturityValue : investment.currentValue || 0
@@ -435,6 +663,9 @@ module.exports = {
   updateInvestment,
   deleteInvestment,
   recordFDInterest,
+  getSIPContributions,
+  addSIPContribution,
+  updateSIPContribution,
   recordInvestmentMaturity,
   renewInvestment,
 };
