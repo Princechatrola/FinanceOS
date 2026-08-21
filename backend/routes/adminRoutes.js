@@ -15,6 +15,8 @@ const {
   getAdminUsers,
   getAdminUserById,
   createAdminUser,
+  updateAdminUser,
+  updateUserAccess,
   updateUserStatus,
   archiveUser,
   getAdminActivities,
@@ -102,6 +104,16 @@ router.post(
 router.get(
   "/users/:id",
   getAdminUserById
+);
+
+router.put(
+  "/users/:id",
+  updateAdminUser
+);
+
+router.put(
+  "/users/:id/access",
+  updateUserAccess
 );
 
 router.patch(

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -15,10 +15,14 @@ import {
   ShieldCheck,
   UserCheck,
   WalletCards,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 
 import AdminSidebar from "../components/AdminSidebar.jsx";
 import AdminTopbar from "../components/AdminTopbar.jsx";
+
+const API_URL = "http://localhost:5000/api/admin/users";
 
 export default function AdminUserDetails() {
   const navigate = useNavigate();
@@ -26,45 +30,72 @@ export default function AdminUserDetails() {
 
   const [activeTab, setActiveTab] = useState("overview");
 
-  // TEMPORARY DATA
-  // Later:
-  // GET /api/admin/users/:id
-  const user = {
-    id,
-    userId: "FOS-U-001248",
-    name: "Rahul Patel",
-    email: "rahul@example.com",
-    mobile: "+91 9876543210",
-    dateOfBirth: "14 March 2001",
-    gender: "Male",
-    city: "Ahmedabad",
-    state: "Gujarat",
-    joined: "28 July 2026",
-    lastLogin: "29 July 2026, 10:42 AM",
-    status: "Active",
-    onboarding: "Completed",
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-    permissions: {
-      dashboard: true,
-      monthlyFinance: true,
-      savingGoals: true,
-      plans: true,
-      calendar: true,
-      reports: true,
-      aiAdvisor: false,
-    },
-
-    financial: {
-      income: 50000,
-      expenses: 32000,
-      savings: 18000,
-      assets: 525000,
-      liabilities: 25000,
-      netWorth: 500000,
-      activeGoals: 2,
-      commitments: 3,
-    },
-  };
+  useEffect(() => {
+    async function fetchUser() {
+      try {
+        setLoading(true);
+        setError("");
+        const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+        const response = await fetch(`${API_URL}/${id}`, {
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || "Failed to load user details.");
+        }
+        const u = data.user;
+        setUser({
+          id: u._id,
+          userId: u.userId || "",
+          name: u.name || "",
+          email: u.email || "",
+          mobile: u.phone || "",
+          dateOfBirth: u.dateOfBirth ? new Date(u.dateOfBirth).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "",
+          gender: u.gender || "",
+          city: u.city || "",
+          state: u.state || "",
+          joined: u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "",
+          lastLogin: "Active now",
+          status: u.status || "Active",
+          onboarding: "Completed",
+          permissions: {
+            dashboard: u.permissions?.dashboard !== undefined ? u.permissions.dashboard : true,
+            monthlyFinance: u.permissions?.monthlyFinance !== undefined ? u.permissions.monthlyFinance : true,
+            savingGoals: u.permissions?.savingGoals !== undefined ? u.permissions.savingGoals : true,
+            plans: u.permissions?.plansCommitments !== undefined ? u.permissions.plansCommitments : true,
+            calendar: u.permissions?.financialCalendar !== undefined ? u.permissions.financialCalendar : true,
+            reports: u.permissions?.reports !== undefined ? u.permissions.reports : true,
+            aiAdvisor: u.permissions?.aiAdvisor !== undefined ? u.permissions.aiAdvisor : false,
+          },
+          financial: {
+            income: 0,
+            expenses: 0,
+            savings: 0,
+            assets: 0,
+            liabilities: 0,
+            netWorth: 0,
+            activeGoals: 0,
+            commitments: 0,
+          },
+        });
+      } catch (err) {
+        console.error(err);
+        setError(err.message || "Unable to load user details.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    if (id) {
+      fetchUser();
+    }
+  }, [id]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f6f8f3]">
@@ -86,7 +117,24 @@ export default function AdminUserDetails() {
               Back to Users
             </button>
 
-            {/* USER HEADER */}
+            {error && (
+              <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
+                <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-600" />
+                <div>
+                  <p className="text-sm font-semibold">Error</p>
+                  <p className="mt-1 text-xs">{error}</p>
+                </div>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="mt-12 flex flex-col items-center justify-center gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-[#57923d]" />
+                <p className="text-sm text-[#718177]">Loading user details...</p>
+              </div>
+            ) : user && (
+              <>
+                {/* USER HEADER */}
 
             <section className="rounded-2xl border border-[#dfe6da] bg-white p-6">
               <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -508,6 +556,8 @@ export default function AdminUserDetails() {
                   </div>
                 </Section>
               </div>
+            )}
+              </>
             )}
 
           </div>
