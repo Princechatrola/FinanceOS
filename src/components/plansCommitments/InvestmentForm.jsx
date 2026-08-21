@@ -177,6 +177,10 @@ function InvestmentForm({ onClose, onSuccess }) {
   const [accountLast4, setAccountLast4] = useState("");
   const [upiId, setUpiId] = useState("");
   const [otherPaymentDetails, setOtherPaymentDetails] = useState("");
+  // NEW: contribution note for SIP
+  const [contributionNote, setContributionNote] = useState("");
+  // NEW: submission progress state
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [autoPayEnabled, setAutoPayEnabled] = useState(false);
   const [autoPayPaymentMethod, setAutoPayPaymentMethod] = useState("");
@@ -278,9 +282,11 @@ function InvestmentForm({ onClose, onSuccess }) {
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
+    setIsSubmitting(true);
 
     if (typeof addInvestment !== "function") {
       setError("Investment service is not available.");
+      setIsSubmitting(false);
       return;
     }
 
@@ -300,32 +306,41 @@ function InvestmentForm({ onClose, onSuccess }) {
 
     if (!startDate) {
       setError("Select the investment start date.");
+      setIsSubmitting(false);
       return;
     }
 
     if (!paymentSource) {
       setError("Select a payment source for this investment.");
+      setIsSubmitting(false);
       return;
     }
 
-    if (paymentSource === "Bank Account" && !bankName.trim()) {
-      setError("Enter the bank name.");
-      return;
-    }
+    // If AutoPay is enabled, paymentSource is derived from Autopay fields; skip validation here
+    if (!autoPayEnabled) {
+      if (paymentSource === "Bank Account" && !bankName.trim()) {
+        setError("Enter the bank name.");
+        setIsSubmitting(false);
+        return;
+      }
 
-    if (paymentSource === "Bank Account" && accountLast4.length !== 4) {
-      setError("Enter the last 4 digits of the bank account.");
-      return;
-    }
+      if (paymentSource === "Bank Account" && accountLast4.length !== 4) {
+        setError("Enter the last 4 digits of the bank account.");
+        setIsSubmitting(false);
+        return;
+      }
 
-    if (paymentSource === "UPI" && !upiId.trim()) {
-      setError("Enter the UPI ID.");
-      return;
-    }
+      if (paymentSource === "UPI" && !upiId.trim()) {
+        setError("Enter the UPI ID.");
+        setIsSubmitting(false);
+        return;
+      }
 
-    if (paymentSource === "Other" && !otherPaymentDetails.trim()) {
-      setError("Enter the payment source details.");
-      return;
+      if (paymentSource === "Other" && !otherPaymentDetails.trim()) {
+        setError("Enter the payment source details.");
+        setIsSubmitting(false);
+        return;
+      }
     }
 
     if (
@@ -335,17 +350,20 @@ function InvestmentForm({ onClose, onSuccess }) {
     ) {
       if (!autoPayPaymentMethod) {
         setError("Select a payment method for SIP AutoPay.");
+        setIsSubmitting(false);
         return;
       }
 
       if (autoPayPaymentMethod === "Bank Account") {
         if (!autoPayBankName.trim()) {
           setError("Enter the AutoPay bank name.");
+          setIsSubmitting(false);
           return;
         }
 
         if (autoPayAccountLast4.length !== 4) {
           setError("Enter the last 4 digits of the AutoPay bank account.");
+          setIsSubmitting(false);
           return;
         }
       }
@@ -353,11 +371,13 @@ function InvestmentForm({ onClose, onSuccess }) {
       if (autoPayPaymentMethod === "UPI") {
         if (!autoPayUpiApp.trim()) {
           setError("Enter the UPI app used for SIP AutoPay.");
+          setIsSubmitting(false);
           return;
         }
 
         if (!autoPayUpiId.trim()) {
           setError("Enter the AutoPay UPI ID.");
+          setIsSubmitting(false);
           return;
         }
       }
@@ -366,22 +386,26 @@ function InvestmentForm({ onClose, onSuccess }) {
     if (isFixedDeposit) {
       if (!institution.trim()) {
         setError("Enter the bank or institution where the FD is held.");
+        setIsSubmitting(false);
         return;
       }
 
       const numericRate = safeNumber(interestRate);
       if (numericRate <= 0 || numericRate > 100) {
         setError("Enter a valid annual FD interest rate.");
+        setIsSubmitting(false);
         return;
       }
 
       if (!maturityDate) {
         setError("Select the FD maturity date.");
+        setIsSubmitting(false);
         return;
       }
 
       if (maturityDate <= startDate) {
         setError("FD maturity date must be after the start date.");
+        setIsSubmitting(false);
         return;
       }
     }
@@ -391,6 +415,7 @@ function InvestmentForm({ onClose, onSuccess }) {
 
       if (!Number.isInteger(day) || day < 1 || day > 28) {
         setError("Contribution day must be between 1 and 28.");
+        setIsSubmitting(false);
         return;
       }
 
@@ -402,12 +427,14 @@ function InvestmentForm({ onClose, onSuccess }) {
             availableToAllocate
           )} is currently available.`
         );
+        setIsSubmitting(false);
         return;
       }
     }
 
     if (!isFixedDeposit && maturityDate && maturityDate < startDate) {
       setError("Maturity date cannot be before the start date.");
+      setIsSubmitting(false);
       return;
     }
 
@@ -418,6 +445,7 @@ function InvestmentForm({ onClose, onSuccess }) {
       !onDueDate
     ) {
       setError("Select at least one contribution reminder time.");
+      setIsSubmitting(false);
       return;
     }
 
@@ -428,11 +456,13 @@ function InvestmentForm({ onClose, onSuccess }) {
       !smsReminder
     ) {
       setError("Select at least one contribution reminder channel.");
+      setIsSubmitting(false);
       return;
     }
 
     if (maturityReminderEnabled && !maturityDate) {
       setError("Select a maturity date to enable the maturity reminder.");
+      setIsSubmitting(false);
       return;
     }
 
@@ -444,6 +474,7 @@ function InvestmentForm({ onClose, onSuccess }) {
       !onMaturityDate
     ) {
       setError("Select at least one maturity reminder time.");
+      setIsSubmitting(false);
       return;
     }
 
@@ -454,6 +485,7 @@ function InvestmentForm({ onClose, onSuccess }) {
       !maturitySms
     ) {
       setError("Select at least one maturity reminder channel.");
+      setIsSubmitting(false);
       return;
     }
 
@@ -477,6 +509,7 @@ function InvestmentForm({ onClose, onSuccess }) {
       frequency: effectiveContributionType === "Recurring" ? frequency : null,
       monthlyContribution: isFixedDeposit ? 0 : monthlyContribution,
       paymentSource: paymentSource || undefined,
+      contributionNote: contributionNote.trim(),
       paymentSourceDetails: {
         bankName: paymentSource === "Bank Account" ? bankName.trim() : "",
         accountLast4: paymentSource === "Bank Account" ? accountLast4 : "",
@@ -566,14 +599,14 @@ function InvestmentForm({ onClose, onSuccess }) {
       },
     };
 
-    console.log("FINAL INVESTMENT DATA:", investmentData);
-
     const result = await addInvestment(investmentData);
 
     if (result?.success === false) {
       setError(result.message || "Unable to add the investment.");
+      setIsSubmitting(false);
       return;
     }
+    setIsSubmitting(false);
 
     if (typeof onSuccess === "function") {
       onSuccess(result);
@@ -615,6 +648,8 @@ function InvestmentForm({ onClose, onSuccess }) {
             <FiX size={18} />
           </button>
         </div>
+        {/* NEW: Progress Bar */}
+        {isSubmitting && <ProgressBar />}
 
         <form onSubmit={handleSubmit} className="flex-1 space-y-6 overflow-y-auto bg-[#fafcf8] p-6">
           {error && (
@@ -697,6 +732,21 @@ function InvestmentForm({ onClose, onSuccess }) {
                   <option value="Closed">Closed</option>
                 </select>
               </label>
+              
+              {!isFixedDeposit && (
+                <label className="block">
+                  <span className="text-xs font-medium text-[#52665b]">
+                    Contribution Note (optional)
+                  </span>
+                  <input
+                    type="text"
+                    value={contributionNote}
+                    onChange={(e) => setContributionNote(e.target.value)}
+                    placeholder="e.g., First SIP for retirement"
+                    className={inputClass}
+                  />
+                </label>
+              )}
             </div>
 
             {isFixedDeposit && (
