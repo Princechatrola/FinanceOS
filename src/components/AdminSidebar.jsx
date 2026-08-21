@@ -32,7 +32,7 @@ function AdminSidebar() {
       icon: Users,
     },
 
-    ...(isSuperAdmin
+/*     ...(isSuperAdmin
       ? [
           {
             name: "Administrators",
@@ -41,7 +41,7 @@ function AdminSidebar() {
           },
         ]
       : []),
-
+ */
     {
       name: "User Activity",
       path: "/admin/activity",
@@ -61,12 +61,12 @@ function AdminSidebar() {
       name: "Reminders",
       path: "/admin/reminders",
       icon: BellRing,
-    },
-    {
+    }
+/*     {
       name: "Settings",
       path: "/admin/settings",
       icon: Settings,
-    },
+    }, */
   ];
 
   function handleSignOut() {

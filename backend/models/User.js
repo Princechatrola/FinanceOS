@@ -68,6 +68,16 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    permissions: {
+      dashboard: { type: Boolean, default: true },
+      monthlyFinance: { type: Boolean, default: true },
+      savingGoals: { type: Boolean, default: true },
+      plansCommitments: { type: Boolean, default: true },
+      financialCalendar: { type: Boolean, default: true },
+      reports: { type: Boolean, default: true },
+      aiAdvisor: { type: Boolean, default: false },
+    },
   },
   {
     timestamps: true,
