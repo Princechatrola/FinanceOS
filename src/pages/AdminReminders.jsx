@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
   CalendarDays,
@@ -19,185 +19,11 @@ import AdminTopbar from "../components/AdminTopbar.jsx";
 
 
 // ============================================================
-// TEMPORARY REMINDER DATA
-//
-// Later this data comes from backend/MongoDB.
-//
-// IMPORTANT:
-// These reminders are NOT created manually by Admin.
-// They are generated from reminder settings enabled by users.
+// API
 // ============================================================
 
-const initialReminders = [
-  {
-    id: "REM-1001",
-
-    userId: "FOS-U-001248",
-    userName: "Rahul Patel",
-    email: "rahul@example.com",
-    phone: "+91 98765 43210",
-
-    reminderType: "Payment",
-    category: "Liability",
-    itemName: "Home Loan EMI",
-
-    dueDate: "2026-08-10",
-
-    rule: "5 days before",
-
-    scheduledDate: "2026-08-05",
-    scheduledTime: "09:00",
-
-    channel: "Email",
-
-    status: "Scheduled",
-
-    sentAt: null,
-
-    failureReason: null,
-  },
-
-  {
-    id: "REM-1002",
-
-    userId: "FOS-U-001248",
-    userName: "Rahul Patel",
-    email: "rahul@example.com",
-    phone: "+91 98765 43210",
-
-    reminderType: "Payment",
-    category: "Liability",
-    itemName: "Home Loan EMI",
-
-    dueDate: "2026-08-10",
-
-    rule: "1 day before",
-
-    scheduledDate: "2026-08-09",
-    scheduledTime: "09:00",
-
-    channel: "SMS",
-
-    status: "Scheduled",
-
-    sentAt: null,
-
-    failureReason: null,
-  },
-
-  {
-    id: "REM-1003",
-
-    userId: "FOS-U-001247",
-    userName: "Priya Shah",
-    email: "priya@example.com",
-    phone: "+91 98765 01234",
-
-    reminderType: "Investment",
-    category: "Investment",
-    itemName: "Monthly SIP",
-
-    dueDate: "2026-08-12",
-
-    rule: "1 day before",
-
-    scheduledDate: "2026-08-11",
-    scheduledTime: "08:30",
-
-    channel: "Email",
-
-    status: "Scheduled",
-
-    sentAt: null,
-
-    failureReason: null,
-  },
-
-  {
-    id: "REM-1004",
-
-    userId: "FOS-U-001246",
-    userName: "Amit Mehta",
-    email: "amit@example.com",
-    phone: "+91 98250 12345",
-
-    reminderType: "Maturity",
-    category: "Investment",
-    itemName: "Fixed Deposit",
-
-    dueDate: "2026-09-30",
-
-    rule: "1 month before",
-
-    scheduledDate: "2026-08-30",
-    scheduledTime: "09:00",
-
-    channel: "Email",
-
-    status: "Scheduled",
-
-    sentAt: null,
-
-    failureReason: null,
-  },
-
-  {
-    id: "REM-1005",
-
-    userId: "FOS-U-001245",
-    userName: "Neha Joshi",
-    email: "neha@example.com",
-    phone: "+91 98980 12345",
-
-    reminderType: "Payment",
-    category: "Insurance",
-    itemName: "Health Insurance Premium",
-
-    dueDate: "2026-07-29",
-
-    rule: "On due date",
-
-    scheduledDate: "2026-07-29",
-    scheduledTime: "08:00",
-
-    channel: "In-App",
-
-    status: "Sent",
-
-    sentAt: "29 Jul 2026, 08:00 AM",
-
-    failureReason: null,
-  },
-
-  {
-    id: "REM-1006",
-
-    userId: "FOS-U-001244",
-    userName: "Karan Desai",
-    email: "karan@example.com",
-    phone: "+91 98790 11111",
-
-    reminderType: "Payment",
-    category: "Liability",
-    itemName: "Vehicle Loan EMI",
-
-    dueDate: "2026-07-30",
-
-    rule: "1 day before",
-
-    scheduledDate: "2026-07-29",
-    scheduledTime: "08:30",
-
-    channel: "SMS",
-
-    status: "Failed",
-
-    sentAt: null,
-
-    failureReason:
-      "SMS delivery provider rejected the request.",
-  },
-];
+const API_URL =
+  "http://localhost:5000/api/admin/reminders";
 
 
 // ============================================================
@@ -206,7 +32,7 @@ const initialReminders = [
 
 export default function AdminReminders() {
   const [reminders, setReminders] =
-    useState(initialReminders);
+    useState([]);
 
   const [search, setSearch] = useState("");
 
@@ -224,6 +50,88 @@ export default function AdminReminders() {
 
   const [selectedReminder, setSelectedReminder] =
     useState(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+
+  // ==========================================================
+  // FETCH REMINDERS
+  // ==========================================================
+
+  const fetchReminders = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const token =
+        localStorage.getItem(
+          "financeos_token"
+        ) ||
+        sessionStorage.getItem(
+          "financeos_token"
+        );
+
+      const response = await fetch(
+        API_URL,
+        {
+          method: "GET",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            ...(token
+              ? {
+                  Authorization:
+                    `Bearer ${token}`,
+                }
+              : {}),
+          },
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.message ||
+            "Failed to load reminders"
+        );
+      }
+
+      setReminders(data.data || []);
+
+    } catch (err) {
+      console.error(
+        "Admin Reminders Error:",
+        err
+      );
+
+      setError(
+        err.message ||
+          "Unable to load reminders"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  // ==========================================================
+  // INITIAL LOAD
+  // ==========================================================
+
+  useEffect(() => {
+    fetchReminders();
+  }, []);
 
 
   // ==========================================================
@@ -321,14 +229,10 @@ export default function AdminReminders() {
 
   // ==========================================================
   // RETRY FAILED REMINDER
-  //
-  // TEMPORARY FRONTEND SIMULATION.
-  //
-  // Later:
   // POST /api/admin/reminders/:id/retry
   // ==========================================================
 
-  function retryReminder(id) {
+  async function retryReminder(id) {
     const confirmed = window.confirm(
       "Retry this failed reminder?"
     );
@@ -337,27 +241,81 @@ export default function AdminReminders() {
       return;
     }
 
-    setReminders((current) =>
-      current.map((item) =>
-        item.id === id
+    try {
+      const token =
+        localStorage.getItem(
+          "financeos_token"
+        ) ||
+        sessionStorage.getItem(
+          "financeos_token"
+        );
+
+      const response = await fetch(
+        `${API_URL}/${id}/retry`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            ...(token
+              ? {
+                  Authorization:
+                    `Bearer ${token}`,
+                }
+              : {}),
+          },
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.message ||
+            "Failed to retry reminder"
+        );
+      }
+
+      // Update local state to reflect the retry
+      setReminders((current) =>
+        current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                status: "Scheduled",
+                failureReason: null,
+              }
+            : item
+        )
+      );
+
+      setSelectedReminder((current) =>
+        current?.id === id
           ? {
-              ...item,
+              ...current,
               status: "Scheduled",
               failureReason: null,
             }
-          : item
-      )
-    );
+          : current
+      );
 
-    setSelectedReminder((current) =>
-      current?.id === id
-        ? {
-            ...current,
-            status: "Scheduled",
-            failureReason: null,
-          }
-        : current
-    );
+    } catch (err) {
+      console.error(
+        "Retry Reminder Error:",
+        err
+      );
+
+      alert(
+        err.message ||
+          "Failed to retry reminder"
+      );
+    }
   }
 
 
@@ -628,9 +586,72 @@ export default function AdminReminders() {
 
 
             {/* ==================================================
+                LOADING STATE
+            ================================================== */}
+
+            {loading && (
+              <div className="mt-5 flex items-center justify-center rounded-2xl border border-[#dfe6da] bg-white py-20">
+
+                <div className="text-center">
+
+                  <div className="mx-auto h-8 w-8 animate-spin rounded-full border-[3px] border-[#dfe6da] border-t-[#57923d]" />
+
+                  <p className="mt-4 text-sm font-semibold text-[#173b2b]">
+                    Loading reminders...
+                  </p>
+
+                </div>
+
+              </div>
+            )}
+
+
+            {/* ==================================================
+                ERROR STATE
+            ================================================== */}
+
+            {!loading && error && (
+              <div className="mt-5 rounded-2xl border border-[#f0d6d0] bg-[#fff5f2] p-6">
+
+                <div className="flex items-center gap-3">
+
+                  <XCircle
+                    size={20}
+                    className="shrink-0 text-[#b45745]"
+                  />
+
+                  <div>
+
+                    <p className="text-sm font-bold text-[#934534]">
+                      Failed to load reminders
+                    </p>
+
+                    <p className="mt-1 text-xs text-[#865b51]">
+                      {error}
+                    </p>
+
+                  </div>
+
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchReminders}
+                  className="mt-4 flex items-center gap-2 rounded-xl bg-[#dff3ad] px-4 py-2.5 text-xs font-bold text-[#173b2b] hover:bg-[#d5eba2]"
+                >
+                  <RefreshCw size={14} />
+                  Try Again
+                </button>
+
+              </div>
+            )}
+
+
+            {/* ==================================================
                 TABLE
             ================================================== */}
 
+            {!loading && !error && (
             <section className="mt-5 overflow-hidden rounded-2xl border border-[#dfe6da] bg-white">
 
               <div className="border-b border-[#edf0eb] p-5">
@@ -876,6 +897,7 @@ export default function AdminReminders() {
               </div>
 
             </section>
+            )}
 
 
             {/* ==================================================

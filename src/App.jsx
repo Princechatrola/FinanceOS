@@ -6,10 +6,12 @@ import { Routes, Route, Navigate } from "react-router-dom";
 
 
 // ============================================================
+// ============================================================
 // AUTH
 // ============================================================
 
 import ProtectedRoute from "./components/auth/ProtectedRoute.jsx";
+import AdminProtectedRoute from "./components/auth/AdminProtectedRoute.jsx";
 
 
 // ============================================================
@@ -89,7 +91,7 @@ import AdminMessages from "./pages/AdminMessages.jsx";
 // ============================================================
 
 import AdminReminders from "./pages/AdminReminders.jsx";
-
+// import AdminSettings from "./pages/AdminSettings";
 
 // ============================================================
 // APP
@@ -101,6 +103,23 @@ function App() {
 
       {/* ======================================================
           PUBLIC ROUTES
+      {/* ======================================================
+          ADMIN ROOT
+      ====================================================== */}
+
+      <Route
+        path="/admin"
+        element={
+          <Navigate
+            to="/admin/dashboard"
+            replace
+          />
+        }
+      />
+
+
+      {/* ======================================================
+          ADMIN DASHBOARD
       ====================================================== */}
 
       <Route
@@ -239,29 +258,15 @@ function App() {
       />
 
 
-      {/* ======================================================
-          ADMIN ROOT
-          Admin authentication will be handled separately.
-      ====================================================== */}
-
-      <Route
-        path="/admin"
-        element={
-          <Navigate
-            to="/admin-dashboard"
-            replace
-          />
-        }
-      />
-
-
-      {/* ======================================================
-          ADMIN DASHBOARD
-      ====================================================== */}
+      {/* ====================================================== */}
 
       <Route
         path="/admin/dashboard"
-        element={<AdminDashboard />}
+        element={
+          <AdminProtectedRoute>
+            <AdminDashboard />
+          </AdminProtectedRoute>
+        }
       />
 
 
@@ -271,27 +276,47 @@ function App() {
 
       <Route
         path="/admin/users"
-        element={<AdminUsers />}
+        element={
+          <AdminProtectedRoute>
+            <AdminUsers />
+          </AdminProtectedRoute>
+        }
       />
 
       <Route
         path="/admin/users/create"
-        element={<AdminCreateUser />}
+        element={
+          <AdminProtectedRoute>
+            <AdminCreateUser />
+          </AdminProtectedRoute>
+        }
       />
 
       <Route
         path="/admin/users/:id"
-        element={<AdminUserDetails />}
+        element={
+          <AdminProtectedRoute>
+            <AdminUserDetails />
+          </AdminProtectedRoute>
+        }
       />
 
       <Route
         path="/admin/users/:id/edit"
-        element={<AdminEditUser />}
+        element={
+          <AdminProtectedRoute>
+            <AdminEditUser />
+          </AdminProtectedRoute>
+        }
       />
 
       <Route
         path="/admin/users/:id/access"
-        element={<AdminUserAccess />}
+        element={
+          <AdminProtectedRoute>
+            <AdminUserAccess />
+          </AdminProtectedRoute>
+        }
       />
 
 
@@ -301,27 +326,47 @@ function App() {
 
       <Route
         path="/admin/administrators"
-        element={<AdminAdministrators />}
+        element={
+          <AdminProtectedRoute>
+            <AdminAdministrators />
+          </AdminProtectedRoute>
+        }
       />
 
       <Route
         path="/admin/administrators/create"
-        element={<AdminCreateAdministrator />}
+        element={
+          <AdminProtectedRoute>
+            <AdminCreateAdministrator />
+          </AdminProtectedRoute>
+        }
       />
 
       <Route
         path="/admin/administrators/:id"
-        element={<AdminAdministratorDetails />}
+        element={
+          <AdminProtectedRoute>
+            <AdminAdministratorDetails />
+          </AdminProtectedRoute>
+        }
       />
 
       <Route
         path="/admin/administrators/:id/edit"
-        element={<AdminEditAdministrator />}
+        element={
+          <AdminProtectedRoute>
+            <AdminEditAdministrator />
+          </AdminProtectedRoute>
+        }
       />
 
       <Route
         path="/admin/administrators/:id/access"
-        element={<AdminAdministratorAccess />}
+        element={
+          <AdminProtectedRoute>
+            <AdminAdministratorAccess />
+          </AdminProtectedRoute>
+        }
       />
 
 
@@ -331,7 +376,11 @@ function App() {
 
       <Route
         path="/admin/activity"
-        element={<AdminActivity />}
+        element={
+          <AdminProtectedRoute>
+            <AdminActivity />
+          </AdminProtectedRoute>
+        }
       />
 
 
@@ -341,7 +390,11 @@ function App() {
 
       <Route
         path="/admin/reports"
-        element={<AdminReports />}
+        element={
+          <AdminProtectedRoute>
+            <AdminReports />
+          </AdminProtectedRoute>
+        }
       />
 
 
@@ -351,7 +404,11 @@ function App() {
 
       <Route
         path="/admin/messages"
-        element={<AdminMessages />}
+        element={
+          <AdminProtectedRoute>
+            <AdminMessages />
+          </AdminProtectedRoute>
+        }
       />
 
 
@@ -361,25 +418,18 @@ function App() {
 
       <Route
         path="/admin/reminders"
-        element={<AdminReminders />}
-      />
-
-
-      {/* ======================================================
-          ADMIN SETTINGS
-          Temporary redirect until AdminSettings.jsx exists.
-      ====================================================== */}
-
-      <Route
-        path="/admin/settings"
         element={
-          <Navigate
-            to="/admin/dashboard"
-            replace
-          />
+          <AdminProtectedRoute>
+            <AdminReminders />
+          </AdminProtectedRoute>
         }
       />
 
+      {/* <Route path="/admin/settings" element={
+          <AdminProtectedRoute>
+            <AdminSettings />
+          </AdminProtectedRoute>
+        } /> */}
 
       {/* ======================================================
           404 / UNKNOWN ROUTE
