@@ -14,10 +14,15 @@ const {
   getAdminDashboard,
   getAdminUsers,
   getAdminUserById,
+  createAdminUser,
   updateUserStatus,
   archiveUser,
   getAdminActivities,
   getAdminReportUsers,
+  getAdminMessages,
+  createAdminMessage,
+  updateAdminMessage,
+  deleteAdminMessage,
 } = require("../controllers/adminController");
 
 // ============================================================
@@ -89,6 +94,11 @@ router.get(
   getAdminUsers
 );
 
+router.post(
+  "/users",
+  createAdminUser
+);
+
 router.get(
   "/users/:id",
   getAdminUserById
@@ -121,6 +131,15 @@ router.get(
   "/reports/users",
   getAdminReportUsers
 );
+
+// ============================================================
+// ADMIN MESSAGES
+// ============================================================
+
+router.get("/messages", getAdminMessages);
+router.post("/messages", createAdminMessage);
+router.put("/messages/:id", updateAdminMessage);
+router.delete("/messages/:id", deleteAdminMessage);
 
 // ============================================================
 // EXPORT
