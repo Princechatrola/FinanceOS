@@ -89,7 +89,7 @@ import AdminMessages from "./pages/AdminMessages.jsx";
 // ============================================================
 
 import AdminReminders from "./pages/AdminReminders.jsx";
-
+// import AdminSettings from "./pages/AdminSettings";
 
 // ============================================================
 // APP
@@ -364,22 +364,7 @@ function App() {
         element={<AdminReminders />}
       />
 
-
-      {/* ======================================================
-          ADMIN SETTINGS
-          Temporary redirect until AdminSettings.jsx exists.
-      ====================================================== */}
-
-      <Route
-        path="/admin/settings"
-        element={
-          <Navigate
-            to="/admin/dashboard"
-            replace
-          />
-        }
-      />
-
+      {/* <Route path="/admin/settings" element={<AdminSettings />} /> */}
 
       {/* ======================================================
           404 / UNKNOWN ROUTE
