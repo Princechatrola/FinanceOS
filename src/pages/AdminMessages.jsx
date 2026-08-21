@@ -41,169 +41,14 @@ const IN_APP_STORAGE_KEY = "financeos_in_app_messages";
 // Later replace with MongoDB / API users
 // ============================================================
 
-const users = [
-  {
-    id: "FOS-U-001248",
-    name: "Rahul Patel",
-    email: "rahul@example.com",
-    phone: "+91 98765 43210",
-    status: "Active",
-  },
-  {
-    id: "FOS-U-001247",
-    name: "Priya Shah",
-    email: "priya@example.com",
-    phone: "+91 98765 01234",
-    status: "Active",
-  },
-  {
-    id: "FOS-U-001246",
-    name: "Amit Mehta",
-    email: "amit@example.com",
-    phone: "+91 98250 12345",
-    status: "Inactive",
-  },
-];
+// Temporary users removed - fetching from API
 
 
 // ============================================================
 // INITIAL MESSAGES
 // ============================================================
 
-const initialMessages = [
-  {
-    id: "MSG-1001",
-    title: "Monthly Finance Reminder",
-    message: "Please update your monthly financial information.",
-
-    recipient: "Rahul Patel",
-    userId: "FOS-U-001248",
-    recipientEmail: "rahul@example.com",
-
-    type: "Personal",
-
-    channels: ["In-App", "Email"],
-
-    deliveryStatus: {
-      "In-App": "Scheduled",
-      Email: "Scheduled",
-    },
-
-    status: "Scheduled",
-
-    createdBy: "Super Admin",
-    createdAt: "29 Jul 2026, 09:00 AM",
-
-    scheduledDate: "2026-07-31",
-    scheduledTime: "09:00",
-
-    updatedBy: null,
-    updatedAt: null,
-
-    cancelledBy: null,
-    cancelledAt: null,
-  },
-
-  {
-    id: "MSG-1002",
-    title: "Account Information",
-    message: "Your FinanceOS account information has been updated.",
-
-    recipient: "Priya Shah",
-    userId: "FOS-U-001247",
-    recipientEmail: "priya@example.com",
-
-    type: "Personal",
-
-    channels: ["In-App", "Email", "SMS"],
-
-    deliveryStatus: {
-      "In-App": "Sent",
-      Email: "Sent",
-      SMS: "Failed",
-    },
-
-    status: "Partially Delivered",
-
-    createdBy: "Admin",
-    createdAt: "28 Jul 2026, 02:30 PM",
-
-    scheduledDate: null,
-    scheduledTime: null,
-
-    updatedBy: null,
-    updatedAt: null,
-
-    cancelledBy: null,
-    cancelledAt: null,
-  },
-
-  {
-    id: "MSG-1003",
-    title: "System Maintenance",
-    message: "FinanceOS maintenance is scheduled for Sunday.",
-
-    recipient: "All Users",
-    userId: null,
-    recipientEmail: null,
-
-    type: "Bulk",
-
-    channels: ["In-App", "Email"],
-
-    deliveryStatus: {
-      "In-App": "Sent",
-      Email: "Sent",
-    },
-
-    status: "Sent",
-
-    createdBy: "Super Admin",
-    createdAt: "27 Jul 2026, 11:15 AM",
-
-    scheduledDate: null,
-    scheduledTime: null,
-
-    updatedBy: null,
-    updatedAt: null,
-
-    cancelledBy: null,
-    cancelledAt: null,
-  },
-
-  {
-    id: "MSG-1004",
-    title: "Important Notice",
-    message: "Please review your FinanceOS account.",
-
-    recipient: "Amit Mehta",
-    userId: "FOS-U-001246",
-    recipientEmail: "amit@example.com",
-
-    type: "Personal",
-
-    channels: ["Email", "SMS"],
-
-    deliveryStatus: {
-      Email: "Failed",
-      SMS: "Failed",
-    },
-
-    status: "Failed",
-
-    createdBy: "Admin",
-    createdAt: "26 Jul 2026, 04:10 PM",
-
-    scheduledDate: null,
-    scheduledTime: null,
-
-    updatedBy: null,
-    updatedAt: null,
-
-    cancelledBy: null,
-    cancelledAt: null,
-  },
-];
+// Initial messages removed - fetching from API
 
 
 // ============================================================
@@ -225,23 +70,7 @@ const emptyForm = {
 // GET STORED MESSAGES
 // ============================================================
 
-function getStoredMessages() {
-  try {
-    const stored = localStorage.getItem(MESSAGE_STORAGE_KEY);
-
-    if (!stored) {
-      return initialMessages;
-    }
-
-    const parsed = JSON.parse(stored);
-
-    return Array.isArray(parsed)
-      ? parsed
-      : initialMessages;
-  } catch {
-    return initialMessages;
-  }
-}
+// Removed getStoredMessages
 
 
 // ============================================================
@@ -412,7 +241,8 @@ function calculateOverallStatus(deliveryStatus) {
 // ============================================================
 
 export default function AdminMessages() {
-  const [messages, setMessages] = useState(getStoredMessages);
+  const [messages, setMessages] = useState([]);
+  const [users, setUsers] = useState([]);
 
   const [search, setSearch] = useState("");
 
@@ -429,17 +259,48 @@ export default function AdminMessages() {
     ...emptyForm,
   });
 
+  const [loading, setLoading] = useState(true);
 
   // ==========================================================
-  // SAVE
+  // FETCH DATA
   // ==========================================================
 
   useEffect(() => {
-    localStorage.setItem(
-      MESSAGE_STORAGE_KEY,
-      JSON.stringify(messages)
-    );
+    async function fetchData() {
+      try {
+        const token = localStorage.getItem("financeos_token");
+        const headers = { Authorization: `Bearer ${token}` };
 
+        const [msgRes, usersRes] = await Promise.all([
+          fetch("/api/admin/messages", { headers }),
+          fetch("/api/admin/users", { headers }),
+        ]);
+
+        const msgData = await msgRes.json();
+        const usersData = await usersRes.json();
+
+        if (msgData.success) {
+          setMessages(msgData.data);
+        }
+        
+        if (usersData.success) {
+          setUsers(usersData.users);
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, []);
+
+  // ==========================================================
+  // SAVE IN-APP MESSAGES
+  // ==========================================================
+
+  useEffect(() => {
     saveInAppMessages(messages);
   }, [messages]);
 
@@ -678,7 +539,7 @@ export default function AdminMessages() {
   // CREATE MESSAGE
   // ==========================================================
 
-  function handleCreate(event) {
+  async function handleCreate(event) {
     event.preventDefault();
 
     if (
@@ -754,8 +615,6 @@ export default function AdminMessages() {
     // ========================================================
 
     const newMessage = {
-      id: `MSG-${Date.now()}`,
-
       title: form.subject.trim(),
       message: form.message.trim(),
 
@@ -786,8 +645,6 @@ export default function AdminMessages() {
           : "Sent",
 
       createdBy: "Super Admin",
-      createdAt: currentDateTime(),
-
       scheduledDate:
         form.delivery === "Schedule"
           ? form.scheduleDate
@@ -797,20 +654,33 @@ export default function AdminMessages() {
         form.delivery === "Schedule"
           ? form.scheduleTime
           : null,
-
-      updatedBy: null,
-      updatedAt: null,
-
-      cancelledBy: null,
-      cancelledAt: null,
     };
 
-    setMessages((current) => [
-      newMessage,
-      ...current,
-    ]);
-
-    closeCompose();
+    try {
+      const token = localStorage.getItem("financeos_token");
+      const res = await fetch("/api/admin/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(newMessage),
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        setMessages((current) => [
+          data.data,
+          ...current,
+        ]);
+        closeCompose();
+      } else {
+        alert(data.message || "Failed to create message.");
+      }
+    } catch (error) {
+      console.error("Create Message Error:", error);
+      alert("Failed to create message.");
+    }
   }
 
 
@@ -818,7 +688,7 @@ export default function AdminMessages() {
   // EDIT SCHEDULED MESSAGE
   // ==========================================================
 
-  function handleEdit(event) {
+  async function handleEdit(event) {
     event.preventDefault();
 
     if (!selectedMessage) {
@@ -866,32 +736,42 @@ export default function AdminMessages() {
       deliveryStatus[channel] = "Scheduled";
     });
 
-    setMessages((current) =>
-      current.map((item) =>
-        item.id === selectedMessage.id
-          ? {
-              ...item,
+    const updatedData = {
+      title: form.subject.trim(),
+      message: form.message.trim(),
+      channels: [...form.channels],
+      deliveryStatus,
+      status: "Scheduled",
+      scheduledDate: form.scheduleDate,
+      scheduledTime: form.scheduleTime,
+    };
 
-              title: form.subject.trim(),
-              message: form.message.trim(),
-
-              channels: [...form.channels],
-
-              deliveryStatus,
-
-              status: "Scheduled",
-
-              scheduledDate: form.scheduleDate,
-              scheduledTime: form.scheduleTime,
-
-              updatedBy: "Super Admin",
-              updatedAt: currentDateTime(),
-            }
-          : item
-      )
-    );
-
-    closeEdit();
+    try {
+      const token = localStorage.getItem("financeos_token");
+      const res = await fetch(`/api/admin/messages/${selectedMessage.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(updatedData),
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === selectedMessage.id ? data.data : item
+          )
+        );
+        closeEdit();
+      } else {
+        alert(data.message || "Failed to update message.");
+      }
+    } catch (error) {
+      console.error("Update Message Error:", error);
+      alert("Failed to update message.");
+    }
   }
 
 
@@ -899,7 +779,7 @@ export default function AdminMessages() {
   // CANCEL MESSAGE
   // ==========================================================
 
-  function cancelMessage(message) {
+  async function cancelMessage(message) {
     if (message.status !== "Scheduled") {
       return;
     }
@@ -913,41 +793,42 @@ export default function AdminMessages() {
     }
 
     const deliveryStatus = {};
-
     message.channels.forEach((channel) => {
       deliveryStatus[channel] = "Cancelled";
     });
 
-    const cancelledAt = currentDateTime();
+    try {
+      const token = localStorage.getItem("financeos_token");
+      const res = await fetch(`/api/admin/messages/${message.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          status: "Cancelled",
+          deliveryStatus,
+          cancelledAt: new Date(),
+        }),
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id ? data.data : item
+          )
+        );
 
-    setMessages((current) =>
-      current.map((item) =>
-        item.id === message.id
-          ? {
-              ...item,
-
-              status: "Cancelled",
-
-              deliveryStatus,
-
-              cancelledBy: "Super Admin",
-              cancelledAt,
-            }
-          : item
-      )
-    );
-
-    if (selectedMessage?.id === message.id) {
-      setSelectedMessage((current) => ({
-        ...current,
-
-        status: "Cancelled",
-
-        deliveryStatus,
-
-        cancelledBy: "Super Admin",
-        cancelledAt,
-      }));
+        if (selectedMessage?.id === message.id) {
+          setSelectedMessage(data.data);
+        }
+      } else {
+        alert(data.message || "Failed to cancel message.");
+      }
+    } catch (error) {
+      console.error("Cancel Message Error:", error);
+      alert("Failed to cancel message.");
     }
   }
 
@@ -956,7 +837,7 @@ export default function AdminMessages() {
   // RETRY FAILED CHANNELS
   // ==========================================================
 
-  function retryFailed(message) {
+  async function retryFailed(message) {
     const failedChannels = message.channels.filter(
       (channel) =>
         message.deliveryStatus?.[channel] === "Failed"
@@ -982,51 +863,43 @@ export default function AdminMessages() {
     };
 
     failedChannels.forEach((channel) => {
-      // Frontend simulation
       newDeliveryStatus[channel] = "Sent";
     });
 
     const newOverallStatus =
       calculateOverallStatus(newDeliveryStatus);
 
-    setMessages((current) =>
-      current.map((item) =>
-        item.id === message.id
-          ? {
-              ...item,
+    try {
+      const token = localStorage.getItem("financeos_token");
+      const res = await fetch(`/api/admin/messages/${message.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          deliveryStatus: newDeliveryStatus,
+          status: newOverallStatus,
+        }),
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id ? data.data : item
+          )
+        );
 
-              deliveryStatus:
-                newDeliveryStatus,
-
-              status:
-                newOverallStatus,
-
-              updatedBy:
-                "Super Admin",
-
-              updatedAt:
-                currentDateTime(),
-            }
-          : item
-      )
-    );
-
-    if (selectedMessage?.id === message.id) {
-      setSelectedMessage((current) => ({
-        ...current,
-
-        deliveryStatus:
-          newDeliveryStatus,
-
-        status:
-          newOverallStatus,
-
-        updatedBy:
-          "Super Admin",
-
-        updatedAt:
-          currentDateTime(),
-      }));
+        if (selectedMessage?.id === message.id) {
+          setSelectedMessage(data.data);
+        }
+      } else {
+        alert(data.message || "Failed to retry message.");
+      }
+    } catch (error) {
+      console.error("Retry Message Error:", error);
+      alert("Failed to retry message.");
     }
   }
 

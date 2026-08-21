@@ -9,6 +9,7 @@ const Activity = require("../models/Activity");
 const MonthlyFinance = require("../models/MonthlyFinance");
 
 const { logActivity } = require("../utils/activityLogger");
+const Message = require("../models/Message");
 
 // ============================================================
 // HELPERS
@@ -24,6 +25,28 @@ function normalizeStatus(status) {
   return allowedStatuses.includes(status)
     ? status
     : null;
+}
+
+async function generateUserId() {
+  const lastUser = await User.findOne({
+    userId: /^FOS-U-/,
+  }).sort({
+    createdAt: -1,
+  });
+
+  let nextNumber = 1;
+
+  if (lastUser?.userId) {
+    const currentNumber = Number(
+      lastUser.userId.replace("FOS-U-", "")
+    );
+
+    if (!Number.isNaN(currentNumber)) {
+      nextNumber = currentNumber + 1;
+    }
+  }
+
+  return `FOS-U-${String(nextNumber).padStart(6, "0")}`;
 }
 
 function startOfCurrentMonth() {
@@ -299,9 +322,246 @@ const getAdminUserById = async (req, res) => {
 };
 
 // ============================================================
+// CREATE USER (ADMIN)
+// POST /api/admin/users
+// ============================================================
+
+const createAdminUser = async (req, res) => {
+  try {
+    const {
+      fullName,
+      dateOfBirth,
+      gender,
+      mobile,
+      city,
+      state,
+      email,
+      status,
+    } = req.body;
+
+    // Required fields
+    if (
+      !fullName ||
+      !dateOfBirth ||
+      !gender ||
+      !mobile ||
+      !city ||
+      !state ||
+      !email
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All registration fields are required.",
+      });
+    }
+
+    // Normalize inputs
+    const normalizedName = String(fullName).trim();
+    const normalizedMobile = String(mobile).trim();
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedCity = String(city).trim();
+    const normalizedState = String(state).trim();
+
+    // Validations
+    if (!normalizedName) return res.status(400).json({ success: false, message: "Full name cannot be empty." });
+    if (!/^[0-9]{10}$/.test(normalizedMobile)) return res.status(400).json({ success: false, message: "Enter a valid 10-digit mobile number." });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) return res.status(400).json({ success: false, message: "Enter a valid email address." });
+
+    const allowedGenders = ["Male", "Female", "Other", "male", "female", "other", "prefer-not-to-say"];
+    if (!allowedGenders.includes(String(gender).trim())) return res.status(400).json({ success: false, message: "Invalid gender selected." });
+
+    const dob = new Date(`${dateOfBirth}T00:00:00`);
+    if (Number.isNaN(dob.getTime())) return res.status(400).json({ success: false, message: "Enter a valid date of birth." });
+    if (dob > new Date()) return res.status(400).json({ success: false, message: "Date of birth cannot be in the future." });
+
+    // Check existing email
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists.",
+      });
+    }
+
+    // Generate User ID
+    const userId = await generateUserId();
+
+    // Create user
+    const user = await User.create({
+      userId,
+      name: normalizedName,
+      dateOfBirth: dob,
+      gender: String(gender).trim(),
+      phone: normalizedMobile,
+      city: normalizedCity,
+      state: normalizedState,
+      email: normalizedEmail,
+      role: "user",
+      status: normalizeStatus(status) || "Active",
+      otp: null,
+      otpExpiresAt: null,
+    });
+
+    await logActivity({
+      userId: user._id,
+      userName: user.name,
+      userEmail: user.email,
+      type: "Registration",
+      description: "Admin created a new FinanceOS account",
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "FinanceOS account created successfully.",
+      user: {
+        _id: user._id,
+        userId: user.userId,
+        name: user.name,
+        email: user.email,
+        status: user.status,
+      },
+    });
+
+  } catch (error) {
+    console.error("Create User Error:", error);
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: "An account with this information already exists." });
+    }
+    if (error.name === "ValidationError") {
+      return res.status(400).json({ success: false, message: "Please provide valid registration information." });
+    }
+    return res.status(500).json({ success: false, message: "Failed to create user.", error: error.message });
+  }
+};
+
+// ============================================================
+// UPDATE USER (ADMIN)
+// PUT /api/admin/users/:id
+// ============================================================
+
+const updateAdminUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      fullName,
+      dateOfBirth,
+      gender,
+      mobile,
+      city,
+      state,
+      email,
+      status,
+    } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID.",
+      });
+    }
+
+    const user = await User.findOne({
+      _id: id,
+      role: { $nin: ["admin", "administrator"] },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    // Update fields if provided
+    if (fullName !== undefined) {
+      const normalizedName = String(fullName).trim();
+      if (!normalizedName) return res.status(400).json({ success: false, message: "Full name cannot be empty." });
+      user.name = normalizedName;
+    }
+
+    if (dateOfBirth !== undefined) {
+      const dob = new Date(`${dateOfBirth}T00:00:00`);
+      if (Number.isNaN(dob.getTime())) return res.status(400).json({ success: false, message: "Enter a valid date of birth." });
+      user.dateOfBirth = dob;
+    }
+
+    if (gender !== undefined) {
+      user.gender = String(gender).trim();
+    }
+
+    if (mobile !== undefined) {
+      const normalizedMobile = String(mobile).trim();
+      if (!/^[0-9]{10}$/.test(normalizedMobile)) return res.status(400).json({ success: false, message: "Enter a valid 10-digit mobile number." });
+      user.phone = normalizedMobile;
+    }
+
+    if (city !== undefined) {
+      user.city = String(city).trim();
+    }
+
+    if (state !== undefined) {
+      user.state = String(state).trim();
+    }
+
+    if (email !== undefined) {
+      const normalizedEmail = String(email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) return res.status(400).json({ success: false, message: "Enter a valid email address." });
+
+      // Check for duplicate email (excluding this user)
+      const existingUser = await User.findOne({ email: normalizedEmail, _id: { $ne: id } });
+      if (existingUser) return res.status(409).json({ success: false, message: "An account with this email already exists." });
+
+      user.email = normalizedEmail;
+    }
+
+    if (status !== undefined) {
+      const validStatus = normalizeStatus(status);
+      if (validStatus) user.status = validStatus;
+    }
+
+    await user.save();
+
+    await logActivity({
+      userId: user._id,
+      userName: user.name || "User",
+      userEmail: user.email,
+      type: "Account",
+      description: "Admin updated user profile",
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "User updated successfully.",
+      user: {
+        _id: user._id,
+        userId: user.userId,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender,
+        city: user.city,
+        state: user.state,
+        status: user.status,
+        role: user.role,
+      },
+    });
+
+  } catch (error) {
+    console.error("Update User Error:", error);
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: "An account with this information already exists." });
+    }
+    return res.status(500).json({ success: false, message: "Failed to update user.", error: error.message });
+  }
+};
+
+// ============================================================
 // UPDATE USER STATUS
+
 // PATCH /api/admin/users/:id/status
 // ============================================================
+
 
 const updateUserStatus = async (req, res) => {
   try {
@@ -574,6 +834,61 @@ const getAdminReportUsers = async (req, res) => {
   }
 };
 
+
+
+// ============================================================
+// ADMIN MESSAGES CONTROLLERS
+// ============================================================
+
+const getAdminMessages = async (req, res) => {
+  try {
+    const messages = await Message.find({}).sort({ createdAt: -1 }).lean();
+    return res.status(200).json({ success: true, data: messages });
+  } catch (error) {
+    console.error("Get Messages Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to load messages", error: error.message });
+  }
+};
+
+const createAdminMessage = async (req, res) => {
+  try {
+    const newMessage = new Message(req.body);
+    await newMessage.save();
+    return res.status(201).json({ success: true, message: "Message created", data: newMessage });
+  } catch (error) {
+    console.error("Create Message Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to create message", error: error.message });
+  }
+};
+
+const updateAdminMessage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updatedMessage = await Message.findByIdAndUpdate(id, req.body, { new: true });
+    if (!updatedMessage) {
+      return res.status(404).json({ success: false, message: "Message not found" });
+    }
+    return res.status(200).json({ success: true, message: "Message updated", data: updatedMessage });
+  } catch (error) {
+    console.error("Update Message Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to update message", error: error.message });
+  }
+};
+
+const deleteAdminMessage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deletedMessage = await Message.findByIdAndDelete(id);
+    if (!deletedMessage) {
+      return res.status(404).json({ success: false, message: "Message not found" });
+    }
+    return res.status(200).json({ success: true, message: "Message deleted" });
+  } catch (error) {
+    console.error("Delete Message Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to delete message", error: error.message });
+  }
+};
+
 // ============================================================
 // EXPORT
 // ============================================================
@@ -582,8 +897,13 @@ module.exports = {
   getAdminDashboard,
   getAdminUsers,
   getAdminUserById,
+  createAdminUser,
   updateUserStatus,
   archiveUser,
   getAdminActivities,
   getAdminReportUsers,
+  getAdminMessages,
+  createAdminMessage,
+  updateAdminMessage,
+  deleteAdminMessage,
 };
