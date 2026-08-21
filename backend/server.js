@@ -50,6 +50,9 @@ const savingGoalRoutes =
 const investmentRoutes =
   require("./routes/investmentRoutes");
 
+const reminderRoutes =
+  require("./routes/reminderRoutes");
+
 // ============================================================
 // AUTH
 // ============================================================
@@ -66,6 +69,11 @@ app.use(
 app.use(
   "/api/admin",
   adminRoutes
+);
+
+app.use(
+  "/api/admin/reminders",
+  reminderRoutes
 );
 
 // ============================================================
