@@ -168,6 +168,17 @@ function InvestmentForm({ onClose, onSuccess }) {
   const today = formatDateInput(new Date());
 
   const [investmentType, setInvestmentType] = useState("SIP");
+  const handleInvestmentTypeChange = (event) => {
+    const val = event.target.value;
+    setInvestmentType(val);
+    setMfFundName("");
+    setMfUnits("");
+    setGoldWeight("");
+    setGoldPurity("");
+    setStockTicker("");
+    setStockQuantity("");
+    setStockPurchasePrice("");
+  };
   const [investmentName, setInvestmentName] = useState("");
   const [amount, setAmount] = useState("");
   const [contributionType, setContributionType] = useState("Recurring");
@@ -177,9 +188,7 @@ function InvestmentForm({ onClose, onSuccess }) {
   const [accountLast4, setAccountLast4] = useState("");
   const [upiId, setUpiId] = useState("");
   const [otherPaymentDetails, setOtherPaymentDetails] = useState("");
-  // NEW: contribution note for SIP
   const [contributionNote, setContributionNote] = useState("");
-  // NEW: submission progress state
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [autoPayEnabled, setAutoPayEnabled] = useState(false);
@@ -221,28 +230,36 @@ function InvestmentForm({ onClose, onSuccess }) {
   const [maturityEmail, setMaturityEmail] = useState(true);
   const [maturitySms, setMaturitySms] = useState(false);
 
+  const [mfFundName, setMfFundName] = useState("");
+  const [mfUnits, setMfUnits] = useState("");
+  const [goldWeight, setGoldWeight] = useState("");
+  const [goldPurity, setGoldPurity] = useState("");
+  const [stockTicker, setStockTicker] = useState("");
+  const [stockQuantity, setStockQuantity] = useState("");
+  const [stockPurchasePrice, setStockPurchasePrice] = useState("");
   const [error, setError] = useState("");
 
   const isFixedDeposit = investmentType === "Fixed Deposit";
+  const isRecurringDeposit = investmentType === "Recurring Deposit";
   const isSIP = investmentType === "SIP";
-  const effectiveContributionType = isFixedDeposit ? "One Time" : contributionType;
+  const effectiveContributionType = (isFixedDeposit || isRecurringDeposit) ? "One Time" : contributionType;
   const effectiveReminderEnabled =
-    !isFixedDeposit && effectiveContributionType === "Recurring" && reminderEnabled;
+    !isFixedDeposit && !isRecurringDeposit && effectiveContributionType === "Recurring" && reminderEnabled;
 
   const amountNumber = safeNumber(amount);
 
   const monthlyContribution = useMemo(() => {
-    if (isFixedDeposit || effectiveContributionType !== "Recurring") return 0;
+    if ((isFixedDeposit || isRecurringDeposit) || effectiveContributionType !== "Recurring") return 0;
     return calculateMonthlyEquivalent(amountNumber, frequency, effectiveContributionType);
-  }, [amountNumber, frequency, effectiveContributionType, isFixedDeposit]);
+  }, [amountNumber, frequency, effectiveContributionType, isFixedDeposit, isRecurringDeposit]);
 
   const nextContributionDate = useMemo(() => {
-    if (isFixedDeposit || effectiveContributionType !== "Recurring") return null;
+    if ((isFixedDeposit || isRecurringDeposit) || effectiveContributionType !== "Recurring") return null;
     return calculateNextContributionDate(startDate, contributionDay);
-  }, [startDate, contributionDay, effectiveContributionType, isFixedDeposit]);
+  }, [startDate, contributionDay, effectiveContributionType, isFixedDeposit, isRecurringDeposit]);
 
   const isAffordable =
-    isFixedDeposit ||
+    (isFixedDeposit || isRecurringDeposit) ||
     effectiveContributionType !== "Recurring" ||
     monthlyContribution <= availableToAllocate;
 
@@ -268,17 +285,6 @@ function InvestmentForm({ onClose, onSuccess }) {
     ]
   );
 
-  function handleInvestmentTypeChange(event) {
-    const nextType = event.target.value;
-    setInvestmentType(nextType);
-
-    if (nextType !== "SIP") {
-      setAutoPayEnabled(false);
-    }
-
-    setError("");
-  }
-
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
@@ -291,14 +297,14 @@ function InvestmentForm({ onClose, onSuccess }) {
     }
 
     if (!investmentName.trim()) {
-      setError(isFixedDeposit ? "Enter an FD name." : "Enter an investment name.");
+      setError((isFixedDeposit || isRecurringDeposit) ? "Enter a name." : "Enter an investment name.");
       return;
     }
 
     if (amountNumber <= 0) {
       setError(
-        isFixedDeposit
-          ? "Enter a valid FD principal amount."
+        (isFixedDeposit || isRecurringDeposit)
+          ? "Enter a valid principal amount."
           : "Enter a valid investment amount."
       );
       return;
@@ -316,7 +322,6 @@ function InvestmentForm({ onClose, onSuccess }) {
       return;
     }
 
-    // If AutoPay is enabled, paymentSource is derived from Autopay fields; skip validation here
     if (!autoPayEnabled) {
       if (paymentSource === "Bank Account" && !bankName.trim()) {
         setError("Enter the bank name.");
@@ -383,34 +388,34 @@ function InvestmentForm({ onClose, onSuccess }) {
       }
     }
 
-    if (isFixedDeposit) {
+    if (isFixedDeposit || isRecurringDeposit) {
       if (!institution.trim()) {
-        setError("Enter the bank or institution where the FD is held.");
+        setError("Enter the bank or institution.");
         setIsSubmitting(false);
         return;
       }
 
       const numericRate = safeNumber(interestRate);
       if (numericRate <= 0 || numericRate > 100) {
-        setError("Enter a valid annual FD interest rate.");
+        setError("Enter a valid annual interest rate.");
         setIsSubmitting(false);
         return;
       }
 
       if (!maturityDate) {
-        setError("Select the FD maturity date.");
+        setError("Select the maturity date.");
         setIsSubmitting(false);
         return;
       }
 
       if (maturityDate <= startDate) {
-        setError("FD maturity date must be after the start date.");
+        setError("Maturity date must be after the start date.");
         setIsSubmitting(false);
         return;
       }
     }
 
-    if (!isFixedDeposit && effectiveContributionType === "Recurring") {
+    if (!isFixedDeposit && !isRecurringDeposit && effectiveContributionType === "Recurring") {
       const day = Number(contributionDay);
 
       if (!Number.isInteger(day) || day < 1 || day > 28) {
@@ -432,7 +437,7 @@ function InvestmentForm({ onClose, onSuccess }) {
       }
     }
 
-    if (!isFixedDeposit && maturityDate && maturityDate < startDate) {
+    if (!isFixedDeposit && !isRecurringDeposit && maturityDate && maturityDate < startDate) {
       setError("Maturity date cannot be before the start date.");
       setIsSubmitting(false);
       return;
@@ -507,9 +512,24 @@ function InvestmentForm({ onClose, onSuccess }) {
       amount: amountNumber,
       contributionType: effectiveContributionType,
       frequency: effectiveContributionType === "Recurring" ? frequency : null,
-      monthlyContribution: isFixedDeposit ? 0 : monthlyContribution,
+      monthlyContribution: (isFixedDeposit || isRecurringDeposit) ? 0 : monthlyContribution,
       paymentSource: paymentSource || undefined,
       contributionNote: contributionNote.trim(),
+      customDetails: (() => {
+        const cd = {};
+        if (investmentType === "Mutual Fund") {
+          cd.fundName = mfFundName.trim();
+          cd.units = safeNumber(mfUnits);
+        } else if (investmentType === "Gold") {
+          cd.weight = safeNumber(goldWeight);
+          cd.purity = safeNumber(goldPurity);
+        } else if (investmentType === "Stocks") {
+          cd.ticker = stockTicker.trim();
+          cd.quantity = safeNumber(stockQuantity);
+          cd.purchasePrice = safeNumber(stockPurchasePrice);
+        }
+        return cd;
+      })(),
       paymentSourceDetails: {
         bankName: paymentSource === "Bank Account" ? bankName.trim() : "",
         accountLast4: paymentSource === "Bank Account" ? accountLast4 : "",
@@ -551,10 +571,10 @@ function InvestmentForm({ onClose, onSuccess }) {
             : "",
       },
       startDate,
-      nextContributionDate: isFixedDeposit ? null : nextContributionDate,
+      nextContributionDate: (isFixedDeposit || isRecurringDeposit) ? null : nextContributionDate,
       maturityDate: maturityDate || null,
       status: investmentStatus,
-      ...(isFixedDeposit
+      ...((isFixedDeposit || isRecurringDeposit)
         ? {
             institution: institution.trim(),
             principalAmount: amountNumber,
@@ -648,8 +668,6 @@ function InvestmentForm({ onClose, onSuccess }) {
             <FiX size={18} />
           </button>
         </div>
-        {/* NEW: Progress Bar */}
-        {isSubmitting && <ProgressBar />}
 
         <form onSubmit={handleSubmit} className="flex-1 space-y-6 overflow-y-auto bg-[#fafcf8] p-6">
           {error && (
@@ -695,7 +713,7 @@ function InvestmentForm({ onClose, onSuccess }) {
 
               <label className="block">
                 <span className="text-xs font-medium text-[#52665b]">
-                  {isFixedDeposit ? "FD Name" : "Investment Name"}
+                  {(isFixedDeposit || isRecurringDeposit) ? "Name" : "Investment Name"}
                 </span>
                 <input
                   type="text"
@@ -704,11 +722,7 @@ function InvestmentForm({ onClose, onSuccess }) {
                     setInvestmentName(event.target.value);
                     setError("");
                   }}
-                  placeholder={
-                    isFixedDeposit
-                      ? "Example: SBI 2 Year FD"
-                      : "Example: Retirement SIP"
-                  }
+                  placeholder="Example: Retirement SIP"
                   className={inputClass}
                 />
               </label>
@@ -732,8 +746,8 @@ function InvestmentForm({ onClose, onSuccess }) {
                   <option value="Closed">Closed</option>
                 </select>
               </label>
-              
-              {!isFixedDeposit && (
+
+              {!isFixedDeposit && !isRecurringDeposit && (
                 <label className="block">
                   <span className="text-xs font-medium text-[#52665b]">
                     Contribution Note (optional)
@@ -747,9 +761,55 @@ function InvestmentForm({ onClose, onSuccess }) {
                   />
                 </label>
               )}
+
+              {!isFixedDeposit && !isRecurringDeposit && (
+                <section className="rounded-2xl border border-[#dcebd4] bg-[#f7fbf4] p-5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6c8b72]">Additional Details</p>
+                  {investmentType === "Mutual Fund" && (
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                      <label className="block">
+                        <span className="text-xs font-medium text-[#52665b]">Fund Name</span>
+                        <input type="text" value={mfFundName} onChange={e=>{setMfFundName(e.target.value);setError("");}} placeholder="Example: ABC Growth Fund" className={inputClass}/>
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-medium text-[#52665b]">Units</span>
+                        <MoneyInput value={mfUnits} onChange={setMfUnits} placeholder="100"/>
+                      </label>
+                    </div>
+                  )}
+                  {investmentType === "Gold" && (
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                      <label className="block">
+                        <span className="text-xs font-medium text-[#52665b]">Weight (grams)</span>
+                        <MoneyInput value={goldWeight} onChange={setGoldWeight} placeholder="10"/>
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-medium text-[#52665b]">Purity (%)</span>
+                        <MoneyInput value={goldPurity} onChange={setGoldPurity} placeholder="99.9"/>
+                      </label>
+                    </div>
+                  )}
+                  {investmentType === "Stocks" && (
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+                      <label className="block">
+                        <span className="text-xs font-medium text-[#52665b]">Ticker Symbol</span>
+                        <input type="text" value={stockTicker} onChange={e=>{setStockTicker(e.target.value);setError("");}} placeholder="e.g., AAPL" className={inputClass}/>
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-medium text-[#52665b]">Quantity</span>
+                        <MoneyInput value={stockQuantity} onChange={setStockQuantity} placeholder="10"/>
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-medium text-[#52665b]">Purchase Price</span>
+                        <MoneyInput value={stockPurchasePrice} onChange={setStockPurchasePrice} placeholder="1500"/>
+                      </label>
+                    </div>
+                  )}
+                </section>
+              )}
             </div>
 
-            {isFixedDeposit && (
+            {(isFixedDeposit || isRecurringDeposit) && (
               <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
                 <label className="block">
                   <span className="text-xs font-medium text-[#52665b]">
@@ -769,7 +829,7 @@ function InvestmentForm({ onClose, onSuccess }) {
 
                 <label className="block">
                   <span className="text-xs font-medium text-[#52665b]">
-                    FD Principal Amount
+                    Amount
                   </span>
                   <MoneyInput
                     value={amount}
