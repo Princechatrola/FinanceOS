@@ -125,6 +125,43 @@ function calculateFDDetails({
   };
 }
 
+// ============================================================
+// RD CALCULATION
+// Standard RD Maturity Formula:
+//   M = P × n + P × n × (n+1) / 2 × r / 1200
+// Where P = monthly deposit, n = number of months, r = annual rate %
+// (Simple interest approximation used by most Indian banks)
+// ============================================================
+
+function calculateRDDetails({ depositAmount, interestRate, startDate, maturityDate }) {
+  const P = safeNumber(depositAmount);
+  const r = safeNumber(interestRate);
+  const years = calculateYears(startDate, maturityDate);
+  const n = Math.round(years * 12); // number of months
+
+  if (P <= 0 || r <= 0 || n <= 0) {
+    return {
+      months: n,
+      totalDeposits: P * Math.max(n, 0),
+      estimatedInterest: 0,
+      estimatedMaturityAmount: P * Math.max(n, 0),
+    };
+  }
+
+  const totalDeposits = P * n;
+  // Standard quarterly compounding RD formula used by most banks
+  // Interest = P × n(n+1)/2 × r / (1200)
+  const estimatedInterest = (P * n * (n + 1) * r) / (2 * 1200);
+  const estimatedMaturityAmount = totalDeposits + estimatedInterest;
+
+  return {
+    months: n,
+    totalDeposits,
+    estimatedInterest,
+    estimatedMaturityAmount,
+  };
+}
+
 function calculateNextContributionDate(startDate, contributionDay) {
   if (!startDate || !contributionDay) return "";
   const [year, month, day] = startDate.split("-").map(Number);
@@ -181,6 +218,7 @@ function InvestmentForm({ onClose, onSuccess }) {
   };
   const [investmentName, setInvestmentName] = useState("");
   const [amount, setAmount] = useState("");
+  const [contributionAmount, setContributionAmount] = useState("");
   const [contributionType, setContributionType] = useState("Recurring");
 
   const [paymentSource, setPaymentSource] = useState("");
@@ -247,11 +285,12 @@ function InvestmentForm({ onClose, onSuccess }) {
     !isFixedDeposit && !isRecurringDeposit && effectiveContributionType === "Recurring" && reminderEnabled;
 
   const amountNumber = safeNumber(amount);
+  const contributionAmountNumber = safeNumber(contributionAmount);
 
   const monthlyContribution = useMemo(() => {
     if ((isFixedDeposit || isRecurringDeposit) || effectiveContributionType !== "Recurring") return 0;
-    return calculateMonthlyEquivalent(amountNumber, frequency, effectiveContributionType);
-  }, [amountNumber, frequency, effectiveContributionType, isFixedDeposit, isRecurringDeposit]);
+    return calculateMonthlyEquivalent(contributionAmountNumber, frequency, effectiveContributionType);
+  }, [contributionAmountNumber, amountNumber, frequency, effectiveContributionType, isFixedDeposit, isRecurringDeposit]);
 
   const nextContributionDate = useMemo(() => {
     if ((isFixedDeposit || isRecurringDeposit) || effectiveContributionType !== "Recurring") return null;
@@ -285,6 +324,17 @@ function InvestmentForm({ onClose, onSuccess }) {
     ]
   );
 
+  const rdDetails = useMemo(
+    () =>
+      calculateRDDetails({
+        depositAmount: amountNumber,
+        interestRate,
+        startDate,
+        maturityDate,
+      }),
+    [amountNumber, interestRate, startDate, maturityDate]
+  );
+
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
@@ -298,15 +348,24 @@ function InvestmentForm({ onClose, onSuccess }) {
 
     if (!investmentName.trim()) {
       setError((isFixedDeposit || isRecurringDeposit) ? "Enter a name." : "Enter an investment name.");
+      setIsSubmitting(false);
       return;
     }
 
-    if (amountNumber <= 0) {
+    // For SIP, validate contributionAmount; for others, validate amount
+    if (isSIP) {
+      if (contributionAmountNumber <= 0) {
+        setError("Enter a valid contribution amount for this SIP.");
+        setIsSubmitting(false);
+        return;
+      }
+    } else if (amountNumber <= 0) {
       setError(
         (isFixedDeposit || isRecurringDeposit)
           ? "Enter a valid principal amount."
           : "Enter a valid investment amount."
       );
+      setIsSubmitting(false);
       return;
     }
 
@@ -316,7 +375,7 @@ function InvestmentForm({ onClose, onSuccess }) {
       return;
     }
 
-    if (!paymentSource) {
+    if (!paymentSource && !isFixedDeposit && !isRecurringDeposit) {
       setError("Select a payment source for this investment.");
       setIsSubmitting(false);
       return;
@@ -509,7 +568,7 @@ function InvestmentForm({ onClose, onSuccess }) {
     const investmentData = {
       name: investmentName.trim(),
       type: investmentType,
-      amount: amountNumber,
+      amount: isSIP ? contributionAmountNumber : amountNumber,
       contributionType: effectiveContributionType,
       frequency: effectiveContributionType === "Recurring" ? frequency : null,
       monthlyContribution: (isFixedDeposit || isRecurringDeposit) ? 0 : monthlyContribution,
@@ -579,15 +638,19 @@ function InvestmentForm({ onClose, onSuccess }) {
             institution: institution.trim(),
             principalAmount: amountNumber,
             interestRate: safeNumber(interestRate),
-            interestMethod,
+            interestMethod: isFixedDeposit ? interestMethod : "Cumulative",
             interestPayoutFrequency:
-              interestMethod === "Payout" ? interestPayoutFrequency : null,
+              isFixedDeposit && interestMethod === "Payout" ? interestPayoutFrequency : null,
             compoundingFrequency:
-              interestMethod === "Cumulative" ? compoundingFrequency : null,
-            estimatedInterest: fdDetails.estimatedInterest,
-            estimatedAnnualInterest: fdDetails.estimatedAnnualInterest,
-            estimatedInterestPerPayout: fdDetails.estimatedInterestPerPayout,
-            estimatedMaturityAmount: fdDetails.estimatedMaturityAmount,
+              isFixedDeposit && interestMethod === "Cumulative" ? compoundingFrequency : null,
+            estimatedInterest: isFixedDeposit
+              ? fdDetails.estimatedInterest
+              : rdDetails.estimatedInterest,
+            estimatedAnnualInterest: isFixedDeposit ? fdDetails.estimatedAnnualInterest : 0,
+            estimatedInterestPerPayout: isFixedDeposit ? fdDetails.estimatedInterestPerPayout : 0,
+            estimatedMaturityAmount: isFixedDeposit
+              ? fdDetails.estimatedMaturityAmount
+              : rdDetails.estimatedMaturityAmount,
             totalInterestReceived: 0,
             interestTransactions: [],
             renewedFromId: null,
@@ -829,7 +892,7 @@ function InvestmentForm({ onClose, onSuccess }) {
 
                 <label className="block">
                   <span className="text-xs font-medium text-[#52665b]">
-                    Amount
+                    {isRecurringDeposit ? "Deposit Amount (per month)" : "Principal Amount"}
                   </span>
                   <MoneyInput
                     value={amount}
@@ -837,19 +900,65 @@ function InvestmentForm({ onClose, onSuccess }) {
                     placeholder="100000"
                   />
                 </label>
+
+                {/* Interest Rate — shown for both FD and RD */}
+                <label className="block">
+                  <span className="text-xs font-medium text-[#52665b]">
+                    Annual Interest Rate (%)
+                  </span>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={interestRate}
+                      onChange={(event) => {
+                        setInterestRate(event.target.value);
+                        setError("");
+                      }}
+                      onWheel={preventWheelChange}
+                      placeholder={isRecurringDeposit ? "6.5" : "7.25"}
+                      className={`${inputClass} pr-10`}
+                    />
+                    <span className="absolute right-4 top-1/2 mt-1 -translate-y-1/2 text-sm text-slate-400">
+                      %
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[10px] leading-4 text-slate-400">
+                    Enter the annual interest rate offered by your bank.
+                  </p>
+                </label>
               </div>
             )}
 
-            {!isFixedDeposit && (
+            {/* SIP: Contribution Amount — shown only for SIP */}
+            {isSIP && (
               <div className="mt-5">
                 <label className="block">
                   <span className="text-xs font-medium text-[#52665b]">
                     Contribution Amount
                   </span>
                   <MoneyInput
+                    value={contributionAmount}
+                    onChange={setContributionAmount}
+                    placeholder="5000"
+                  />
+                </label>
+              </div>
+            )}
+
+            {/* Non-SIP, Non-FD/RD: Investment Amount (MF, Gold, Stocks, Other) */}
+            {!isSIP && !isFixedDeposit && !isRecurringDeposit && (
+              <div className="mt-5">
+                <label className="block">
+                  <span className="text-xs font-medium text-[#52665b]">
+                    Investment Amount
+                  </span>
+                  <MoneyInput
                     value={amount}
                     onChange={setAmount}
-                    placeholder="5000"
+                    placeholder="50000"
                   />
                 </label>
               </div>
@@ -869,32 +978,7 @@ function InvestmentForm({ onClose, onSuccess }) {
               </p>
 
               <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
-                <label className="block">
-                  <span className="text-xs font-medium text-[#52665b]">
-                    Annual Interest Rate (%)
-                  </span>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      value={interestRate}
-                      onChange={(event) => {
-                        setInterestRate(event.target.value);
-                        setError("");
-                      }}
-                      onWheel={preventWheelChange}
-                      placeholder="7.25"
-                      className={`${inputClass} pr-10`}
-                    />
-                    <span className="absolute right-4 top-1/2 mt-1 -translate-y-1/2 text-sm text-slate-400">
-                      %
-                    </span>
-                  </div>
-                </label>
-
-                <label className="block">
+                <label className="block md:col-span-2">
                   <span className="text-xs font-medium text-[#52665b]">
                     Interest Method
                   </span>
@@ -956,6 +1040,58 @@ function InvestmentForm({ onClose, onSuccess }) {
               </div>
             </section>
           )}
+
+          {/* ======================================================
+              RD ESTIMATE
+          ====================================================== */}
+          {isRecurringDeposit && (
+            <section className="rounded-2xl border border-[#dcebd4] bg-[#f7fbf4] p-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#edf6e8] text-[#315c46]">
+                  <FiDollarSign size={17} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6c8b72]">
+                    RD Estimate
+                  </p>
+                  <h3 className="mt-0.5 text-sm font-semibold text-[#18392c]">
+                    Expected Returns
+                  </h3>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <InfoBox
+                  label="Total Deposits"
+                  value={`₹${formatMoney(rdDetails.totalDeposits)}`}
+                />
+                <InfoBox
+                  label="Estimated Interest"
+                  value={`₹${formatMoney(rdDetails.estimatedInterest)}`}
+                />
+                <InfoBox
+                  label="Estimated Maturity"
+                  value={`₹${formatMoney(rdDetails.estimatedMaturityAmount)}`}
+                />
+              </div>
+
+              {rdDetails.months > 0 && (
+                <div className="mt-4 rounded-xl bg-white p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6c8b72]">
+                    Tenure
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-[#315c46]">
+                    {rdDetails.months} month{rdDetails.months !== 1 ? "s" : ""}
+                  </p>
+                </div>
+              )}
+
+              <p className="mt-4 text-[10px] leading-5 text-slate-400">
+                Calculation uses the standard RD formula (simple interest basis). Actual bank payout may vary slightly based on compounding method.
+              </p>
+            </section>
+          )}
+
 
           {!isFixedDeposit && (
             <section className="rounded-2xl border border-[#e2e8dc] bg-white p-5">
@@ -1053,7 +1189,6 @@ function InvestmentForm({ onClose, onSuccess }) {
                       }}
                       className={inputClass}
                     >
-                      <option value="">Select Payment Source</option>
                       <option value="Bank Account">Bank Account</option>
                       <option value="UPI">UPI</option>
                       <option value="Cash">Cash</option>
@@ -1657,7 +1792,10 @@ function InvestmentForm({ onClose, onSuccess }) {
               </div>
             ) : (
               <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
-                <SummaryItem label="Contribution" value={`₹${formatMoney(amountNumber)}`} />
+                <SummaryItem
+                  label={isSIP ? "Contribution" : "Amount"}
+                  value={`₹${formatMoney(isSIP ? contributionAmountNumber : amountNumber)}`}
+                />
                 <SummaryItem label="Type" value={effectiveContributionType} />
                 <SummaryItem
                   label="Monthly Equivalent"

@@ -242,7 +242,7 @@ function FDInterestModal({
   // SUBMIT
   // ==========================================================
 
-  const handleSubmit = (
+  const handleSubmit = async (
     event
   ) => {
 
@@ -341,7 +341,7 @@ function FDInterestModal({
     try {
 
       const result =
-        recordFDInterest(
+        await recordFDInterest(
           investment.id,
           {
             amount:

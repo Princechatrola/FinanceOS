@@ -26,6 +26,14 @@ const interestTransactionSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    month: {
+      type: Number,
+      required: true,
+    },
+    year: {
+      type: Number,
+      required: true,
+    },
   },
   {
     _id: false,
