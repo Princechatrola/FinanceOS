@@ -311,17 +311,41 @@ function FinanceProvider({ children }) {
         throw new Error(data.message || "Failed to load investments.");
       }
 
-      setInvestments(
-        data.investments.map((investment) => ({
-          ...investment,
-          id: investment._id,
-          amount: Number(investment.amount || 0),
-          currentValue: Number(investment.currentValue ?? investment.amount ?? 0),
-          monthlyContribution: Number(investment.monthlyContribution || 0),
-          totalInterestReceived: Number(investment.totalInterestReceived || 0),
-          sipContributions: Array.isArray(investment.sipContributions) ? investment.sipContributions : [],
-        }))
-      );
+      const loadedInvestments = data.investments.map((investment) => ({
+        ...investment,
+        id: investment._id,
+        amount: Number(investment.amount || 0),
+        currentValue: Number(investment.currentValue ?? investment.amount ?? 0),
+        monthlyContribution: Number(investment.monthlyContribution || 0),
+        totalInterestReceived: Number(investment.totalInterestReceived || 0),
+        sipContributions: Array.isArray(investment.sipContributions) ? investment.sipContributions : [],
+      }));
+
+      setInvestments(loadedInvestments);
+
+      // Extract FD Interest transactions for dashboard
+      const extractedIncome = [];
+      loadedInvestments.forEach(inv => {
+        if (Array.isArray(inv.interestTransactions)) {
+          inv.interestTransactions.forEach(t => {
+            extractedIncome.push({
+              id: t.id || t._id || `fd-interest-${inv.id}-${t.date}`,
+              type: "FD Interest",
+              category: "Investment Income",
+              amount: Number(t.amount),
+              date: t.date,
+              month: Number(t.month || new Date(t.date).getMonth() + 1),
+              year: Number(t.year || new Date(t.date).getFullYear()),
+              source: inv.name || inv.institution || "Fixed Deposit",
+              investmentId: inv.id,
+              referenceId: t.referenceId,
+              note: t.note,
+              createdAt: t.date
+            });
+          });
+        }
+      });
+      setAdditionalIncomeTransactions(extractedIncome);
     } catch (error) {
       console.error("Load Investments:", error);
     }
@@ -494,56 +518,84 @@ function FinanceProvider({ children }) {
   // FD INTEREST ACTIONS
   // ==========================================================
 
-  const recordFDInterest = (investmentId, interestData = {}) => {
-    const investment = investments.find((item) => item.id === investmentId);
-    if (!investment) return { success: false, message: "Fixed deposit not found." };
+  const recordFDInterest = async (investmentId, interestData = {}) => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
 
-    const investmentType = String(investment.type || "").trim().toLowerCase();
-    if (investmentType !== "fixed deposit") {
-      return { success: false, message: "Interest can only be recorded here for a fixed deposit." };
-    }
+      if (!token) {
+        return { success: false, message: "Authentication token not found." };
+      }
 
-    const interestMethod = String(investment.interestMethod || "").trim().toLowerCase();
-    if (interestMethod === "cumulative") {
-      return { success: false, message: "This is a cumulative FD. Interest remains inside the FD until maturity." };
-    }
+      const investment = investments.find((item) => item.id === investmentId);
+      if (!investment) return { success: false, message: "Fixed deposit not found." };
 
-    if (normalizeStatus(investment.status) === "closed") {
-      return { success: false, message: "Interest cannot be recorded for a closed FD." };
-    }
+      const investmentType = String(investment.type || "").trim().toLowerCase();
+      if (investmentType !== "fixed deposit") {
+        return { success: false, message: "Interest can only be recorded here for a fixed deposit." };
+      }
 
-    const amount = safeNumber(interestData.amount);
-    if (amount <= 0) {
-      return { success: false, message: "Enter the actual FD interest amount credited by the bank." };
-    }
+      const interestMethod = String(investment.interestMethod || "").trim().toLowerCase();
+      if (interestMethod === "cumulative") {
+        return { success: false, message: "This is a cumulative FD. Interest remains inside the FD until maturity." };
+      }
 
-    const date = interestData.date || new Date().toISOString().slice(0, 10);
-    const dateInfo = getMonthYearFromDate(date);
-    const transactionMonth = Number(dateInfo.month);
-    const transactionYear = Number(dateInfo.year);
-    const referenceId = interestData.referenceId || `fd-interest-${investmentId}-${date}`;
+      if (normalizeStatus(investment.status) === "closed") {
+        return { success: false, message: "Interest cannot be recorded for a closed FD." };
+      }
 
-    const duplicate = additionalIncomeTransactions.some((t) => t.referenceId === referenceId);
-    if (duplicate) {
-      return { success: false, message: "This FD interest payment has already been recorded." };
-    }
+      const amount = safeNumber(interestData.amount);
+      if (amount <= 0) {
+        return { success: false, message: "Enter the actual FD interest amount credited by the bank." };
+      }
 
-    const transaction = {
-      id: createId("fd-interest"),
-      type: "FD Interest",
-      category: "Investment Income",
-      amount,
-      date,
-      month: transactionMonth,
-      year: transactionYear,
-      source: investment.name || investment.institution || "Fixed Deposit",
-      investmentId,
-      referenceId,
-      note: interestData.note || `Interest received from ${investment.name || "Fixed Deposit"}`,
-      createdAt: new Date().toISOString(),
-    };
+      const date = interestData.date || new Date().toISOString().slice(0, 10);
+      const dateInfo = getMonthYearFromDate(date);
+      const transactionMonth = Number(dateInfo.month);
+      const transactionYear = Number(dateInfo.year);
+      const referenceId = interestData.referenceId || `fd-interest-${investmentId}-${date}`;
 
-    setAdditionalIncomeTransactions((current) => [...current, transaction]);
+      const duplicate = Array.isArray(investment.interestTransactions) && 
+        investment.interestTransactions.some(
+          (t) => Number(t.month) === transactionMonth && Number(t.year) === transactionYear
+        );
+      if (duplicate) {
+        return { success: false, message: `FD interest for ${transactionMonth}/${transactionYear} has already been recorded.` };
+      }
+
+      const transaction = {
+        id: createId("fd-interest"),
+        type: "FD Interest",
+        category: "Investment Income",
+        amount,
+        date,
+        month: transactionMonth,
+        year: transactionYear,
+        source: investment.name || investment.institution || "Fixed Deposit",
+        investmentId,
+        referenceId,
+        note: interestData.note || `Interest received from ${investment.name || "Fixed Deposit"}`,
+        createdAt: new Date().toISOString(),
+      };
+
+      // API CALL TO BACKEND
+      const response = await fetch(`http://localhost:5000/api/investments/${investmentId}/interest`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(transaction),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to record FD interest.");
+      }
+
+      setAdditionalIncomeTransactions((current) => [...current, transaction]);
 
     setInvestments((current) =>
       current.map((item) => {
@@ -630,11 +682,15 @@ function FinanceProvider({ children }) {
       })
     );
 
-    return {
-      success: true,
-      transaction,
-      message: `FD interest of ₹${amount.toLocaleString("en-US")} was added to ${transactionMonth}/${transactionYear} income.`,
-    };
+      return {
+        success: true,
+        transaction,
+        message: `FD interest of ₹${amount.toLocaleString("en-US")} was added to ${transactionMonth}/${transactionYear} income.`,
+      };
+    } catch (error) {
+      console.error("recordFDInterest Error:", error);
+      return { success: false, message: error.message || "Failed to record FD interest." };
+    }
   };
 
   // ==========================================================
