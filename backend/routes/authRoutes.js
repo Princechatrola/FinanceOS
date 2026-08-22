@@ -523,13 +523,13 @@ router.get(
       // ======================================================
 
       if (
-        user.role !== "user"
+        !["user", "admin", "administrator"].includes(user.role)
       ) {
 
         return res.status(403).json({
           success: false,
           message:
-            "Access denied. User account required.",
+            "Access denied. Valid account required.",
         });
 
       }
@@ -711,13 +711,13 @@ router.put(
       // ======================================================
 
       if (
-        user.role !== "user"
+        !["user", "admin", "administrator"].includes(user.role)
       ) {
 
         return res.status(403).json({
           success: false,
           message:
-            "Access denied. User account required.",
+            "Access denied. Valid account required.",
         });
 
       }
