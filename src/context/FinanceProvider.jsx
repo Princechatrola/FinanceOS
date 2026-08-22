@@ -319,6 +319,7 @@ function FinanceProvider({ children }) {
           currentValue: Number(investment.currentValue ?? investment.amount ?? 0),
           monthlyContribution: Number(investment.monthlyContribution || 0),
           totalInterestReceived: Number(investment.totalInterestReceived || 0),
+          sipContributions: Array.isArray(investment.sipContributions) ? investment.sipContributions : [],
         }))
       );
     } catch (error) {
@@ -1231,6 +1232,7 @@ function FinanceProvider({ children }) {
         currentValue: Number(data.investment.amount || 0),
         monthlyContribution: Number(data.investment.monthlyContribution || 0),
         totalInterestReceived: Number(data.investment.totalInterestReceived || 0),
+        sipContributions: Array.isArray(data.investment.sipContributions) ? data.investment.sipContributions : [],
       };
 
       setInvestments((current) => [...current, savedInvestment]);
@@ -1243,6 +1245,154 @@ function FinanceProvider({ children }) {
     } catch (error) {
       console.error("Add Investment:", error);
       return { success: false, message: error.message || "Failed to add investment." };
+    }
+  };
+
+  // ==========================================================
+  // SIP CONTRIBUTIONS
+  // ==========================================================
+
+  const getSIPContributions = async (investmentId) => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+
+      if (!token) {
+        return {
+          success: false,
+          message: "Authentication token not found.",
+          contributions: [],
+        };
+      }
+
+      const response = await fetch(
+        `http://localhost:5000/api/investments/${investmentId}/contributions`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to fetch SIP contributions.");
+      }
+
+      return {
+        success: true,
+        contributions: data.contributions || [],
+      };
+    } catch (error) {
+      console.error("Get SIP Contributions:", error);
+      return {
+        success: false,
+        message: error.message || "Failed to fetch SIP contributions.",
+        contributions: [],
+      };
+    }
+  };
+
+  const addSIPContribution = async (investmentId, contributionData = {}) => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+
+      if (!token) {
+        return {
+          success: false,
+          message: "Authentication token not found.",
+        };
+      }
+
+      const response = await fetch(
+        `http://localhost:5000/api/investments/${investmentId}/contributions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(contributionData),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to add SIP contribution.");
+      }
+
+      await loadInvestments();
+
+      return {
+        success: true,
+        contribution: data.contribution,
+        investment: data.investment,
+        message: data.message || "SIP contribution recorded successfully.",
+      };
+    } catch (error) {
+      console.error("Add SIP Contribution:", error);
+      return {
+        success: false,
+        message: error.message || "Failed to add SIP contribution.",
+      };
+    }
+  };
+
+  const updateSIPContribution = async (investmentId, contributionId, updates = {}) => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+
+      if (!token) {
+        return {
+          success: false,
+          message: "Authentication token not found.",
+        };
+      }
+
+      const contributionData = { ...updates };
+      if (updates.amount !== undefined) {
+        contributionData.amount = nonNegative(updates.amount);
+      }
+
+      const response = await fetch(
+        `http://localhost:5000/api/investments/${investmentId}/contributions/${contributionId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(contributionData),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to update SIP contribution.");
+      }
+
+      await loadInvestments();
+
+      return {
+        success: true,
+        contribution: data.contribution,
+        investment: data.investment,
+        message: data.message || "SIP contribution updated successfully.",
+      };
+    } catch (error) {
+      console.error("Update SIP Contribution:", error);
+      return {
+        success: false,
+        message: error.message || "Failed to update SIP contribution.",
+      };
     }
   };
 
@@ -1287,6 +1437,7 @@ function FinanceProvider({ children }) {
         currentValue: Number(data.investment.currentValue ?? data.investment.amount ?? 0),
         monthlyContribution: Number(data.investment.monthlyContribution || 0),
         totalInterestReceived: Number(data.investment.totalInterestReceived || 0),
+        sipContributions: Array.isArray(data.investment.sipContributions) ? data.investment.sipContributions : [],
       };
 
       setInvestments((current) =>
@@ -1498,6 +1649,7 @@ function FinanceProvider({ children }) {
         currentValue: Number(data.investment.currentValue ?? data.investment.amount ?? 0),
         monthlyContribution: Number(data.investment.monthlyContribution || 0),
         totalInterestReceived: Number(data.investment.totalInterestReceived || 0),
+        sipContributions: Array.isArray(data.investment.sipContributions) ? data.investment.sipContributions : [],
       };
 
       setInvestments((current) => [...current, renewedInvestment]);
@@ -2116,9 +2268,17 @@ function FinanceProvider({ children }) {
     updateInvestment,
     updateInvestmentStatus,
     deleteInvestment,
+
+    // SIP Contributions
+    getSIPContributions,
+    addSIPContribution,
+    updateSIPContribution,
+
+    // Investment Maturity
     handleInvestmentMaturity,
     renewInvestment,
     getInvestmentMaturityValue,
+
     investmentMonthlyCommitment,
     totalInvestmentValue,
 

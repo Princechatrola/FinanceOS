@@ -1,5 +1,5 @@
 // ============================================================
-// FINANCEOS - ACTIVITY MODEL
+// FINANCEOS - ACTIVITY MODEL 
 // ============================================================
 
 const mongoose = require("mongoose");

@@ -16,6 +16,10 @@ const {
   updateInvestment,
   deleteInvestment,
   recordFDInterest,
+  getSIPContributions,
+  addSIPContribution,
+  updateSIPContribution,
+  recordInvestmentMaturity,
   renewInvestment,
 } = require("../controllers/investmentController");
 
@@ -36,6 +40,35 @@ router.get(
   authMiddleware,
   getInvestments
 );
+
+// ============================================================
+// SIP CONTRIBUTIONS
+// ============================================================
+
+// Get SIP contribution history
+router.get(
+  "/:id/contributions",
+  authMiddleware,
+  getSIPContributions
+);
+
+// Add SIP contribution
+router.post(
+  "/:id/contributions",
+  authMiddleware,
+  addSIPContribution
+);
+
+// Update SIP contribution
+router.put(
+  "/:id/contributions/:contributionId",
+  authMiddleware,
+  updateSIPContribution
+);
+
+// ============================================================
+// CORE INVESTMENT
+// ============================================================
 
 // Get Single Investment
 router.get(
@@ -58,11 +91,22 @@ router.delete(
   deleteInvestment
 );
 
+// ============================================================
+// FD / MATURITY / RENEWAL
+// ============================================================
+
 // Record FD Interest
 router.post(
   "/:id/interest",
   authMiddleware,
   recordFDInterest
+);
+
+// Record Investment Maturity
+router.post(
+  "/:id/maturity",
+  authMiddleware,
+  recordInvestmentMaturity
 );
 
 // Renew Investment
