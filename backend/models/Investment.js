@@ -350,6 +350,8 @@ const investmentSchema = new mongoose.Schema(
         sms: Boolean,
       },
     },
+    // Generic field to store type‑specific metadata (e.g., MF holdings, gold weight, stock ticker)
+    customDetails: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   {
     timestamps: true,

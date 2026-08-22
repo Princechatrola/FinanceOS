@@ -4,6 +4,39 @@
 
 const Investment = require("../models/Investment");
 
+// --------------------------------------------------------
+// Validate investment payload based on type and required custom fields
+// --------------------------------------------------------
+function validateInvestmentPayload(payload) {
+  const { type, customDetails = {} } = payload;
+  const errors = [];
+  switch (type) {
+    case "Mutual Fund":
+      if (!customDetails.fundName) errors.push("fundName is required for Mutual Fund");
+      if (!customDetails.units) errors.push("units is required for Mutual Fund");
+      break;
+    case "Gold":
+      if (!customDetails.weight) errors.push("weight is required for Gold");
+      if (!customDetails.purity) errors.push("purity is required for Gold");
+      break;
+    case "Stocks":
+      if (!customDetails.ticker) errors.push("ticker is required for Stocks");
+      if (!customDetails.quantity) errors.push("quantity is required for Stocks");
+      if (!customDetails.purchasePrice) errors.push("purchasePrice is required for Stocks");
+      break;
+    case "Recurring Deposit":
+      // RD uses same fields as FD; no extra customDetails required
+      break;
+    case "Other":
+      // No mandatory fields
+      break;
+    default:
+      // No extra validation for SIP, FD, etc.
+      break;
+  }
+  return { valid: errors.length === 0, errors };
+}
+
 // ============================================================
 // ADD INVESTMENT
 // ============================================================
@@ -19,6 +52,18 @@ const addInvestment = async (req, res) => {
       user: req.user?.id || req.user?._id,
       paymentSource: req.body.paymentSource || undefined,
     };
+
+    // --------------------------------------------------------
+    // Run validation before persisting
+    // --------------------------------------------------------
+    const { valid, errors } = validateInvestmentPayload(investmentData);
+    if (!valid) {
+      return res.status(400).json({
+        success: false,
+        message: "Investment validation failed.",
+        errors,
+      });
+    }
 
     console.log("INVESTMENT USER:", investmentData.user);
 
