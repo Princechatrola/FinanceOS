@@ -42,6 +42,7 @@ import Profile from "./pages/Profile.jsx";
 // ============================================================
 
 import AdminDashboard from "./pages/AdminDashboard.jsx";
+import AdminProfile from "./pages/AdminProfile.jsx";
 
 // ============================================================
 // ADMIN - USER MANAGEMENT
@@ -265,6 +266,15 @@ function App() {
         element={
           <AdminProtectedRoute>
             <AdminDashboard />
+          </AdminProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/profile"
+        element={
+          <AdminProtectedRoute>
+            <AdminProfile />
           </AdminProtectedRoute>
         }
       />
