@@ -352,6 +352,32 @@ function FinanceProvider({ children }) {
     }
   };
 
+  const loadInsurances = async () => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+      if (!token) return;
+
+      const response = await fetch("http://localhost:5000/api/insurances", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (!data.success || !data.insurances) return;
+
+      const mappedInsurances = data.insurances.map((policy) => ({
+        ...policy,
+        id: policy._id,
+        premium: policy.premiumAmount,
+        monthlyPremium: policy.premiumAmount,
+        monthlyEquivalent: calculateMonthlyEquivalent(policy.premiumAmount, policy.premiumFrequency),
+      }));
+      setInsurancePolicies(mappedInsurances);
+    } catch (error) {
+      console.error("Load Insurances:", error);
+    }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       if (!userData) return;
@@ -359,6 +385,7 @@ function FinanceProvider({ children }) {
         await loadCurrentMonthFinance();
         await loadSavingGoals();
         await loadInvestments();
+        await loadInsurances();
       } catch (error) {
         console.error("FinanceProvider: Failed to load finance data:", error);
       }
@@ -1732,44 +1759,240 @@ function FinanceProvider({ children }) {
   // INSURANCE ACTIONS
   // ==========================================================
 
-  const addInsurancePolicy = (policy = {}) => {
+  const addInsurancePolicy = async (policy = {}) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
     const newPolicy = {
       ...policy,
-      id: policy.id || createId("insurance"),
+      type: policy.type || "Life Insurance",
+      name: policy.name,
+      policyNumber: policy.policyNumber || "",
+      provider: policy.provider || "",
+      premiumAmount: nonNegative(policy.premium || policy.premiumAmount),
+      premiumFrequency: policy.premiumFrequency || "Yearly",
+      coverageAmount: nonNegative(policy.coverageAmount),
+      startDate: policy.startDate,
+      endDate: policy.endDate,
+      maturityDate: policy.maturityDate,
+      renewalDate: policy.renewalDate,
       status: policy.status || "Active",
-      premium: nonNegative(policy.premium),
-      monthlyPremium: nonNegative(policy.monthlyPremium),
-      monthlyEquivalent: nonNegative(firstDefined(policy.monthlyEquivalent, policy.monthlyPremium)),
-      createdAt: policy.createdAt || new Date().toISOString(),
+      metadata: policy.metadata || {},
+      reminder: policy.reminder || { enabled: false, daysBefore: 7 },
     };
 
-    setInsurancePolicies((current) => [...current, newPolicy]);
-    return newPolicy;
+    const response = await fetch("http://localhost:5000/api/insurances", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(newPolicy),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to save insurance.");
+    }
+
+    setInsurancePolicies((current) => [
+      ...current,
+      {
+        ...data.insurance,
+        id: data.insurance._id,
+        premium: data.insurance.premiumAmount,
+        monthlyPremium: data.insurance.premiumAmount, // This might need calculation based on frequency
+        monthlyEquivalent: calculateMonthlyEquivalent(data.insurance.premiumAmount, data.insurance.premiumFrequency),
+      },
+    ]);
+
+    return data.insurance;
   };
 
-  const updateInsurancePolicy = (id, updates = {}) => {
+  const updateInsurancePolicy = async (id, updates = {}) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(`http://localhost:5000/api/insurances/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(updates),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to update insurance.");
+    }
+
     setInsurancePolicies((current) =>
       current.map((policy) => {
-        if (policy.id !== id) return policy;
+        if (policy.id !== id && policy._id !== id) return policy;
         return {
           ...policy,
-          ...updates,
-          premium: updates.premium !== undefined ? nonNegative(updates.premium) : policy.premium,
-          monthlyPremium:
-            updates.monthlyPremium !== undefined
-              ? nonNegative(updates.monthlyPremium)
-              : policy.monthlyPremium,
-          monthlyEquivalent:
-            updates.monthlyEquivalent !== undefined
-              ? nonNegative(updates.monthlyEquivalent)
-              : policy.monthlyEquivalent,
+          ...data.insurance,
+          id: data.insurance._id,
+          premium: data.insurance.premiumAmount,
+          monthlyEquivalent: calculateMonthlyEquivalent(data.insurance.premiumAmount, data.insurance.premiumFrequency),
         };
       })
     );
   };
 
-  const deleteInsurancePolicy = (id) => {
-    setInsurancePolicies((current) => current.filter((policy) => policy.id !== id));
+  const deleteInsurancePolicy = async (id) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(`http://localhost:5000/api/insurances/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to delete insurance.");
+    }
+
+    setInsurancePolicies((current) => current.filter((policy) => policy.id !== id && policy._id !== id));
+  };
+  
+  function calculateMonthlyEquivalent(amount, frequency) {
+    if (!amount) return 0;
+    switch (frequency) {
+      case "Monthly": return amount;
+      case "Quarterly": return amount / 3;
+      case "Half-Yearly": return amount / 6;
+      case "Yearly": return amount / 12;
+      default: return 0;
+    }
+  }
+
+  const addInsurancePayment = async (id, paymentData) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(`http://localhost:5000/api/insurances/${id}/payment`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(paymentData),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to record payment.");
+    }
+
+    setInsurancePolicies((current) =>
+      current.map((policy) => {
+        if (policy.id !== id && policy._id !== id) return policy;
+        return {
+          ...policy,
+          ...data.insurance,
+          id: data.insurance._id,
+          premium: data.insurance.premiumAmount,
+          monthlyPremium: data.insurance.premiumAmount,
+          monthlyEquivalent: calculateMonthlyEquivalent(data.insurance.premiumAmount, data.insurance.premiumFrequency),
+        };
+      })
+    );
+
+    return data.payment;
+  };
+
+  const renewInsurance = async (id, renewalData) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(`http://localhost:5000/api/insurances/${id}/renew`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(renewalData),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to renew insurance.");
+    }
+
+    setInsurancePolicies((current) => {
+      const updated = current.map((policy) => {
+        if (policy.id !== id && policy._id !== id) return policy;
+        return {
+          ...policy,
+          ...data.oldPolicy,
+          id: data.oldPolicy._id,
+          premium: data.oldPolicy.premiumAmount,
+          monthlyPremium: data.oldPolicy.premiumAmount,
+          monthlyEquivalent: calculateMonthlyEquivalent(data.oldPolicy.premiumAmount, data.oldPolicy.premiumFrequency),
+        };
+      });
+
+      return [
+        ...updated,
+        {
+          ...data.insurance,
+          id: data.insurance._id,
+          premium: data.insurance.premiumAmount,
+          monthlyPremium: data.insurance.premiumAmount,
+          monthlyEquivalent: calculateMonthlyEquivalent(data.insurance.premiumAmount, data.insurance.premiumFrequency),
+        }
+      ];
+    });
+
+    return data.insurance;
+  };
+
+  const recordInsuranceMaturity = async (id, maturityData) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(`http://localhost:5000/api/insurances/${id}/maturity`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(maturityData),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to record maturity.");
+    }
+
+    setInsurancePolicies((current) =>
+      current.map((policy) => {
+        if (policy.id !== id && policy._id !== id) return policy;
+        return {
+          ...policy,
+          ...data.insurance,
+          id: data.insurance._id,
+          premium: data.insurance.premiumAmount,
+          monthlyPremium: data.insurance.premiumAmount,
+          monthlyEquivalent: calculateMonthlyEquivalent(data.insurance.premiumAmount, data.insurance.premiumFrequency),
+        };
+      })
+    );
+
+    return data.insurance;
+  };
+
+  const updateInsuranceStatus = async (id, status) => {
+    return updateInsurancePolicy(id, { status });
   };
 
   // ==========================================================
@@ -2352,6 +2575,10 @@ function FinanceProvider({ children }) {
     updateInsurancePolicy,
     deleteInsurancePolicy,
     insuranceMonthlyCommitment,
+    addInsurancePayment,
+    renewInsurance,
+    recordInsuranceMaturity,
+    updateInsuranceStatus,
 
     // Liabilities
     liabilities,
