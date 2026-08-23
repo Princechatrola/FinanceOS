@@ -44,6 +44,41 @@ const interestTransactionSchema = new mongoose.Schema(
 // SIP CONTRIBUTION SCHEMA
 // ============================================================
 
+const investmentTransactionSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ["Buy", "Sell", "Redeem", "Additional Investment", "Dividend"],
+      required: true,
+    },
+    amount: {
+      type: Number,
+      required: true,
+    },
+    quantity: { // Units, Weight, or Shares
+      type: Number,
+      default: 0,
+    },
+    price: { // NAV, Price per share/gram
+      type: Number,
+      default: 0,
+    },
+    date: {
+      type: Date,
+      required: true,
+    },
+    destination: {
+      type: String,
+      trim: true,
+    },
+    note: {
+      type: String,
+      trim: true,
+    }
+  },
+  { timestamps: true }
+);
+
 const sipContributionSchema = new mongoose.Schema(
   {
     amount: {
@@ -207,10 +242,56 @@ const investmentSchema = new mongoose.Schema(
     },
 
     // --------------------------------------------------------
-    // SIP CONTRIBUTION HISTORY
+    // MUTUAL FUND FIELDS
+    // --------------------------------------------------------
+    amc: { type: String, trim: true, default: "" },
+    schemeName: { type: String, trim: true, default: "" },
+    folioNumber: { type: String, trim: true, default: "" },
+    units: { type: Number, default: 0 },
+    nav: { type: Number, default: 0 },
+
+    // --------------------------------------------------------
+    // GOLD FIELDS
+    // --------------------------------------------------------
+    goldType: { 
+      type: String, 
+      enum: ["Physical Gold", "Digital Gold", "Gold ETF", "Sovereign Gold Bond", ""], 
+      default: "" 
+    },
+    weight: { type: Number, default: 0 },
+    purity: { type: String, trim: true, default: "" },
+
+    // --------------------------------------------------------
+    // STOCK FIELDS
+    // --------------------------------------------------------
+    companyName: { type: String, trim: true, default: "" },
+    symbol: { type: String, trim: true, default: "" },
+    broker: { type: String, trim: true, default: "" },
+    quantity: { type: Number, default: 0 },
+
+    // --------------------------------------------------------
+    // COMMON PRICING FIELDS (Purchase/Current)
+    // --------------------------------------------------------
+    purchasePrice: { type: Number, default: 0 },
+    currentPrice: { type: Number, default: 0 },
+    purchaseDate: { type: Date },
+
+    // --------------------------------------------------------
+    // OTHER INVESTMENT FIELDS
+    // --------------------------------------------------------
+    category: { type: String, trim: true, default: "" },
+    description: { type: String, trim: true, default: "" },
+    institution: { type: String, trim: true, default: "" },
+
+    // --------------------------------------------------------
+    // SIP CONTRIBUTION HISTORY / TRANSACTIONS
     // --------------------------------------------------------
     sipContributions: {
       type: [sipContributionSchema],
+      default: [],
+    },
+    transactions: {
+      type: [investmentTransactionSchema],
       default: [],
     },
 

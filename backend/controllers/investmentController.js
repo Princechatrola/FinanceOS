@@ -278,8 +278,77 @@ const getSIPContributions = async (req, res) => {
 };
 
 // ============================================================
+// ADD INVESTMENT TRANSACTION (Mutual Fund, Gold, Stocks)
+// ============================================================
+
+const addInvestmentTransaction = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    const { id } = req.params;
+    const { type, amount, quantity, price, date, destination, note } = req.body;
+
+    const investment = await Investment.findOne({ _id: id, user: userId });
+    if (!investment) {
+      return res.status(404).json({ success: false, message: "Investment not found." });
+    }
+
+    const transaction = {
+      type,
+      amount: Number(amount) || 0,
+      quantity: Number(quantity) || 0,
+      price: Number(price) || 0,
+      date: date ? new Date(date) : new Date(),
+      destination: destination || "",
+      note: note || "",
+    };
+
+    if (!Array.isArray(investment.transactions)) {
+      investment.transactions = [];
+    }
+
+    investment.transactions.push(transaction);
+
+    // Update totals based on transaction type
+    if (type === "Buy" || type === "Additional Investment") {
+      investment.amount = (Number(investment.amount) || 0) + transaction.amount;
+      investment.quantity = (Number(investment.quantity) || 0) + transaction.quantity;
+      if (investment.type === "Mutual Fund") {
+        investment.units = (Number(investment.units) || 0) + transaction.quantity;
+      } else if (investment.type === "Gold") {
+        investment.weight = (Number(investment.weight) || 0) + transaction.quantity;
+      }
+    } else if (type === "Sell" || type === "Redeem") {
+      investment.quantity = Math.max(0, (Number(investment.quantity) || 0) - transaction.quantity);
+      if (investment.type === "Mutual Fund") {
+        investment.units = Math.max(0, (Number(investment.units) || 0) - transaction.quantity);
+      } else if (investment.type === "Gold") {
+        investment.weight = Math.max(0, (Number(investment.weight) || 0) - transaction.quantity);
+      }
+    }
+
+    await investment.save();
+
+    await Activity.create({
+      user: userId,
+      type: "Investment Transaction",
+      description: `Added a ${type} transaction for ${investment.name}`,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Transaction added successfully.",
+      investment,
+    });
+  } catch (error) {
+    console.error("Add Investment Transaction Error:", error);
+    res.status(500).json({ success: false, message: "Server Error", error: error.message });
+  }
+};
+
+// ============================================================
 // ADD SIP CONTRIBUTION
 // ============================================================
+
 
 const addSIPContribution = async (req, res) => {
   try {
@@ -335,6 +404,12 @@ const addSIPContribution = async (req, res) => {
     }
 
     investment.sipContributions.push(contribution);
+    
+    if (contributionStatus === "Paid") {
+      investment.amount = (Number(investment.amount) || 0) + contributionAmount;
+      investment.totalContributions = (Number(investment.totalContributions) || 0) + contributionAmount;
+    }
+    
     await investment.save();
 
     const createdContribution = investment.sipContributions[investment.sipContributions.length - 1];
@@ -710,6 +785,7 @@ module.exports = {
   recordFDInterest,
   getSIPContributions,
   addSIPContribution,
+  addInvestmentTransaction,
   updateSIPContribution,
   recordInvestmentMaturity,
   renewInvestment,

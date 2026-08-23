@@ -53,6 +53,9 @@ const investmentRoutes =
 const reminderRoutes =
   require("./routes/reminderRoutes");
 
+const liabilityRoutes = require("./routes/liabilityRoutes");
+const insuranceRoutes = require("./routes/insuranceRoutes");
+
 // ============================================================
 // AUTH
 // ============================================================
@@ -98,6 +101,16 @@ app.use(
 app.use(
   "/api/investments",
   investmentRoutes
+);
+
+app.use(
+  "/api/liabilities",
+  liabilityRoutes
+);
+
+app.use(
+  "/api/insurances",
+  insuranceRoutes
 );
 
 // ============================================================

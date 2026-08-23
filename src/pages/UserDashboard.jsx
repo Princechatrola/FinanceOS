@@ -165,7 +165,7 @@ function UserDashboard() {
   // GOAL ALLOCATIONS
   // ==========================================================
 
-  const totalGoalAllocations =
+  const computedGoalAllocations =
     goals
       .filter(
         (goal) =>
@@ -184,6 +184,11 @@ function UserDashboard() {
           ),
         0
       );
+
+  const totalGoalAllocations = Math.max(
+    computedGoalAllocations,
+    Number(monthlyFinance?.backendGoalAllocations || 0)
+  );
 
 
   // ==========================================================
