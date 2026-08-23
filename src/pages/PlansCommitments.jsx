@@ -28,6 +28,7 @@ import {
   FiShoppingBag,
   FiBarChart2,
   FiZap,
+  FiList,
 } from "react-icons/fi";
 
 
@@ -51,6 +52,9 @@ import InvestmentForm
 
 import InsuranceForm
   from "../components/plansCommitments/InsuranceForm.jsx";
+
+import InsuranceDetailsModal
+  from "../components/plansCommitments/InsuranceDetailsModal.jsx";
 
 import LiabilityForm
   from "../components/plansCommitments/LiabilityForm.jsx";
@@ -156,6 +160,13 @@ function PlansCommitments() {
     sipContributionInvestment,
     setSIPContributionInvestment,
   ] = useState(null);
+
+  const [selectedInsurance, setSelectedInsurance] = useState(null);
+  const [editingInsurance, setEditingInsurance] = useState(null);
+
+  const selectedInsuranceData = selectedInsurance
+    ? (insurancePolicies || []).find((p) => p._id === selectedInsurance._id || p.id === selectedInsurance.id)
+    : null;
 
   // ==========================================================
   // INVESTMENT MATURITY ACTION
@@ -1320,6 +1331,7 @@ function PlansCommitments() {
                             deleteItem={
                               handleDeleteInsurance
                             }
+                            onViewDetails={() => setSelectedInsurance(policy)}
                           />
 
                         )
@@ -1435,19 +1447,39 @@ function PlansCommitments() {
 
 
       {/* ======================================================
-          INSURANCE FORM
+          INSURANCE FORM (ADD & EDIT)
          ====================================================== */}
 
-      {selectedPlanType ===
-        "insurance" && (
+      {(selectedPlanType === "insurance" || editingInsurance) && (
 
         <InsuranceForm
-          onClose={
-            closeForm
-          }
-          onSuccess={
-            closeForm
-          }
+          editingPolicy={editingInsurance}
+          onClose={() => {
+            closeForm();
+            setEditingInsurance(null);
+          }}
+          onSuccess={() => {
+            closeForm();
+            setEditingInsurance(null);
+            setSelectedInsurance(null);
+          }}
+        />
+
+      )}
+
+      {/* ======================================================
+          INSURANCE DETAILS VIEW
+         ====================================================== */}
+
+      {selectedInsuranceData && (
+
+        <InsuranceDetailsModal
+          policy={selectedInsuranceData}
+          onClose={() => setSelectedInsurance(null)}
+          onEdit={() => {
+            setEditingInsurance(selectedInsuranceData);
+            setSelectedInsurance(null);
+          }}
         />
 
       )}
@@ -4123,6 +4155,7 @@ function InsuranceCard({
   formatMoney,
   updateStatus,
   deleteItem,
+  onViewDetails,
 }) {
 
   const isActive =
@@ -4247,6 +4280,26 @@ function InsuranceCard({
 
         )}
 
+        {/* Dynamic Metadata Render */}
+        {policy.metadata && Object.keys(policy.metadata).length > 0 && (
+          <div className="mt-2 border-t border-[#edf0e9] pt-2">
+            <span className="font-semibold text-[#18392c]">Details:</span>
+            {Object.entries(policy.metadata).map(([key, value]) => {
+              if (!value) return null;
+              // format key camelCase to Title Case
+              const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+              return (
+                <p key={key} className="mt-1">
+                  {formattedKey}:{" "}
+                  <span className="font-medium text-[#52665b]">
+                    {key.toLowerCase().includes('amount') ? `₹${formatMoney(value)}` : value}
+                  </span>
+                </p>
+              );
+            })}
+          </div>
+        )}
+
       </div>
 
 
@@ -4265,6 +4318,14 @@ function InsuranceCard({
 
 
       <div className="mt-5 flex flex-wrap gap-2 border-t border-[#e7ece3] pt-4">
+
+        <ActionButton
+          icon={
+            <FiList />
+          }
+          text="View Details"
+          onClick={onViewDetails}
+        />
 
         {isActive && (
 

@@ -1,6 +1,23 @@
 const Insurance = require("../models/Insurance");
 const Activity = require("../models/Activity");
 const Reminder = require("../models/Reminder");
+const User = require("../models/User");
+
+// Helper to log user activities safely under the strict Activity schema
+const logActivity = async (userId, description) => {
+  try {
+    const user = await User.findById(userId);
+    await Activity.create({
+      userId,
+      userName: user ? user.name : "System User",
+      userEmail: user ? user.email : "unknown@domain.com",
+      type: "Other",
+      description,
+    });
+  } catch (error) {
+    console.error("Failed to log activity:", error);
+  }
+};
 
 const createInsurance = async (req, res) => {
   try {
@@ -9,11 +26,7 @@ const createInsurance = async (req, res) => {
     
     const insurance = await Insurance.create(insuranceData);
 
-    await Activity.create({
-      user: userId,
-      type: "Insurance Created",
-      description: `Added a new insurance policy: ${insurance.name}`,
-    });
+    await logActivity(userId, `Added a new insurance policy: ${insurance.name}`);
 
     res.status(201).json({
       success: true,
@@ -54,11 +67,7 @@ const updateInsurance = async (req, res) => {
       return res.status(404).json({ success: false, message: "Insurance not found." });
     }
 
-    await Activity.create({
-      user: userId,
-      type: "Insurance Updated",
-      description: `Updated insurance policy: ${insurance.name}`,
-    });
+    await logActivity(userId, `Updated insurance policy: ${insurance.name}`);
 
     res.status(200).json({
       success: true,
@@ -82,11 +91,7 @@ const deleteInsurance = async (req, res) => {
 
     await Reminder.deleteMany({ referenceId: req.params.id });
 
-    await Activity.create({
-      user: userId,
-      type: "Insurance Deleted",
-      description: `Deleted insurance policy: ${insurance.name}`,
-    });
+    await logActivity(userId, `Deleted insurance policy: ${insurance.name}`);
 
     res.status(200).json({
       success: true,
@@ -104,10 +109,10 @@ const addInsurancePayment = async (req, res) => {
     const insurance = await Insurance.findOne({ _id: req.params.id, user: userId });
 
     if (!insurance) {
-      return res.status(404).json({ success: false, message: "Insurance not found." });
+      return res.status(404).json({ success: false, message: "Insurance policy not found." });
     }
 
-    const { amount, date, status, note } = req.body;
+    const { amount, dueDate, paidDate, status, paymentSource, note } = req.body;
     
     if (!amount || amount <= 0) {
       return res.status(400).json({ success: false, message: "Valid payment amount is required." });
@@ -115,8 +120,11 @@ const addInsurancePayment = async (req, res) => {
 
     const payment = {
       amount,
-      date: date ? new Date(date) : new Date(),
+      dueDate: dueDate ? new Date(dueDate) : undefined,
+      paidDate: paidDate ? new Date(paidDate) : undefined,
+      date: paidDate ? new Date(paidDate) : new Date(),
       status: status || "Paid",
+      paymentSource: paymentSource || { method: "Cash" },
       note: note || "",
     };
 
@@ -135,10 +143,141 @@ const addInsurancePayment = async (req, res) => {
   }
 };
 
+const renewInsurance = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+
+    // Find old policy
+    const oldPolicy = await Insurance.findOne({
+      _id: req.params.id,
+      user: userId,
+    });
+
+    if (!oldPolicy) {
+      return res.status(404).json({
+        success: false,
+        message: "Insurance policy not found.",
+      });
+    }
+
+    const {
+      startDate,
+      endDate,
+      premiumAmount,
+      premiumFrequency,
+      paymentSource,
+      policyNumber,
+      notes,
+    } = req.body;
+
+    // Create a new active insurance policy copied from the old one, but with updated values
+    const newPolicy = await Insurance.create({
+      user: userId,
+      type: oldPolicy.type,
+      name: oldPolicy.name,
+      provider: oldPolicy.provider,
+      policyNumber: policyNumber || oldPolicy.policyNumber,
+      coverageAmount: oldPolicy.coverageAmount,
+      premiumAmount: premiumAmount !== undefined ? premiumAmount : oldPolicy.premiumAmount,
+      premiumFrequency: premiumFrequency || oldPolicy.premiumFrequency,
+      startDate: startDate ? new Date(startDate) : new Date(),
+      endDate: endDate ? new Date(endDate) : undefined,
+      status: "Active",
+      paymentSource: paymentSource || oldPolicy.paymentSource,
+      notes: notes || oldPolicy.notes,
+      nominee: oldPolicy.nominee,
+      healthDetails: oldPolicy.healthDetails,
+      vehicleDetails: oldPolicy.vehicleDetails,
+      homeDetails: oldPolicy.homeDetails,
+      reminder: oldPolicy.reminder,
+      renewedFromId: oldPolicy._id,
+    });
+
+    // Mark old policy as Expired (or Closed)
+    oldPolicy.status = "Expired";
+    oldPolicy.renewedToId = newPolicy._id;
+    await oldPolicy.save();
+
+    await logActivity(userId, `Renewed insurance policy: ${oldPolicy.name}. New policy number: ${newPolicy.policyNumber}`);
+
+    return res.status(201).json({
+      success: true,
+      message: "Insurance policy renewed successfully.",
+      insurance: newPolicy,
+      oldPolicy,
+    });
+  } catch (error) {
+    console.error("Renew Insurance:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to renew insurance.",
+    });
+  }
+};
+
+const recordInsuranceMaturity = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+
+    const policy = await Insurance.findOne({
+      _id: req.params.id,
+      user: userId,
+    });
+
+    if (!policy) {
+      return res.status(404).json({
+        success: false,
+        message: "Insurance policy not found.",
+      });
+    }
+
+    const {
+      actualMaturityAmount,
+      actualMaturityDate,
+      receivedDestination,
+      payoutAction,
+      note,
+    } = req.body;
+
+    const expectedAmount = Number(policy.maturityDetails?.expectedMaturityAmount || 0);
+    const actualAmount = Number(actualMaturityAmount || 0);
+    const difference = actualAmount - expectedAmount;
+
+    policy.status = "Matured";
+    policy.maturityDetails = {
+      ...policy.maturityDetails,
+      actualMaturityAmount: actualAmount,
+      actualMaturityDate: actualMaturityDate ? new Date(actualMaturityDate) : new Date(),
+      difference,
+      receivedDestination: receivedDestination || "Bank Account",
+      payoutAction: payoutAction || "Keep in Bank Account",
+      note: note || "",
+    };
+
+    await policy.save();
+
+    await logActivity(userId, `Recorded maturity for policy: ${policy.name}. Received ₹${actualAmount}`);
+
+    return res.status(200).json({
+      success: true,
+      message: "Insurance maturity recorded successfully.",
+      insurance: policy,
+    });
+  } catch (error) {
+    console.error("Record Insurance Maturity:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to record insurance maturity.",
+    });
+  }
+};
+
 module.exports = {
   createInsurance,
   getInsurances,
   updateInsurance,
   deleteInsurance,
   addInsurancePayment,
+  renewInsurance,
+  recordInsuranceMaturity,
 };
