@@ -18,6 +18,7 @@ const {
   recordFDInterest,
   getSIPContributions,
   addSIPContribution,
+  addInvestmentTransaction,
   updateSIPContribution,
   recordInvestmentMaturity,
   renewInvestment,

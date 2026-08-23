@@ -710,7 +710,7 @@ function SavingGoalCard({
   // ==========================================================
 
   const handleContribution =
-    (event) => {
+    async (event) => {
 
       event.preventDefault();
 
@@ -786,67 +786,68 @@ function SavingGoalCard({
       // RECORD CONTRIBUTION
       // -------------------------------------------------------
 
-      addGoalContribution(
-        goal.id,
-        {
+      try {
+        await addGoalContribution(
+          goal.id,
+          {
 
-          amount,
+            amount,
 
-          date:
-            contributionDate,
+            date:
+              contributionDate,
 
-          source:
-            contributionSource,
+            source:
+              contributionSource,
 
-          note:
-            contributionNote.trim(),
+            note:
+              contributionNote.trim(),
 
-        }
-      );
+          }
+        );
 
+        // -------------------------------------------------------
+        // PROJECT TOTAL
+        // -------------------------------------------------------
 
-      // -------------------------------------------------------
-      // PROJECT TOTAL
-      // -------------------------------------------------------
-
-      const projectedTotal =
-        totalContributed +
-        amount;
-
-
-      // -------------------------------------------------------
-      // RESET FORM
-      // -------------------------------------------------------
-
-      setContributionAmount(
-        ""
-      );
+        const projectedTotal =
+          totalContributed +
+          amount;
 
 
-      setContributionNote(
-        ""
-      );
+        // -------------------------------------------------------
+        // RESET FORM
+        // -------------------------------------------------------
+
+        setContributionAmount(
+          ""
+        );
 
 
-      setContributionDate(
-        getToday()
-      );
+        setContributionNote(
+          ""
+        );
 
 
-      setShowContribution(
-        false
-      );
+        setContributionDate(
+          getToday()
+        );
 
 
-      // -------------------------------------------------------
-      // SUCCESS MESSAGE
-      // -------------------------------------------------------
+        setShowContribution(
+          false
+        );
 
-      if (
-        targetAmount > 0 &&
-        projectedTotal >=
-          targetAmount
-      ) {
+
+        // -------------------------------------------------------
+        // SUCCESS MESSAGE
+        // -------------------------------------------------------
+
+        if (
+          targetAmount > 0 &&
+          projectedTotal >=
+            targetAmount
+        ) {
+
 
         setMessage(
           `${goal?.goalName || goal?.name || "Goal"} has reached its target..`
@@ -861,7 +862,9 @@ function SavingGoalCard({
         );
 
       }
-
+      } catch (err) {
+        setError(err.message || "Failed to add contribution.");
+      }
     };
 
 

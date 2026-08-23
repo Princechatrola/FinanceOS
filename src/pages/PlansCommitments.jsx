@@ -58,6 +58,9 @@ import LiabilityForm
 import FDInterestModal
   from "../components/plansCommitments/FDInterestModal.jsx";
 
+import SIPContributionModal
+  from "../components/plansCommitments/SIPContributionModal.jsx";
+
 
 // ============================================================
 // CONTEXT
@@ -146,6 +149,12 @@ function PlansCommitments() {
   const [
     interestInvestment,
     setInterestInvestment,
+  ] = useState(null);
+
+  // SIP selected for recording contribution.
+  const [
+    sipContributionInvestment,
+    setSIPContributionInvestment,
   ] = useState(null);
 
   // ==========================================================
@@ -591,6 +600,29 @@ function PlansCommitments() {
       null
     );
 
+  };
+
+
+  // OPEN SIP CONTRIBUTION MODAL
+  // ==========================================================
+
+  const openSIPContributionModal = (
+    investment
+  ) => {
+    setSIPContributionInvestment(
+      investment
+    );
+  };
+
+
+  // ==========================================================
+  // CLOSE SIP CONTRIBUTION MODAL
+  // ==========================================================
+
+  const closeSIPContributionModal = () => {
+    setSIPContributionInvestment(
+      null
+    );
   };
 
 
@@ -1233,6 +1265,9 @@ function PlansCommitments() {
                             openMaturityActionModal={
                               openMaturityActionModal
                             }
+                            recordSIPContribution={
+                              openSIPContributionModal
+                            }
                           />
 
                         )
@@ -1482,6 +1517,24 @@ function PlansCommitments() {
           }
           onClose={
             closeFDInterestModal
+          }
+        />
+
+      )}
+
+
+      {/* ==========================================================
+          SIP CONTRIBUTION MODAL
+         ========================================================== */}
+
+      {sipContributionInvestment && (
+
+        <SIPContributionModal
+          investment={
+            sipContributionInvestment
+          }
+          onClose={
+            closeSIPContributionModal
           }
         />
 
@@ -3561,6 +3614,7 @@ function InvestmentCard({
   updateStatus,
   deleteItem,
   recordFDInterest,
+  recordSIPContribution,
   openMaturityActionModal,
 }) {
 
@@ -3625,10 +3679,19 @@ function InvestmentCard({
     isActive;
 
 
+  const isSIP =
+    investmentType === "sip";
+
+
+  const canRecordSIPContribution =
+    isSIP &&
+    isActive;
+
+
   const principalAmount =
     Number(
-      investment.principalAmount ??
-      investment.amount ??
+      investment.principalAmount ||
+      investment.amount ||
       0
     );
 
@@ -3638,6 +3701,24 @@ function InvestmentCard({
       investment.totalInterestReceived ||
       0
     );
+
+  let sipProgress = 0;
+  if (isSIP) {
+    let targetAmount = Number(investment.estimatedMaturityAmount || 0);
+
+    if (targetAmount === 0 && investment.startDate && investment.maturityDate && investment.monthlyContribution) {
+      const start = new Date(investment.startDate);
+      const end = new Date(investment.maturityDate);
+      const months = (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
+      if (months > 0) {
+        targetAmount = months * Number(investment.monthlyContribution);
+      }
+    }
+    
+    if (targetAmount > 0) {
+      sipProgress = Math.min((principalAmount / targetAmount) * 100, 100);
+    }
+  }
 
 
   return (
@@ -3699,6 +3780,28 @@ function InvestmentCard({
         />
 
       </div>
+
+
+      {/* ======================================================
+          SIP PROGRESS
+         ====================================================== */}
+
+      {isSIP && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-slate-400">Contribution Progress</p>
+            <p className="text-[10px] font-semibold text-[#52665b]">
+              {sipProgress.toFixed(0)}%
+            </p>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8da]">
+            <div
+              className="h-full rounded-full bg-[#315c46] transition-all"
+              style={{ width: `${sipProgress}%` }}
+            />
+          </div>
+        </div>
+      )}
 
 
       {/* ======================================================
@@ -3884,6 +3987,26 @@ function InvestmentCard({
             primary
             onClick={() =>
               recordFDInterest(
+                investment
+              )
+            }
+          />
+
+        )}
+
+
+        {/* RECORD SIP CONTRIBUTION */}
+
+        {canRecordSIPContribution && (
+
+          <ActionButton
+            icon={
+              <FiDollarSign />
+            }
+            text="Record Contribution"
+            primary
+            onClick={() =>
+              recordSIPContribution(
                 investment
               )
             }

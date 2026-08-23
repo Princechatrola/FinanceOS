@@ -152,7 +152,7 @@ function FDInterestModal({
     useMemo(
       () =>
         safeNumber(
-          investment?.principalAmount ??
+          investment?.principalAmount ||
           investment?.amount
         ),
 

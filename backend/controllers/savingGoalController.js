@@ -424,14 +424,25 @@ const addGoalContribution = async (req, res) => {
       }
 
       // ------------------------------------------------------
-      // UPDATE GOAL
-      //
-      // The monthly contribution was already counted as a
-      // planned allocation when the goal was created/updated.
-      // Therefore, do NOT increase goalAllocations again.
+      // CHECK AFFORDABILITY
+      // ------------------------------------------------------
+
+      if (contributionAmount > finance.availableToAllocate) {
+        return res.status(400).json({
+          success: false,
+          message: "Contribution amount exceeds your available to allocate.",
+          availableToAllocate: finance.availableToAllocate,
+          requestedContribution: contributionAmount,
+        });
+      }
+
+      // ------------------------------------------------------
+      // UPDATE GOAL AND FINANCE
       // ------------------------------------------------------
 
       goal.currentAmount += contributionAmount;
+      finance.goalAllocations += contributionAmount;
+      await finance.save();
 
     } else {
       // ======================================================

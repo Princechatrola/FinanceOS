@@ -250,6 +250,7 @@ function FinanceProvider({ children }) {
         reminderEnabled: finance.reminderEnabled,
         emailNotification: finance.emailNotification,
         smsNotification: finance.smsNotification,
+        backendGoalAllocations: finance.goalAllocations || 0,
       });
       setCashBalance(finance.cashBalance);
     } catch (error) {
@@ -727,16 +728,19 @@ function FinanceProvider({ children }) {
   // ==========================================================
 
   const goalMonthlyCommitment = useMemo(
-    () =>
-      activeSavingGoals.reduce(
+    () => {
+      const computed = activeSavingGoals.reduce(
         (total, g) =>
           total +
           nonNegative(
             firstDefined(g.monthlyContribution, g.monthlyAllocation, g.requiredMonthly)
           ),
         0
-      ),
-    [activeSavingGoals]
+      );
+      const backend = monthlyFinance.backendGoalAllocations || 0;
+      return Math.max(computed, backend);
+    },
+    [activeSavingGoals, monthlyFinance.backendGoalAllocations]
   );
 
   const investmentMonthlyCommitment = useMemo(
@@ -1058,7 +1062,7 @@ function FinanceProvider({ children }) {
     const response = await fetch(
       `http://localhost:5000/api/saving-goals/${id}/contribution`,
       {
-        method: "PUT",
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
@@ -1089,6 +1093,9 @@ function FinanceProvider({ children }) {
           : goal
       )
     );
+
+    // Reload finance to properly calculate 'available to allocate'
+    await loadCurrentMonthFinance();
 
     return data.goal;
   };
