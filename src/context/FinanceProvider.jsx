@@ -378,6 +378,31 @@ function FinanceProvider({ children }) {
     }
   };
 
+  const loadLiabilities = async () => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+      if (!token) return;
+
+      const response = await fetch("http://localhost:5000/api/liabilities", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (!data.success || !data.liabilities) return;
+
+      const mappedLiabilities = data.liabilities.map((l) => ({
+        ...l,
+        id: l._id,
+        emi: l.monthlyEMI,
+        monthlyPayment: l.monthlyEMI,
+      }));
+      setLiabilities(mappedLiabilities);
+    } catch (error) {
+      console.error("Load Liabilities:", error);
+    }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       if (!userData) return;
@@ -386,6 +411,7 @@ function FinanceProvider({ children }) {
         await loadSavingGoals();
         await loadInvestments();
         await loadInsurances();
+        await loadLiabilities();
       } catch (error) {
         console.error("FinanceProvider: Failed to load finance data:", error);
       }
@@ -1999,206 +2025,136 @@ function FinanceProvider({ children }) {
   // LIABILITY ACTIONS
   // ==========================================================
 
-  const addLiability = (liability = {}) => {
-    const originalAmount = nonNegative(
-      firstDefined(
-        liability.originalAmount,
-        liability.loanAmount,
-        liability.amount,
-        liability.outstandingAmount,
-        liability.remainingAmount,
-        liability.balance
-      )
-    );
+  const addLiability = async (liability = {}) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
 
-    const outstandingAmount = nonNegative(
-      firstDefined(
-        liability.outstandingAmount,
-        liability.remainingAmount,
-        liability.balance,
-        originalAmount
-      )
-    );
+    const originalAmount = Number(liability.originalAmount || liability.principalAmount || 0);
+    const remainingAmount = liability.remainingAmount !== undefined ? Number(liability.remainingAmount) : originalAmount;
+    const monthlyEMI = Number(liability.monthlyEMI || 0);
 
-    const monthlyPayment = getLiabilityMonthlyPayment(liability);
-
-    const baseLiability = {
+    const payload = {
       ...liability,
-      id: liability.id || createId("liability"),
       originalAmount,
-      loanAmount: originalAmount,
-      amount: originalAmount,
-      outstandingAmount,
-      remainingAmount: outstandingAmount,
-      balance: outstandingAmount,
-      monthlyPayment,
-      emi: monthlyPayment,
-      monthlyEMI: monthlyPayment,
-      status:
-        outstandingAmount > 0
-          ? liability.status && !["closed", "completed", "paid", "settled"].includes(normalizeStatus(liability.status))
-            ? liability.status
-            : "Active"
-          : "Closed",
-      payments: Array.isArray(liability.payments) ? liability.payments : [],
-      createdAt: liability.createdAt || new Date().toISOString(),
+      remainingAmount,
+      monthlyEMI,
+      status: liability.status || "Active",
     };
 
-    const completion = calculateLoanCompletion(baseLiability, outstandingAmount);
-    const newLiability = {
-      ...baseLiability,
-      remainingPayments: completion.remainingPayments,
-      estimatedCompletionDate: completion.estimatedCompletionDate,
+    const response = await fetch("http://localhost:5000/api/liabilities", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to save liability.");
+    }
+
+    const mapped = {
+      ...data.liability,
+      id: data.liability._id,
+      emi: data.liability.monthlyEMI,
+      monthlyPayment: data.liability.monthlyEMI,
     };
 
-    setLiabilities((current) => [...current, newLiability]);
-    return newLiability;
+    setLiabilities((current) => [...current, mapped]);
+    return mapped;
   };
 
-  const updateLiability = (id, updates = {}) => {
-    let updatedResult = null;
+  const updateLiability = async (id, updates = {}) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(`http://localhost:5000/api/liabilities/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(updates),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to update liability.");
+    }
+
+    const mapped = {
+      ...data.liability,
+      id: data.liability._id,
+      emi: data.liability.monthlyEMI,
+      monthlyPayment: data.liability.monthlyEMI,
+    };
 
     setLiabilities((current) =>
-      current.map((liability) => {
-        if (liability.id !== id) return liability;
-
-        const updated = { ...liability, ...updates };
-
-        const originalAmount =
-          updates.originalAmount !== undefined || updates.loanAmount !== undefined || updates.amount !== undefined
-            ? nonNegative(firstDefined(updates.originalAmount, updates.loanAmount, updates.amount))
-            : nonNegative(firstDefined(liability.originalAmount, liability.loanAmount, liability.amount));
-
-        updated.originalAmount = originalAmount;
-        updated.loanAmount = originalAmount;
-        updated.amount = originalAmount;
-
-        let balance = getLiabilityBalance(liability);
-        if (
-          updates.outstandingAmount !== undefined ||
-          updates.remainingAmount !== undefined ||
-          updates.balance !== undefined
-        ) {
-          balance = nonNegative(
-            firstDefined(updates.outstandingAmount, updates.remainingAmount, updates.balance)
-          );
-        }
-
-        updated.outstandingAmount = balance;
-        updated.remainingAmount = balance;
-        updated.balance = balance;
-
-        let payment = getLiabilityMonthlyPayment(liability);
-        if (
-          updates.monthlyPayment !== undefined ||
-          updates.emi !== undefined ||
-          updates.monthlyEMI !== undefined
-        ) {
-          payment = nonNegative(firstDefined(updates.monthlyPayment, updates.emi, updates.monthlyEMI));
-        }
-
-        updated.monthlyPayment = payment;
-        updated.emi = payment;
-        updated.monthlyEMI = payment;
-
-        if (balance <= 0) {
-          updated.status = "Closed";
-          updated.closedAt = updated.closedAt || new Date().toISOString();
-        } else {
-          const requestedStatus = normalizeStatus(updates.status);
-          if (
-            !updates.status ||
-            ["closed", "completed", "paid", "settled"].includes(requestedStatus)
-          ) {
-            updated.status = "Active";
-          }
-        }
-
-        const completion = calculateLoanCompletion(updated, balance);
-        updated.remainingPayments = completion.remainingPayments;
-        updated.estimatedCompletionDate = completion.estimatedCompletionDate;
-
-        updatedResult = updated;
-        return updated;
-      })
+      current.map((l) => (l.id === id || l._id === id ? mapped : l))
     );
 
-    return updatedResult;
+    return mapped;
   };
 
-  const deleteLiability = (id) => {
-    setLiabilities((current) => current.filter((liability) => liability.id !== id));
+  const deleteLiability = async (id) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(`http://localhost:5000/api/liabilities/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to delete liability.");
+    }
+
+    setLiabilities((current) => current.filter((l) => l.id !== id && l._id !== id));
   };
 
-  const recordLiabilityPayment = (id, paymentData = {}) => {
-    const data = typeof paymentData === "object" ? paymentData : { amount: paymentData };
-    const amount = nonNegative(data.amount);
+  const recordLiabilityPayment = async (id, paymentData = {}) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
 
-    if (amount <= 0) return { success: false, message: "Enter a valid payment amount." };
+    const dataPayload = typeof paymentData === "object" ? paymentData : { amount: paymentData };
 
-    let result = { success: false, message: "Liability not found." };
+    const response = await fetch(`http://localhost:5000/api/liabilities/${id}/payment`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(dataPayload),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to record payment.");
+    }
+
+    const mapped = {
+      ...data.liability,
+      id: data.liability._id,
+      emi: data.liability.monthlyEMI,
+      monthlyPayment: data.liability.monthlyEMI,
+    };
 
     setLiabilities((current) =>
-      current.map((liability) => {
-        if (liability.id !== id) return liability;
-
-        const currentBalance = getLiabilityBalance(liability);
-        if (currentBalance <= 0) {
-          result = { success: false, message: "This liability is already fully paid." };
-          return liability;
-        }
-
-        const actualPayment = Math.min(amount, currentBalance);
-        const newBalance = Math.max(currentBalance - actualPayment, 0);
-        const paymentDate = data.date || new Date().toISOString().slice(0, 10);
-
-        const payment = {
-          id: createId("liability-payment"),
-          amount: actualPayment,
-          date: paymentDate,
-          note: data.note || "",
-          balanceBefore: currentBalance,
-          balanceAfter: newBalance,
-          createdAt: new Date().toISOString(),
-        };
-
-        const nextPaymentDate = newBalance > 0 ? addMonthsToDate(paymentDate, 1) : null;
-        const temporaryUpdated = {
-          ...liability,
-          outstandingAmount: newBalance,
-          remainingAmount: newBalance,
-          balance: newBalance,
-          nextPaymentDate: nextPaymentDate || liability.nextPaymentDate,
-        };
-
-        const completion = calculateLoanCompletion(temporaryUpdated, newBalance);
-
-        result = {
-          success: true,
-          amount: actualPayment,
-          remainingAmount: newBalance,
-          remainingPayments: completion.remainingPayments,
-          estimatedCompletionDate: completion.estimatedCompletionDate,
-          message: newBalance === 0 ? "Final payment recorded. Liability is now closed." : "Payment recorded successfully.",
-        };
-
-        return {
-          ...temporaryUpdated,
-          payments: [...(Array.isArray(liability.payments) ? liability.payments : []), payment],
-          status: newBalance === 0 ? "Closed" : "Active",
-          monthlyPayment: newBalance === 0 ? 0 : getLiabilityMonthlyPayment(liability),
-          emi: newBalance === 0 ? 0 : getLiabilityMonthlyPayment(liability),
-          monthlyEMI: newBalance === 0 ? 0 : getLiabilityMonthlyPayment(liability),
-          remainingPayments: completion.remainingPayments,
-          estimatedCompletionDate: completion.estimatedCompletionDate,
-          lastPaymentDate: paymentDate,
-          nextPaymentDate: newBalance > 0 ? nextPaymentDate : null,
-          closedAt: newBalance === 0 ? new Date().toISOString() : liability.closedAt || null,
-        };
-      })
+      current.map((l) => (l.id === id || l._id === id ? mapped : l))
     );
 
-    return result;
+    return { success: true, liability: mapped, payment: data.payment };
+  };
+
+  const updateLiabilityStatus = async (id, status) => {
+    return updateLiability(id, { status });
   };
 
   // ==========================================================
@@ -2588,6 +2544,7 @@ function FinanceProvider({ children }) {
     deleteLiability,
     recordLiabilityPayment,
     liabilityMonthlyCommitment,
+    updateLiabilityStatus,
 
     // Commitments
     totalMonthlyCommitments,

@@ -1,8 +1,22 @@
-// ============================================================
-// FINANCEOS - INVESTMENT CONTROLLER
-// ============================================================
-
 const Investment = require("../models/Investment");
+const Activity = require("../models/Activity");
+const User = require("../models/User");
+
+// Helper to log user activities safely under the strict Activity schema
+const logActivity = async (userId, description) => {
+  try {
+    const user = await User.findById(userId);
+    await Activity.create({
+      userId,
+      userName: user ? user.name : "System User",
+      userEmail: user ? user.email : "unknown@domain.com",
+      type: "Other",
+      description,
+    });
+  } catch (error) {
+    console.error("Failed to log activity:", error);
+  }
+};
 
 // --------------------------------------------------------
 // Validate investment payload based on type and required custom fields
@@ -328,11 +342,7 @@ const addInvestmentTransaction = async (req, res) => {
 
     await investment.save();
 
-    await Activity.create({
-      user: userId,
-      type: "Investment Transaction",
-      description: `Added a ${type} transaction for ${investment.name}`,
-    });
+    await logActivity(userId, `Added a ${type} transaction for ${investment.name}`);
 
     res.status(201).json({
       success: true,

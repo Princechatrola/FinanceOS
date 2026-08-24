@@ -29,6 +29,7 @@ import {
   FiBarChart2,
   FiZap,
   FiList,
+  FiEye,
 } from "react-icons/fi";
 
 
@@ -58,6 +59,9 @@ import InsuranceDetailsModal
 
 import LiabilityForm
   from "../components/plansCommitments/LiabilityForm.jsx";
+
+import LiabilityDetailsModal
+  from "../components/plansCommitments/LiabilityDetailsModal.jsx";
 
 import FDInterestModal
   from "../components/plansCommitments/FDInterestModal.jsx";
@@ -166,6 +170,13 @@ function PlansCommitments() {
 
   const selectedInsuranceData = selectedInsurance
     ? (insurancePolicies || []).find((p) => p._id === selectedInsurance._id || p.id === selectedInsurance.id)
+    : null;
+
+  const [selectedLiability, setSelectedLiability] = useState(null);
+  const [editingLiability, setEditingLiability] = useState(null);
+
+  const selectedLiabilityData = selectedLiability
+    ? (liabilities || []).find((l) => l._id === selectedLiability._id || l.id === selectedLiability.id)
     : null;
 
   // ==========================================================
@@ -1387,6 +1398,7 @@ function PlansCommitments() {
                             recordPayment={
                               openPaymentModal
                             }
+                            onViewDetails={() => setSelectedLiability(liability)}
                           />
 
                         )
@@ -1484,21 +1496,35 @@ function PlansCommitments() {
 
       )}
 
+      {selectedLiabilityData && (
+        <LiabilityDetailsModal
+          liability={selectedLiabilityData}
+          onClose={() => setSelectedLiability(null)}
+          onEdit={() => {
+            setEditingLiability(selectedLiabilityData);
+            setSelectedLiability(null);
+          }}
+        />
+      )}
+
 
       {/* ======================================================
           LIABILITY FORM
          ====================================================== */}
 
-      {selectedPlanType ===
-        "liability" && (
+      {(selectedPlanType === "liability" || editingLiability) && (
 
         <LiabilityForm
-          onClose={
-            closeForm
-          }
-          onSuccess={
-            closeForm
-          }
+          editingLiability={editingLiability}
+          onClose={() => {
+            closeForm();
+            setEditingLiability(null);
+          }}
+          onSuccess={() => {
+            closeForm();
+            setEditingLiability(null);
+            setSelectedLiability(null);
+          }}
         />
 
       )}
@@ -4408,6 +4434,7 @@ function LiabilityCard({
   updateStatus,
   deleteItem,
   recordPayment,
+  onViewDetails,
 }) {
 
   const original =
@@ -4611,6 +4638,12 @@ function LiabilityCard({
       {/* ACTIONS */}
 
       <div className="mt-5 flex flex-wrap gap-2 border-t border-[#e7ece3] pt-4">
+
+        <ActionButton
+          icon={<FiEye />}
+          text="View Details"
+          onClick={onViewDetails}
+        />
 
         {!isCompleted &&
           !isClosed &&
