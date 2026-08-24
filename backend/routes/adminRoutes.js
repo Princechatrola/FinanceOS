@@ -11,6 +11,14 @@ const router = express.Router();
 // ============================================================
 
 const {
+  getAdminReminders,
+  getReminderById,
+  getReminderStats,
+  retryReminder,
+  createReminder,
+} = require("../controllers/reminderController");
+
+const {
   getAdminDashboard,
   getAdminUsers,
   getAdminUserById,
@@ -153,6 +161,34 @@ router.post("/messages", createAdminMessage);
 router.put("/messages/:id", updateAdminMessage);
 router.delete("/messages/:id", deleteAdminMessage);
 
+// ============================================================
+// ADMIN - REMINDERS
+// ============================================================
+
+router.get(
+  "/reminders",
+  getAdminReminders
+);
+
+router.get(
+  "/reminders/stats",
+  getReminderStats
+);
+
+router.get(
+  "/reminders/:id",
+  getReminderById
+);
+
+router.post(
+  "/reminders/:id/retry",
+  retryReminder
+);
+
+router.post(
+  "/reminders",
+  createReminder
+);
 // ============================================================
 // EXPORT
 // ============================================================
