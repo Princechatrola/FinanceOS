@@ -481,7 +481,7 @@ function PlansCommitments() {
   // DELETE LIABILITY
   // ==========================================================
 
-  const handleDeleteLiability = (
+  const handleDeleteLiability = async (
     liability
   ) => {
 
@@ -494,9 +494,13 @@ function PlansCommitments() {
       return;
     }
 
-    deleteLiability(
-      liability.id
-    );
+    try {
+      await deleteLiability(
+        liability._id || liability.id
+      );
+    } catch (err) {
+      alert(err.message || "Failed to delete liability.");
+    }
 
   };
 
@@ -543,7 +547,7 @@ function PlansCommitments() {
   // RECORD LIABILITY PAYMENT
   // ==========================================================
 
-  const handleRecordPayment = (
+  const handleRecordPayment = async (
     event
   ) => {
 
@@ -587,12 +591,15 @@ function PlansCommitments() {
 
     }
 
-    recordLiabilityPayment(
-      paymentLiability.id,
-      amount
-    );
-
-    closePaymentModal();
+    try {
+      await recordLiabilityPayment(
+        paymentLiability._id || paymentLiability.id,
+        amount
+      );
+      closePaymentModal();
+    } catch (err) {
+      setPaymentError(err.message || "Failed to record payment.");
+    }
 
   };
 
@@ -1381,7 +1388,8 @@ function PlansCommitments() {
 
                           <LiabilityCard
                             key={
-                              liability.id
+                              liability.id ||
+                              liability._id
                             }
                             liability={
                               liability
@@ -4440,6 +4448,7 @@ function LiabilityCard({
   const original =
     Number(
       liability.originalAmount ||
+      liability.principalAmount ||
       0
     );
 
@@ -4674,7 +4683,7 @@ function LiabilityCard({
             text="Pause"
             onClick={() =>
               updateStatus(
-                liability.id,
+                liability._id || liability.id,
                 "Paused"
               )
             }
@@ -4692,7 +4701,7 @@ function LiabilityCard({
             text="Resume"
             onClick={() =>
               updateStatus(
-                liability.id,
+                liability._id || liability.id,
                 "Active"
               )
             }
@@ -4719,7 +4728,7 @@ function LiabilityCard({
               if (confirmed) {
 
                 updateStatus(
-                  liability.id,
+                  liability._id || liability.id,
                   "Closed"
                 );
 
