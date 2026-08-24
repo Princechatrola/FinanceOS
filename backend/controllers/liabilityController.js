@@ -1,6 +1,23 @@
 const Liability = require("../models/Liability");
 const Activity = require("../models/Activity");
 const Reminder = require("../models/Reminder");
+const User = require("../models/User");
+
+// Helper to log user activities safely under the strict Activity schema
+const logActivity = async (userId, description) => {
+  try {
+    const user = await User.findById(userId);
+    await Activity.create({
+      userId,
+      userName: user ? user.name : "System User",
+      userEmail: user ? user.email : "unknown@domain.com",
+      type: "Other",
+      description,
+    });
+  } catch (error) {
+    console.error("Failed to log activity:", error);
+  }
+};
 
 const createLiability = async (req, res) => {
   try {
@@ -14,11 +31,7 @@ const createLiability = async (req, res) => {
 
     const liability = await Liability.create(liabilityData);
 
-    await Activity.create({
-      user: userId,
-      type: "Liability Created",
-      description: `Added a new liability: ${liability.name}`,
-    });
+    await logActivity(userId, `Added a new liability: ${liability.name}`);
 
     res.status(201).json({
       success: true,
@@ -59,11 +72,7 @@ const updateLiability = async (req, res) => {
       return res.status(404).json({ success: false, message: "Liability not found." });
     }
 
-    await Activity.create({
-      user: userId,
-      type: "Liability Updated",
-      description: `Updated liability: ${liability.name}`,
-    });
+    await logActivity(userId, `Updated liability: ${liability.name}`);
 
     res.status(200).json({
       success: true,
@@ -87,11 +96,7 @@ const deleteLiability = async (req, res) => {
 
     await Reminder.deleteMany({ referenceId: req.params.id });
 
-    await Activity.create({
-      user: userId,
-      type: "Liability Deleted",
-      description: `Deleted liability: ${liability.name}`,
-    });
+    await logActivity(userId, `Deleted liability: ${liability.name}`);
 
     res.status(200).json({
       success: true,
@@ -112,7 +117,18 @@ const addLiabilityPayment = async (req, res) => {
       return res.status(404).json({ success: false, message: "Liability not found." });
     }
 
-    const { amount, date, status, note } = req.body;
+    const {
+      amount,
+      dueDate,
+      paidDate,
+      status,
+      type, // EMI, Prepayment, Closure
+      principalComponent,
+      interestComponent,
+      paymentSource,
+      note,
+      closureDetails,
+    } = req.body;
     
     if (!amount || amount <= 0) {
       return res.status(400).json({ success: false, message: "Valid payment amount is required." });
@@ -120,21 +136,51 @@ const addLiabilityPayment = async (req, res) => {
 
     const payment = {
       amount,
-      date: date ? new Date(date) : new Date(),
+      dueDate: dueDate ? new Date(dueDate) : undefined,
+      paidDate: paidDate ? new Date(paidDate) : undefined,
+      date: paidDate ? new Date(paidDate) : new Date(),
       status: status || "Paid",
+      type: type || "EMI",
+      principalComponent: principalComponent || 0,
+      interestComponent: interestComponent || 0,
+      paymentSource: paymentSource || { method: "Cash" },
       note: note || "",
     };
 
     liability.payments.push(payment);
 
-    if (payment.status === "Paid") {
-      liability.remainingAmount = Math.max(0, (liability.remainingAmount || 0) - amount);
-      if (liability.remainingAmount === 0) {
-        liability.status = "Closed";
+    // Apply financial adjustments based on transaction type
+    if (payment.type === "Closure") {
+      liability.remainingAmount = 0;
+      liability.status = "Closed";
+      if (closureDetails) {
+        liability.closureDetails = {
+          closureDate: closureDetails.closureDate ? new Date(closureDetails.closureDate) : new Date(),
+          amountPaid: Number(closureDetails.amountPaid) || amount,
+          outstandingAtClosure: Number(closureDetails.outstandingAtClosure) || 0,
+          penaltyCharges: Number(closureDetails.penaltyCharges) || 0,
+          note: closureDetails.note || note || ""
+        };
+      }
+    } else {
+      // EMI or Prepayment
+      const deduction = payment.type === "Prepayment" 
+        ? amount 
+        : (payment.principalComponent > 0 ? payment.principalComponent : amount);
+
+      liability.remainingAmount = Math.max(0, (liability.remainingAmount || 0) - deduction);
+      
+      if (liability.remainingAmount <= 0) {
+        liability.status = "Completed";
       }
     }
 
     await liability.save();
+
+    await logActivity(
+      userId,
+      `Recorded ${payment.type} of ₹${amount} for liability: ${liability.name}. New Outstanding: ₹${liability.remainingAmount}`
+    );
 
     res.status(201).json({
       success: true,

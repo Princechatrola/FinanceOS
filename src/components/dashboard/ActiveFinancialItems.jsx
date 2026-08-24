@@ -312,72 +312,100 @@ durationMonths={Math.max(
             LIABILITIES
            ==================================================== */}
 
-        {liabilities.map((liability) => (
+        {liabilities.map((liability) => {
+          const original = Number(liability.principalAmount || 0);
+          const remaining = Number(liability.remainingAmount || 0);
+          const monthlyEMI = Number(liability.monthlyEMI || 0);
+          const isCC = liability.type === "Credit Card";
+          
+          const progressVal = original > 0 
+            ? (isCC ? (remaining / original) * 100 : ((original - remaining) / original) * 100) 
+            : 0;
 
-          <div
-            key={`liability-${liability.id}`}
-            className="rounded-2xl border border-[#e2e8dc] bg-white p-5"
-          >
+          const progressColor = isCC ? "bg-amber-600" : "bg-[#315c46]";
 
+          return (
+            <div
+              key={`liability-${liability.id || liability._id}`}
+              className="rounded-2xl border border-[#e2e8dc] bg-white p-5 hover:shadow-md transition duration-200"
+            >
+              {/* Liability type and status */}
+              <div className="flex items-center justify-between">
+                <span className="rounded-full bg-[#fff3e8] px-3 py-1 text-[10px] font-semibold text-[#9a642c]">
+                  {liability.type || "Liability"}
+                </span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  liability.status === "Active" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
+                }`}>
+                  {liability.status}
+                </span>
+              </div>
 
-            {/* Liability type and status */}
-            <div className="flex items-center justify-between">
+              {/* Liability name & lender */}
+              <div className="mt-4">
+                <h3 className="text-base font-bold text-[#18392c]">
+                  {liability.name}
+                </h3>
+                <p className="text-[10px] text-slate-400 font-medium">
+                  {liability.lender || "Unknown Lender"}
+                </p>
+              </div>
 
-              <span className="rounded-full bg-[#fff3e8] px-3 py-1 text-[10px] font-semibold text-[#9a642c]">
-                Liability
-              </span>
+              {/* Principal and Remaining Grid */}
+              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    {isCC ? "Credit Limit" : "Original Loan"}
+                  </p>
+                  <p className="font-extrabold text-[#18392c] mt-0.5">
+                    ₹{original.toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    Outstanding
+                  </p>
+                  <p className="font-extrabold text-amber-700 mt-0.5">
+                    ₹{remaining.toLocaleString("en-IN")}
+                  </p>
+                </div>
+              </div>
 
-              <span className="text-[10px] font-medium text-[#5f7568]">
-                {liability.status}
-              </span>
+              {/* Progress and EMI */}
+              <div className="mt-4 space-y-2">
+                <div className="flex justify-between text-[10px] font-semibold text-slate-400">
+                  <span>{isCC ? "Limit Utilization" : "Repayment Progress"}</span>
+                  <span className="text-[#18392c]">{progressVal.toFixed(1)}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-[#e7eee2] overflow-hidden">
+                  <div 
+                    className={`h-full ${progressColor} transition-all`} 
+                    style={{ width: `${Math.min(Math.max(progressVal, 0), 100)}%` }} 
+                  />
+                </div>
+              </div>
 
+              {/* Footer Details */}
+              <div className="mt-4 pt-3 border-t border-[#f4f7f1] flex justify-between items-center text-[10px] text-slate-400">
+                <div>
+                  <span>EMI: </span>
+                  <span className="font-bold text-[#18392c]">₹{monthlyEMI.toLocaleString("en-IN")}</span>
+                </div>
+                {liability.nextDueDate && (
+                  <div>
+                    <span>Due: </span>
+                    <span className="font-bold text-[#315c46]">
+                      {new Date(liability.nextDueDate).toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "short"
+                      })}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
-
-
-            {/* Liability name */}
-            <h3 className="mt-4 text-lg font-semibold text-[#18392c]">
-              {liability.name}
-            </h3>
-
-
-            {/* Monthly EMI */}
-            <div className="mt-5">
-
-              <p className="text-[10px] text-slate-400">
-                Monthly EMI
-              </p>
-
-              <p className="mt-1 text-xl font-bold text-[#18392c]">
-                ₹{liability.monthlyEMI.toLocaleString("en-IN")}
-              </p>
-
-            </div>
-
-
-            {/*
-              Later this area will show:
-
-              - Original loan amount
-              - Remaining balance
-              - EMI number
-              - Payment progress
-              - Due date
-              - Reminder status
-              - Recorded / Due / Missed
-            */}
-
-            <div className="mt-5 rounded-xl bg-[#f7f9f3] p-3">
-
-              <p className="text-[11px] leading-5 text-slate-500">
-                Loan repayment tracking will appear here after
-                repayment details are recorded.
-              </p>
-
-            </div>
-
-
-          </div>
-        ))}
+          );
+        })}
 
 
         {/* ====================================================
