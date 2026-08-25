@@ -1189,6 +1189,7 @@ export function generateFinancialCalendarEvents({
   investments = [],
   insurancePolicies = [],
   liabilities = [],
+  userReminders = [],
 }) {
   const goalEvents =
     createGoalEvents(
@@ -1213,12 +1214,25 @@ export function generateFinancialCalendarEvents({
       liabilities
     );
 
+  const customReminderEvents = userReminders.map(reminder => createEvent({
+    id: `user-reminder-${reminder.id}`,
+    sourceId: reminder.id,
+    type: "user-reminder",
+    title: reminder.title,
+    date: reminder.date,
+    amount: 0,
+    status: "Active",
+    reminder: true,
+    description: reminder.description || "Custom Reminder"
+  }));
+
 
   const allEvents = [
     ...goalEvents,
     ...investmentEvents,
     ...insuranceEvents,
     ...liabilityEvents,
+    ...customReminderEvents,
   ];
 
 

@@ -207,11 +207,7 @@ const getAdminDashboard = async (req, res) => {
 
 const getAdminUsers = async (req, res) => {
   try {
-    const users = await User.find({
-      role: {
-        $nin: ["admin", "administrator"],
-      },
-    })
+    const users = await User.find({})
       .sort({ createdAt: -1 })
       .select(
         "name userId email mobile phone city state gender dateOfBirth status createdAt role"

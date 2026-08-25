@@ -186,9 +186,9 @@ function MonthlyFinanceForm() {
   ] = useState("");
 
   const [
-    updateDay,
-    setUpdateDay,
-  ] = useState(1);
+    updateDate,
+    setUpdateDate,
+  ] = useState(new Date().toISOString().split('T')[0]);
 
   const [
     reminderEnabled,
@@ -199,13 +199,6 @@ function MonthlyFinanceForm() {
     emailNotification,
     setEmailNotification,
   ] = useState(false);
-
-  const [
-    smsNotification,
-    setSmsNotification,
-  ] = useState(false);
-
-
   // ==========================================================
   // DATABASE RECORD
   // ==========================================================
@@ -429,8 +422,8 @@ function MonthlyFinanceForm() {
             );
 
 
-            setUpdateDay(
-              finance.updateDay ?? 1
+            setUpdateDate(
+              finance.updateDate ? new Date(finance.updateDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
             );
 
 
@@ -448,13 +441,6 @@ function MonthlyFinanceForm() {
             );
 
 
-            setSmsNotification(
-              Boolean(
-                finance.smsNotification
-              )
-            );
-
-
             return;
           }
 
@@ -468,11 +454,10 @@ function MonthlyFinanceForm() {
           setIncome("");
           setExpenses("");
           setExistingSavings("");
-          setUpdateDay(1);
+          setUpdateDate(new Date().toISOString().split('T')[0]);
 
           setReminderEnabled(false);
           setEmailNotification(false);
-          setSmsNotification(false);
 
         } catch (error) {
 
@@ -737,31 +722,21 @@ function MonthlyFinanceForm() {
       return false;
     }
 
-
-    if (
-      !Number.isInteger(
-        dayValue
-      ) ||
-      dayValue < 1 ||
-      dayValue > 31
-    ) {
-
+    if (isNaN(new Date(updateDate).getTime())) {
       setErrorMessage(
-        "Monthly update day must be between 1 and 31."
+        "Please select a valid update date."
       );
-
       return false;
     }
 
 
     if (
       reminderEnabled &&
-      !emailNotification &&
-      !smsNotification
+      !emailNotification
     ) {
 
       setErrorMessage(
-        "Select Email or SMS when the monthly reminder is enabled."
+        "Select Email when the monthly reminder is enabled."
       );
 
       return false;
@@ -787,24 +762,23 @@ function MonthlyFinanceForm() {
 
     return (
       Number(income) !==
+      numericIncome !==
         Number(
           existingRecord.income
         ) ||
 
-      Number(expenses) !==
+      numericExpenses !==
         Number(
           existingRecord.expenses
         ) ||
 
-      Number(existingSavings) !==
+      numericSavings !==
         Number(
           existingRecord.cashBalance
         ) ||
 
-      Number(updateDay) !==
-        Number(
-          existingRecord.updateDay
-        ) ||
+      updateDate !==
+        (existingRecord.updateDate ? new Date(existingRecord.updateDate).toISOString().split('T')[0] : "") ||
 
       Boolean(
         reminderEnabled
@@ -818,13 +792,6 @@ function MonthlyFinanceForm() {
       ) !==
         Boolean(
           existingRecord.emailNotification
-        ) ||
-
-      Boolean(
-        smsNotification
-      ) !==
-        Boolean(
-          existingRecord.smsNotification
         )
     );
   }
@@ -901,22 +868,19 @@ function MonthlyFinanceForm() {
     }
 
 
-    const savedIncome =
+    const numericIncome =
       Number(income);
 
-    const savedExpenses =
+    const numericExpenses =
       Number(expenses);
 
-    const savedCashBalance =
+    const numericSavings =
       Number(existingSavings);
-
-    const savedUpdateDay =
-      Number(updateDay);
 
 
     const savedMonthlySavings =
-      savedIncome -
-      savedExpenses;
+      numericIncome -
+      numericExpenses;
 
 
     const savedTotalCommitments =
@@ -959,31 +923,20 @@ function MonthlyFinanceForm() {
                   numericMonth,
 
                 income:
-                  savedIncome,
+                  numericIncome,
 
                 expenses:
-                  savedExpenses,
+                  numericExpenses,
 
                 cashBalance:
-                  savedCashBalance,
+                  numericSavings,
 
-                updateDay:
-                  savedUpdateDay,
+                updateDate:
+                  updateDate,
 
-                reminderEnabled:
-                  Boolean(
-                    reminderEnabled
-                  ),
+                reminderEnabled,
 
-                emailNotification:
-                  Boolean(
-                    emailNotification
-                  ),
-
-                smsNotification:
-                  Boolean(
-                    smsNotification
-                  ),
+                emailNotification,
               }),
           }
         );
@@ -1030,36 +983,25 @@ function MonthlyFinanceForm() {
           numericYear,
 
         income:
-          savedIncome,
+          numericIncome,
 
         expenses:
-          savedExpenses,
+          numericExpenses,
 
         cashBalance:
-          savedCashBalance,
+          numericSavings,
 
-        updateDay:
-          savedUpdateDay,
+        updateDate:
+          updateDate,
 
-        reminderEnabled:
-          Boolean(
-            reminderEnabled
-          ),
+        reminderEnabled,
 
-        emailNotification:
-          Boolean(
-            emailNotification
-          ),
-
-        smsNotification:
-          Boolean(
-            smsNotification
-          ),
+        emailNotification,
       });
 
 
       updateCashBalance(
-        savedCashBalance
+        numericSavings
       );
 
 
@@ -1075,13 +1017,13 @@ function MonthlyFinanceForm() {
           numericYear,
 
         income:
-          savedIncome,
+          numericIncome,
 
         expenses:
-          savedExpenses,
+          numericExpenses,
 
         cashBalance:
-          savedCashBalance,
+          numericSavings,
 
         monthlySavings:
           savedMonthlySavings,
@@ -1722,7 +1664,7 @@ function MonthlyFinanceForm() {
 
 
         {/* ====================================================
-            UPDATE DAY
+            UPDATE DATE
         ==================================================== */}
 
         <section>
@@ -1730,27 +1672,20 @@ function MonthlyFinanceForm() {
           <SectionTitle
             eyebrow="Monthly Update"
             title="Monthly Update Date"
-            description="Choose the day you normally update your monthly financial position."
+            description="Choose the date you normally update your monthly financial position."
           />
 
 
           <div className="mt-4 max-w-xl">
 
             <FormField
-              label="Update Day"
-              description="Enter a day between 1 and 31."
+              label="Update Date"
+              description="Pick the date you normally update your monthly financial position."
             >
 
               <input
-                type="number"
-
-                min="1"
-                max="31"
-                step="1"
-
-                value={
-                  updateDay
-                }
+                type="date"
+                value={updateDate}
 
                 disabled={
                   isLoading ||
@@ -1759,13 +1694,9 @@ function MonthlyFinanceForm() {
 
                 onChange={
                   (event) =>
-                    setUpdateDay(
+                    setUpdateDate(
                       event.target.value
                     )
-                }
-
-                onWheel={
-                  preventWheelChange
                 }
 
                 className="w-full rounded-xl border border-[#dce5d7] bg-white px-4 py-3 text-sm text-[#18392c] outline-none transition focus:border-[#79a966] focus:ring-2 focus:ring-[#79a966]/10 disabled:bg-slate-50"
@@ -1831,80 +1762,21 @@ function MonthlyFinanceForm() {
 
             <div className="mt-5 rounded-xl border border-[#e4ebe0] bg-white p-4">
 
-              <p className="text-xs font-medium text-[#5f7568]">
-                Notification Channels
-              </p>
+              <div className="mt-4 flex flex-col gap-4">
 
-
-              <p className="mt-1 text-[11px] text-slate-400">
-                Select how you want FinanceOS to send the reminder.
-              </p>
-
-
-              <div className="mt-4 flex flex-wrap gap-6">
-
-
-                <label className="flex items-center gap-2">
-
+                <label className="flex items-center gap-3">
                   <input
                     type="checkbox"
-
-                    checked={
-                      emailNotification
+                    checked={emailNotification}
+                    onChange={(e) =>
+                      setEmailNotification(e.target.checked)
                     }
-
-                    disabled={
-                      isLoading ||
-                      isSaving
-                    }
-
-                    onChange={
-                      (event) =>
-                        setEmailNotification(
-                          event.target.checked
-                        )
-                    }
-
-                    className="h-4 w-4 accent-[#315c46]"
+                    className="h-4 w-4 rounded border-gray-300 text-[#315c46] focus:ring-[#315c46]"
                   />
-
-                  <span className="text-sm text-[#18392c]">
-                    Email
+                  <span className="text-sm font-medium text-[#18392c]">
+                    Email Notification
                   </span>
-
                 </label>
-
-
-                <label className="flex items-center gap-2">
-
-                  <input
-                    type="checkbox"
-
-                    checked={
-                      smsNotification
-                    }
-
-                    disabled={
-                      isLoading ||
-                      isSaving
-                    }
-
-                    onChange={
-                      (event) =>
-                        setSmsNotification(
-                          event.target.checked
-                        )
-                    }
-
-                    className="h-4 w-4 accent-[#315c46]"
-                  />
-
-                  <span className="text-sm text-[#18392c]">
-                    SMS
-                  </span>
-
-                </label>
-
 
               </div>
 

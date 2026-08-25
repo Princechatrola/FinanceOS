@@ -352,12 +352,6 @@ function SavingGoalForm({
   ] = useState(true);
 
 
-  const [
-    smsNotification,
-    setSmsNotification,
-  ] = useState(false);
-
-
   // ==========================================================
   // ERROR
   // ==========================================================
@@ -1098,9 +1092,6 @@ function SavingGoalForm({
 
             email:
               emailNotification,
-
-            sms:
-              smsNotification,
 
           },
 
@@ -2155,30 +2146,34 @@ function SavingGoalForm({
                   </FieldLabel>
 
 
-                  <div className="mt-2 flex flex-wrap gap-4">
+                  <div className="mt-4 flex flex-col gap-4">
 
+                    <label className="flex items-center gap-3">
 
-                    <CheckOption
-                      label="Email"
-                      checked={
-                        emailNotification
-                      }
-                      onChange={
-                        setEmailNotification
-                      }
-                    />
+                      <input
+                        type="checkbox"
+                        checked={
+                          emailNotification
+                        }
+                        disabled={
+                          isSaving
+                        }
+                        onChange={(
+                          e
+                        ) =>
+                          setEmailNotification(
+                            e.target
+                              .checked
+                          )
+                        }
+                        className="h-4 w-4 rounded border-[#dce5d7] text-[#315c46] focus:ring-[#79a966] disabled:opacity-50"
+                      />
 
+                      <span className="text-sm font-medium text-[#18392c]">
+                        Email Notification
+                      </span>
 
-                    <CheckOption
-                      label="SMS"
-                      checked={
-                        smsNotification
-                      }
-                      onChange={
-                        setSmsNotification
-                      }
-                    />
-
+                    </label>
 
                   </div>
 

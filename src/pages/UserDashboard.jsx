@@ -101,7 +101,8 @@ function UserDashboard() {
     liabilities,
     investments,
     insurancePolicies,
-
+    activeLiabilities,
+    userReminders,
     availableToAllocate
   } = useFinance();
 
@@ -1152,6 +1153,10 @@ function UserDashboard() {
 
             liabilities={
               liabilityRecords
+            }
+
+            userReminders={
+              userReminders
             }
 
           />

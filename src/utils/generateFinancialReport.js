@@ -75,6 +75,7 @@ function formatMoney(value) {
   const number =
     safeNumber(value);
 
+  if (number === 0) return "-";
 
   const sign =
     number < 0
@@ -165,6 +166,26 @@ function addTable(
   }
 ) {
 
+  // Filter out rows where all value columns (index > 0) are 0 or empty
+  const filteredRows = rows.filter(row => {
+    if (!Array.isArray(row) || row.length <= 1) return true;
+    
+    // Check if there is at least one non-zero, non-blank value
+    const hasData = row.slice(1).some(val => {
+      const v = String(val).trim().toLowerCase();
+      // Values that are considered "zero" or "blank"
+      const isZeroOrBlank = v === "" || v === "-" || v === "0" || v === "rs. 0" || v === "rs. 0.00" || v === "0.0%" || v === "0%";
+      return !isZeroOrBlank;
+    });
+    
+    return hasData;
+  });
+
+  // If no rows are left after filtering, don't render the table
+  if (filteredRows.length === 0) {
+    return startY;
+  }
+
   autoTable(
     doc,
     {
@@ -175,7 +196,7 @@ function addTable(
         headers,
       ],
 
-      body: rows,
+      body: filteredRows,
 
       theme: "grid",
 
@@ -790,6 +811,135 @@ function addMonthlyTrendChart(
 
 
 // ============================================================
+// NET WORTH TREND CHART
+// ============================================================
+
+function addNetWorthTrendChart(doc, records, startY) {
+  if (!Array.isArray(records) || records.length < 2) return startY;
+
+  let currentY = ensureSpace(doc, startY, 75);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Net Worth Trend", 14, currentY);
+
+  currentY += 10;
+
+  const chartX = 20;
+  const chartY = currentY;
+  const chartWidth = 170;
+  const chartHeight = 45;
+
+  const values = records.map((record) => {
+    const assets = safeNumber(record?.totalAssets);
+    const liabilities = safeNumber(record?.totalLiabilities ?? record?.liabilities);
+    return assets - liabilities;
+  });
+
+  const maxValue = Math.max(...values, 0);
+  const minValue = Math.min(...values, 0);
+  const range = maxValue - minValue || 1;
+
+  doc.setDrawColor(210, 218, 207);
+  doc.rect(chartX, chartY, chartWidth, chartHeight);
+
+  const zeroY = chartY + chartHeight - ((0 - minValue) / range) * chartHeight;
+  doc.setDrawColor(225, 230, 222);
+  doc.line(chartX, zeroY, chartX + chartWidth, zeroY);
+
+  const points = records.map((record, index) => {
+    const assets = safeNumber(record?.totalAssets);
+    const liabilities = safeNumber(record?.totalLiabilities ?? record?.liabilities);
+    const value = assets - liabilities;
+    const x = chartX + (index / (records.length - 1)) * chartWidth;
+    const y = chartY + chartHeight - ((value - minValue) / range) * chartHeight;
+    return { x, y, value, record };
+  });
+
+  doc.setDrawColor(49, 92, 70);
+  for (let index = 1; index < points.length; index += 1) {
+    doc.line(points[index - 1].x, points[index - 1].y, points[index].x, points[index].y);
+  }
+
+  points.forEach((point) => {
+    doc.setFillColor(49, 92, 70);
+    doc.circle(point.x, point.y, 1.4, "F");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6);
+    const month = MONTHS[safeNumber(point.record?.month) - 1];
+    const label = month ? month.slice(0, 3) : String(point.record?.month ?? "");
+    doc.text(label, point.x, chartY + chartHeight + 5, { align: "center" });
+  });
+
+  return chartY + chartHeight + 12;
+}
+
+// ============================================================
+// SUGGESTIONS
+// ============================================================
+
+function addSuggestions(doc, data, startY) {
+  let currentY = ensureSpace(doc, startY, 50);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Financial Insights & Suggestions", 14, currentY);
+
+  currentY += 8;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(60, 60, 60);
+
+  const income = safeNumber(data.reportData?.totalIncome);
+  const savings = safeNumber(data.reportData?.totalSavings);
+  const liabilities = safeNumber(data.financialPosition?.totalLiabilities);
+  const assets = safeNumber(data.financialPosition?.totalAssets);
+  const insuranceMonthly = safeNumber(data.commitmentSummary?.insurance);
+
+  const suggestions = [];
+
+  // Savings Rule: Aim for 20% savings
+  if (income > 0) {
+    const savingsRate = savings / income;
+    if (savingsRate < 0.2) {
+      suggestions.push(`• Your savings rate is ${(savingsRate * 100).toFixed(1)}%. Consider aiming for at least 20% of your income.`);
+    } else {
+      suggestions.push(`• Great job! Your savings rate is ${(savingsRate * 100).toFixed(1)}%, which is healthy.`);
+    }
+  }
+
+  // Debt Rule: Liabilities should ideally be less than 40% of income/assets
+  if (assets > 0) {
+    const debtRatio = liabilities / assets;
+    if (debtRatio > 1) {
+      suggestions.push(`• Your liabilities exceed your assets. Prioritize paying down high-interest debt to improve your net worth.`);
+    } else if (debtRatio > 0.4) {
+      suggestions.push(`• Your debt-to-asset ratio is ${(debtRatio * 100).toFixed(1)}%. You might want to prioritize paying down high-interest liabilities.`);
+    }
+  }
+
+  if (insuranceMonthly === 0) {
+    suggestions.push(`• You have no active insurance commitments. Consider getting health and life insurance to protect your net worth.`);
+  }
+
+  if (suggestions.length === 0) {
+    suggestions.push(`• Your finances look well balanced based on the current data.`);
+  }
+
+  suggestions.forEach(suggestion => {
+    const lines = doc.splitTextToSize(suggestion, 180);
+    currentY = ensureSpace(doc, currentY, lines.length * 5);
+    doc.text(lines, 14, currentY);
+    currentY += (lines.length * 5) + 2;
+  });
+
+  doc.setTextColor(0, 0, 0); // reset
+  return currentY;
+}
+
+
+// ============================================================
 // GENERATE FINANCIAL REPORT
 // ============================================================
 
@@ -803,6 +953,8 @@ export function generateFinancialReport({
     "FinanceOS User",
 
   userEmail = "",
+
+  userId = "",
 
 
   // ==========================================================
@@ -1312,6 +1464,22 @@ export function generateFinancialReport({
 
   }
 
+  if (
+    String(
+      userId || ""
+    ).trim()
+  ) {
+
+    doc.text(
+      `User ID: ${userId}`,
+      14,
+      headerY
+    );
+
+    headerY += 5;
+
+  }
+
 
   // ==========================================================
   // GENERATED DATE
@@ -1764,6 +1932,24 @@ export function generateFinancialReport({
 
     currentY =
       addMonthlyTrendChart(
+        doc,
+        records,
+        currentY + 10
+      );
+
+  }
+
+
+  // ==========================================================
+  // NET WORTH TREND CHART
+  // ==========================================================
+
+  if (
+    records.length > 1
+  ) {
+
+    currentY =
+      addNetWorthTrendChart(
         doc,
         records,
         currentY + 10
@@ -2412,6 +2598,22 @@ export function generateFinancialReport({
       );
 
   }
+
+
+  // ==========================================================
+  // FINANCIAL SUGGESTIONS
+  // ==========================================================
+
+  currentY =
+    addSuggestions(
+      doc,
+      {
+        reportData,
+        financialPosition,
+        commitmentSummary,
+      },
+      currentY + 10
+    );
 
 
   // ==========================================================

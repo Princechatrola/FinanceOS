@@ -40,6 +40,9 @@ import {
   FiTrendingUp,
   FiShield,
   FiCreditCard,
+  FiPlus,
+  FiX,
+  FiBell,
 } from "react-icons/fi";
 
 
@@ -194,6 +197,9 @@ function getEventLabel(type) {
     case "liability-end":
       return "Liability Completion";
 
+    case "user-reminder":
+      return "Custom Reminder";
+
     default:
       return "Financial Event";
   }
@@ -235,6 +241,10 @@ function EventIcon({
     return <FiCreditCard />;
   }
 
+  if (type === "user-reminder") {
+    return <FiBell />;
+  }
+
   return <FiCalendar />;
 }
 
@@ -255,7 +265,37 @@ function FinancialCalendar() {
     investments,
     insurancePolicies,
     liabilities,
+    userReminders,
+    loadUserReminders,
   } = useFinance();
+
+  const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
+  const [reminderForm, setReminderForm] = useState({ title: "", date: "", description: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleReminderSubmit = async (e) => {
+    e.preventDefault();
+    if (!reminderForm.title || !reminderForm.date) return;
+    
+    setIsSubmitting(true);
+    try {
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const res = await fetch("http://localhost:5000/api/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(reminderForm),
+      });
+      if (res.ok) {
+        await loadUserReminders();
+        setIsReminderModalOpen(false);
+        setReminderForm({ title: "", date: "", description: "" });
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
 
   // ==========================================================
@@ -411,6 +451,9 @@ function FinancialCalendar() {
 
           liabilities:
             liabilityRecords,
+
+          userReminders:
+            userReminders || [],
         }),
 
       [
@@ -418,6 +461,7 @@ function FinancialCalendar() {
         investmentRecords,
         insuranceRecords,
         liabilityRecords,
+        userReminders,
       ]
     );
 
@@ -596,7 +640,7 @@ function FinancialCalendar() {
     calendarCells.push(
       <div
         key={`empty-${index}`}
-        className="min-h-[105px] border-b border-r border-[#edf0e9] bg-[#fafcf8]"
+        className="min-h-[110px] border-b border-r border-[#edf0e9]/50 bg-white/40"
       />
     );
   }
@@ -651,10 +695,10 @@ function FinancialCalendar() {
           )
         }
 
-        className={`min-h-[105px] border-b border-r border-[#edf0e9] p-2 text-left transition ${
+        className={`min-h-[110px] border-b border-r border-[#edf0e9]/50 p-2 text-left transition-all duration-300 ${
           isSelected
-            ? "bg-[#f2f8ed]"
-            : "bg-white hover:bg-[#fafcf8]"
+            ? "bg-gradient-to-br from-[#f2f8ed] to-[#e6f4cf]/30 shadow-inner"
+            : "bg-transparent hover:bg-white/80 hover:shadow-sm"
         }`}
       >
 
@@ -775,7 +819,7 @@ function FinancialCalendar() {
       calendarCells.push(
         <div
           key={`ending-${index}`}
-          className="min-h-[105px] border-b border-r border-[#edf0e9] bg-[#fafcf8]"
+          className="min-h-[110px] border-b border-r border-[#edf0e9]/50 bg-white/40"
         />
       );
     }
@@ -843,21 +887,32 @@ function FinancialCalendar() {
             </div>
 
 
-            {/* TODAY */}
+            {/* BUTTONS */}
 
-            <button
-              type="button"
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsReminderModalOpen(true)}
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#4f8d32] to-[#3a6825] px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-[#4f8d32]/20 transition-all hover:shadow-[#4f8d32]/40 hover:-translate-y-0.5"
+              >
+                <FiPlus />
+                Add Reminder
+              </button>
 
-              onClick={
-                goToday
-              }
+              <button
+                type="button"
 
-              className="flex items-center gap-2 rounded-xl border border-[#dfe6da] bg-white px-4 py-2.5 text-xs font-semibold text-[#315c46] transition hover:bg-[#f4f7f1]"
-            >
-              <FiCalendar />
+                onClick={
+                  goToday
+                }
 
-              Today
-            </button>
+                className="flex items-center gap-2 rounded-xl border border-[#dfe6da] bg-white/60 backdrop-blur px-4 py-2.5 text-xs font-semibold text-[#315c46] shadow-sm transition hover:bg-white"
+              >
+                <FiCalendar />
+
+                Today
+              </button>
+            </div>
 
           </div>
 
@@ -866,7 +921,7 @@ function FinancialCalendar() {
               CALENDAR
              ================================================== */}
 
-          <section className="mt-6 overflow-hidden rounded-2xl border border-[#e2e8dc] bg-white">
+          <section className="mt-6 overflow-hidden rounded-[24px] border border-[#e2e8dc]/60 bg-white/60 backdrop-blur-xl shadow-xl shadow-slate-200/40">
 
 
             {/* =================================================
@@ -942,7 +997,7 @@ function FinancialCalendar() {
                 WEEKDAY HEADER
                ================================================= */}
 
-            <div className="grid grid-cols-7 border-b border-[#edf0e9] bg-[#fafcf8]">
+            <div className="grid grid-cols-7 border-b border-[#edf0e9]/50 bg-white/50 backdrop-blur">
 
               {[
                 "Sun",
@@ -1220,6 +1275,81 @@ function FinancialCalendar() {
           )}
 
         </div>
+
+        {/* ==================================================
+            ADD REMINDER MODAL
+           ================================================== */}
+        {isReminderModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#173b2b]/40 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
+                <h3 className="text-lg font-bold text-[#18392c]">Add Custom Reminder</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsReminderModalOpen(false)}
+                  className="rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+                >
+                  <FiX size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleReminderSubmit} className="p-6">
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-gray-600">Reminder Title</label>
+                    <input
+                      type="text"
+                      required
+                      value={reminderForm.title}
+                      onChange={(e) => setReminderForm({ ...reminderForm, title: e.target.value })}
+                      placeholder="e.g. Renew car insurance"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm focus:border-[#4f8d32] focus:bg-white focus:outline-none focus:ring-4 focus:ring-[#4f8d32]/10"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-gray-600">Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={reminderForm.date}
+                      onChange={(e) => setReminderForm({ ...reminderForm, date: e.target.value })}
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm focus:border-[#4f8d32] focus:bg-white focus:outline-none focus:ring-4 focus:ring-[#4f8d32]/10"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-gray-600">Description (Optional)</label>
+                    <textarea
+                      value={reminderForm.description}
+                      onChange={(e) => setReminderForm({ ...reminderForm, description: e.target.value })}
+                      placeholder="Add any notes here..."
+                      rows={3}
+                      className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm focus:border-[#4f8d32] focus:bg-white focus:outline-none focus:ring-4 focus:ring-[#4f8d32]/10"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-8 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsReminderModalOpen(false)}
+                    className="flex-1 rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-600 transition hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 rounded-xl bg-[#4f8d32] py-3 text-sm font-semibold text-white shadow-lg shadow-[#4f8d32]/20 transition hover:bg-[#437a2a]"
+                  >
+                    {isSubmitting ? "Saving..." : "Save Reminder"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
       </main>
 

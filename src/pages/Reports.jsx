@@ -542,8 +542,18 @@ function Reports() {
   const mergedMonthlyHistory =
     useMemo(() => {
 
-      return monthlyHistory
+      const historyToMap = [...monthlyHistory];
+      const hasCurrentMonth = historyToMap.some(r => Number(r.year) === Number(currentYear) && Number(r.month) === Number(currentMonth));
+      
+      if (!hasCurrentMonth) {
+        historyToMap.push({
+          ...monthlyFinance,
+          year: currentYear,
+          month: currentMonth
+        });
+      }
 
+      return historyToMap
         .map(
           (monthlyRecord) => {
 
@@ -1517,6 +1527,12 @@ function Reports() {
 
 
     generateFinancialReport({
+
+      userName: finance?.userData?.name || finance?.userData?.firstName || "FinanceOS User",
+
+      userEmail: finance?.userData?.email || "",
+
+      userId: finance?.userData?.userId || finance?.userData?._id || "",
 
       reportTitle,
 
