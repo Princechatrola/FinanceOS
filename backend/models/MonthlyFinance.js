@@ -72,12 +72,10 @@ const monthlyFinanceSchema = new mongoose.Schema(
     // ========================================================
     // MONTHLY UPDATE
     // ========================================================
-    updateDay: {
-      type: Number,
+    updateDate: {
+      type: Date,
       required: true,
-      min: 1,
-      max: 31,
-      default: 1,
+      default: Date.now,
     },
 
     // ========================================================
@@ -92,11 +90,6 @@ const monthlyFinanceSchema = new mongoose.Schema(
     // NOTIFICATION CHANNELS
     // ========================================================
     emailNotification: {
-      type: Boolean,
-      default: false,
-    },
-
-    smsNotification: {
       type: Boolean,
       default: false,
     },

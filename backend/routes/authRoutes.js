@@ -8,6 +8,7 @@ const express = require("express");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
 const { logActivity } = require("../utils/activityLogger");
+const Message = require("../models/Message");
 
 console.log(
   "AUTH MIDDLEWARE TYPE:",
@@ -358,6 +359,14 @@ router.post(
         type: "Registration",
         description: "Created a new FinanceOS account",
       });
+await Message.create({
+  title: "New User Registration",
+  message: `User ${user.email} has been registered.`,
+  recipient: "admin",
+  type: "Personal",
+  channels: ["In-App"],
+  createdBy: "System"
+});
 
       // ======================================================
       // RESPONSE
@@ -523,13 +532,13 @@ router.get(
       // ======================================================
 
       if (
-        user.role !== "user"
+        !["user", "admin", "administrator"].includes(user.role)
       ) {
 
         return res.status(403).json({
           success: false,
           message:
-            "Access denied. User account required.",
+            "Access denied. Valid account required.",
         });
 
       }
@@ -711,13 +720,13 @@ router.put(
       // ======================================================
 
       if (
-        user.role !== "user"
+        !["user", "admin", "administrator"].includes(user.role)
       ) {
 
         return res.status(403).json({
           success: false,
           message:
-            "Access denied. User account required.",
+            "Access denied. Valid account required.",
         });
 
       }

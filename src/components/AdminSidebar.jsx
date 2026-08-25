@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 
 import {
   LayoutDashboard,
@@ -31,8 +31,13 @@ function AdminSidebar() {
       path: "/admin/users",
       icon: Users,
     },
+    {
+      name: "My Profile",
+      path: "/admin/profile",
+      icon: UserCog,
+    },
 
-    ...(isSuperAdmin
+/*     ...(isSuperAdmin
       ? [
           {
             name: "Administrators",
@@ -41,7 +46,7 @@ function AdminSidebar() {
           },
         ]
       : []),
-
+ */
     {
       name: "User Activity",
       path: "/admin/activity",
@@ -61,12 +66,12 @@ function AdminSidebar() {
       name: "Reminders",
       path: "/admin/reminders",
       icon: BellRing,
-    },
-    {
+    }
+/*     {
       name: "Settings",
       path: "/admin/settings",
       icon: Settings,
-    },
+    }, */
   ];
 
   function handleSignOut() {
@@ -276,7 +281,7 @@ function AdminSidebar() {
           "
         >
 
-          <div className="flex items-center gap-3">
+          <Link to="/admin/profile" className="flex items-center gap-3 transition hover:opacity-80">
 
             <div
               className="
@@ -321,7 +326,7 @@ function AdminSidebar() {
 
             </div>
 
-          </div>
+          </Link>
 
 
           {/* SIGN OUT */}

@@ -1,6 +1,7 @@
 const Investment = require("../models/Investment");
 const Activity = require("../models/Activity");
 const User = require("../models/User");
+const InvestmentMaturityAction = require("../models/InvestmentMaturityAction");
 
 // Helper to log user activities safely under the strict Activity schema
 const logActivity = async (userId, description) => {
@@ -783,6 +784,73 @@ const renewInvestment = async (req, res) => {
 };
 
 // ============================================================
+// PROCESS INVESTMENT MATURITY ACTION
+// ============================================================
+const processInvestmentMaturityAction = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    const { id } = req.params;
+    const { actionType, actionAmount, remainingAmount, maturityAmount, note } = req.body;
+
+    // FIND OLD INVESTMENT
+    const investment = await Investment.findOne({
+      _id: id,
+      user: userId,
+    });
+
+    if (!investment) {
+      return res.status(404).json({
+        success: false,
+        message: "Investment not found.",
+      });
+    }
+
+    if (String(investment.status).toLowerCase() !== "matured" && String(investment.status).toLowerCase() !== "active") {
+      return res.status(400).json({
+        success: false,
+        message: "Only an active or matured investment can be processed.",
+      });
+    }
+
+    // CREATE MATURITY ACTION
+    const maturityAction = await InvestmentMaturityAction.create({
+      user: userId,
+      investment: investment._id,
+      actionType: actionType || "KEEP_CASH",
+      maturityAmount: Number(maturityAmount) || 0,
+      actionAmount: Number(actionAmount) || 0,
+      remainingAmount: Number(remainingAmount) || 0,
+      note: note || "",
+    });
+
+    // UPDATE INVESTMENT
+    investment.status = "Matured";
+    investment.monthlyContribution = 0;
+    investment.maturedAt = new Date();
+    if (maturityAmount) {
+      investment.currentValue = Number(maturityAmount);
+    }
+    await investment.save();
+
+    // LOG ACTIVITY
+    await logActivity(userId, `Investment matured and action processed: ${actionType}`);
+
+    return res.status(200).json({
+      success: true,
+      message: "Maturity action processed successfully.",
+      maturityAction,
+      investment,
+    });
+  } catch (error) {
+    console.error("Process Investment Maturity Action:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to process maturity action.",
+    });
+  }
+};
+
+// ============================================================
 // EXPORTS
 // ============================================================
 
@@ -799,4 +867,5 @@ module.exports = {
   updateSIPContribution,
   recordInvestmentMaturity,
   renewInvestment,
+  processInvestmentMaturityAction,
 };

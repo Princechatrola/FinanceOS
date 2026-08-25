@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -9,41 +9,25 @@ import {
   Save,
   ShieldCheck,
   UserRound,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 
 import AdminSidebar from "../components/AdminSidebar.jsx";
 import AdminTopbar from "../components/AdminTopbar.jsx";
 
-
-// ============================================================
-// ADMIN USER ACCESS
-// ============================================================
+const API_URL = "http://localhost:5000/api/admin/users";
 
 export default function AdminUserAccess() {
   const navigate = useNavigate();
   const { id } = useParams();
 
-  // ==========================================================
-  // TEMPORARY USER DATA
-  //
-  // Later:
-  // GET /api/admin/users/:id/access
-  // ==========================================================
-
-  const user = {
-    id,
-    userId: "FOS-U-001248",
-    name: "Rahul Patel",
-    email: "rahul@example.com",
-    status: "Active",
-  };
-
-
-  // ==========================================================
-  // USER PERMISSIONS
-  //
-  // Later these values will come from MongoDB.
-  // ==========================================================
+  const [user, setUser] = useState({
+    userId: "",
+    name: "",
+    email: "",
+    status: "",
+  });
 
   const defaultPermissions = {
     dashboard: true,
@@ -55,15 +39,58 @@ export default function AdminUserAccess() {
     aiAdvisor: false,
   };
 
-  const [permissions, setPermissions] =
-    useState(defaultPermissions);
-
+  const [permissions, setPermissions] = useState(defaultPermissions);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
+  useEffect(() => {
+    async function fetchUserAccess() {
+      try {
+        setLoading(true);
+        setError("");
+        const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+        const response = await fetch(`${API_URL}/${id}`, {
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || "Failed to fetch user access details.");
+        }
+        const u = data.user;
+        setUser({
+          userId: u.userId || "",
+          name: u.name || "",
+          email: u.email || "",
+          status: u.status || "",
+        });
+        if (u.permissions) {
+          setPermissions({
+            dashboard: u.permissions.dashboard !== undefined ? u.permissions.dashboard : defaultPermissions.dashboard,
+            monthlyFinance: u.permissions.monthlyFinance !== undefined ? u.permissions.monthlyFinance : defaultPermissions.monthlyFinance,
+            savingGoals: u.permissions.savingGoals !== undefined ? u.permissions.savingGoals : defaultPermissions.savingGoals,
+            plansCommitments: u.permissions.plansCommitments !== undefined ? u.permissions.plansCommitments : defaultPermissions.plansCommitments,
+            financialCalendar: u.permissions.financialCalendar !== undefined ? u.permissions.financialCalendar : defaultPermissions.financialCalendar,
+            reports: u.permissions.reports !== undefined ? u.permissions.reports : defaultPermissions.reports,
+            aiAdvisor: u.permissions.aiAdvisor !== undefined ? u.permissions.aiAdvisor : defaultPermissions.aiAdvisor,
+          });
+        }
+      } catch (err) {
+        console.error(err);
+        setError(err.message || "Unable to load user permissions.");
+      } finally {
+        setLoading(false);
+      }
+    }
 
-  // ==========================================================
-  // TOGGLE PERMISSION
-  // ==========================================================
+    if (id) {
+      fetchUserAccess();
+    }
+  }, [id]);
 
   function togglePermission(name) {
     setPermissions((current) => ({
@@ -73,11 +100,6 @@ export default function AdminUserAccess() {
 
     setSaved(false);
   }
-
-
-  // ==========================================================
-  // ENABLE ALL
-  // ==========================================================
 
   function enableAll() {
     setPermissions({
@@ -93,13 +115,6 @@ export default function AdminUserAccess() {
     setSaved(false);
   }
 
-
-  // ==========================================================
-  // DISABLE OPTIONAL ACCESS
-  //
-  // Dashboard remains enabled because it is the main user area.
-  // ==========================================================
-
   function disableOptional() {
     setPermissions({
       dashboard: true,
@@ -114,35 +129,38 @@ export default function AdminUserAccess() {
     setSaved(false);
   }
 
-
-  // ==========================================================
-  // RESET
-  // ==========================================================
-
   function resetPermissions() {
     setPermissions(defaultPermissions);
     setSaved(false);
   }
 
-
-  // ==========================================================
-  // SAVE
-  // ==========================================================
-
-  function savePermissions() {
-    const data = {
-      userId: user.userId,
-      permissions,
-    };
-
-    // TEMPORARY FRONTEND
-    //
-    // Later:
-    // PUT /api/admin/users/:id/access
-
-    console.log("Updated User Access:", data);
-
-    setSaved(true);
+  async function savePermissions() {
+    try {
+      setSaving(true);
+      setError("");
+      setSaved(false);
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const response = await fetch(`${API_URL}/${id}/access`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          permissions,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to update permissions.");
+      }
+      setSaved(true);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Unable to save permissions.");
+    } finally {
+      setSaving(false);
+    }
   }
 
 
@@ -226,6 +244,7 @@ export default function AdminUserAccess() {
 
                 <button
                   type="button"
+                  disabled={loading || saving}
                   onClick={resetPermissions}
                   className="
                     flex items-center gap-2
@@ -237,6 +256,7 @@ export default function AdminUserAccess() {
                     text-[#617268]
                     transition
                     hover:bg-[#f5f8f2]
+                    disabled:opacity-50 disabled:cursor-not-allowed
                   "
                 >
                   <RotateCcw size={15} />
@@ -247,6 +267,7 @@ export default function AdminUserAccess() {
 
                 <button
                   type="button"
+                  disabled={loading || saving}
                   onClick={savePermissions}
                   className="
                     flex items-center gap-2
@@ -257,17 +278,36 @@ export default function AdminUserAccess() {
                     text-[#173b2b]
                     transition
                     hover:bg-[#d5eba2]
+                    disabled:opacity-50 disabled:cursor-not-allowed
                   "
                 >
-                  <Save size={16} />
+                  {saving ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Save size={16} />
+                  )}
 
-                  Save Access
+                  {saving ? "Saving..." : "Save Access"}
                 </button>
 
               </div>
 
             </div>
 
+
+            {/* ==================================================
+                ERROR MESSAGE
+            ================================================== */}
+
+            {error && (
+              <div className="mt-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
+                <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-600" />
+                <div>
+                  <p className="text-sm font-semibold">Error</p>
+                  <p className="mt-1 text-xs">{error}</p>
+                </div>
+              </div>
+            )}
 
             {/* ==================================================
                 SUCCESS MESSAGE
@@ -289,9 +329,7 @@ export default function AdminUserAccess() {
                   </p>
 
                   <p className="mt-1 text-xs text-[#617268]">
-                    The frontend permission changes are working.
-                    They will be stored permanently when the backend
-                    and MongoDB are connected.
+                    User module access permissions have been successfully saved to MongoDB.
                   </p>
 
                 </div>
@@ -300,12 +338,18 @@ export default function AdminUserAccess() {
 
             )}
 
+            {loading ? (
+              <div className="mt-12 flex flex-col items-center justify-center gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-[#57923d]" />
+                <p className="text-sm text-[#718177]">Loading permissions...</p>
+              </div>
+            ) : (
+              <>
+                {/* ==================================================
+                    USER CARD
+                ================================================== */}
 
-            {/* ==================================================
-                USER CARD
-            ================================================== */}
-
-            <section className="mt-6 rounded-2xl border border-[#dfe6da] bg-white p-5">
+                <section className="mt-6 rounded-2xl border border-[#dfe6da] bg-white p-5">
 
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
@@ -589,6 +633,7 @@ export default function AdminUserAccess() {
 
               <button
                 type="button"
+                disabled={saving}
                 onClick={savePermissions}
                 className="
                   flex items-center gap-2
@@ -599,14 +644,21 @@ export default function AdminUserAccess() {
                   text-[#173b2b]
                   transition
                   hover:bg-[#d5eba2]
+                  disabled:opacity-50 disabled:cursor-not-allowed
                 "
               >
-                <Save size={16} />
+                {saving ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Save size={16} />
+                )}
 
-                Save Access
+                {saving ? "Saving..." : "Save Access"}
               </button>
 
             </div>
+              </>
+            )}
 
           </div>
 

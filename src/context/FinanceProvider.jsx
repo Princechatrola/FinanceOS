@@ -10,7 +10,7 @@ const createDefaultMonthlyFinance = () => ({
   year: new Date().getFullYear(),
   income: 0,
   expenses: 0,
-  updateDay: 5,
+  updateDate: new Date().toISOString().split('T')[0],
   reminder: {
     enabled: true,
     options: [],
@@ -216,6 +216,7 @@ function FinanceProvider({ children }) {
   const [liabilities, setLiabilities] = useState([]);
   const [netWorthSnapshots, setNetWorthSnapshots] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [userReminders, setUserReminders] = useState([]);
 
   // ==========================================================
   // DATA LOADERS
@@ -246,10 +247,10 @@ function FinanceProvider({ children }) {
         income: finance.income,
         expenses: finance.expenses,
         cashBalance: finance.cashBalance,
-        updateDay: finance.updateDay,
+        monthlySavings: finance.monthlySavings,
+        updateDate: finance.updateDate,
         reminderEnabled: finance.reminderEnabled,
         emailNotification: finance.emailNotification,
-        smsNotification: finance.smsNotification,
         backendGoalAllocations: finance.goalAllocations || 0,
       });
       setCashBalance(finance.cashBalance);
@@ -403,6 +404,54 @@ function FinanceProvider({ children }) {
     }
   };
 
+  const loadUserReminders = async () => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+      if (!token) return;
+
+      const response = await fetch("http://localhost:5000/api/reminders", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (!data.success || !data.data) return;
+
+      setUserReminders(data.data);
+    } catch (error) {
+      console.error("Load User Reminders:", error);
+    }
+  };
+
+  const loadUserMessages = async () => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+      if (!token) return;
+
+      const response = await fetch("http://localhost:5000/api/messages", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (!data.success || !data.data) return;
+
+      data.data.forEach((msg) => {
+        addNotification({
+          id: msg.id,
+          type: "message",
+          title: msg.title,
+          message: msg.message,
+          source: "FinanceOS Admin",
+          date: msg.createdAt,
+          read: msg.read
+        });
+      });
+    } catch (error) {
+      console.error("Load User Messages:", error);
+    }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       if (!userData) return;
@@ -412,6 +461,8 @@ function FinanceProvider({ children }) {
         await loadInvestments();
         await loadInsurances();
         await loadLiabilities();
+        await loadUserReminders();
+        await loadUserMessages();
       } catch (error) {
         console.error("FinanceProvider: Failed to load finance data:", error);
       }
@@ -1736,6 +1787,49 @@ function FinanceProvider({ children }) {
     }
   };
 
+  const submitInvestmentMaturityAction = async (id, maturityData) => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+
+      if (!token) return { success: false, message: "Authentication token not found." };
+
+      const response = await fetch(`http://localhost:5000/api/investments/${id}/maturity-action`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(maturityData),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to process maturity action.");
+      }
+
+      setInvestments((current) =>
+        current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                status: "Matured",
+                maturedAt: new Date().toISOString(),
+                currentValue: maturityData.maturityAmount || item.currentValue,
+                monthlyContribution: 0,
+              }
+            : item
+        )
+      );
+
+      return { success: true, message: "Maturity action processed successfully." };
+    } catch (error) {
+      console.error("Submit Investment Maturity Action:", error);
+      return { success: false, message: error.message || "Failed to process maturity action." };
+    }
+  };
+
   const renewInvestment = async (id, renewalData = {}) => {
     try {
       const token =
@@ -2519,6 +2613,7 @@ function FinanceProvider({ children }) {
     // Investment Maturity
     handleInvestmentMaturity,
     renewInvestment,
+    submitInvestmentMaturityAction,
     getInvestmentMaturityValue,
 
     investmentMonthlyCommitment,
@@ -2576,6 +2671,10 @@ function FinanceProvider({ children }) {
     deleteNotification,
     clearNotifications,
     unreadNotificationCount,
+
+    // User Reminders
+    userReminders,
+    loadUserReminders,
   };
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;

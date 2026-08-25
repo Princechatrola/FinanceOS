@@ -53,8 +53,12 @@ const investmentRoutes =
 const reminderRoutes =
   require("./routes/reminderRoutes");
 
+const userReminderRoutes =
+  require("./routes/userReminderRoutes");
+
 const liabilityRoutes = require("./routes/liabilityRoutes");
 const insuranceRoutes = require("./routes/insuranceRoutes");
+const messageRoutes = require("./routes/messageRoutes");
 
 // ============================================================
 // AUTH
@@ -104,8 +108,18 @@ app.use(
 );
 
 app.use(
+  "/api/reminders",
+  userReminderRoutes
+);
+
+app.use(
   "/api/liabilities",
   liabilityRoutes
+);
+
+app.use(
+  "/api/messages",
+  messageRoutes
 );
 
 app.use(

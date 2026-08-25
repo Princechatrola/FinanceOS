@@ -948,91 +948,204 @@ function Home() {
 
 
       {/* ======================================================
-          FOOTER
+          NEW PROFESSIONAL FOOTER
       ====================================================== */}
 
-      <footer className="border-t border-[#e1e7dc] bg-white">
+      <footer className="border-t border-[#dfe7da] bg-[#173b2b] text-white">
 
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-8 md:flex-row md:items-center md:justify-between lg:px-8">
+        <div className="mx-auto max-w-7xl px-6 py-14 lg:px-8">
 
 
-          {/* FOOTER LOGO */}
+          {/* ==================================================
+              FOOTER MAIN CONTENT
+          ================================================== */}
 
-          <a
-            href="#home"
-            className="flex items-center gap-3"
-          >
+          <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-4">
 
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#edf7df]">
 
-              <TrendingUp
-                size={19}
-                className="text-[#4f8d32]"
-              />
+            {/* ==================================================
+                BRAND
+            ================================================== */}
+
+            <div className="lg:col-span-2">
+
+              <a
+                href="#home"
+                className="inline-flex items-center gap-3"
+              >
+
+                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#e7f3d8]">
+
+                  <TrendingUp
+                    size={21}
+                    className="text-[#57923d]"
+                  />
+
+                </div>
+
+
+                <div>
+
+                  <p className="text-xl font-bold tracking-tight text-[#e7f3d8]">
+                    FinanceOS
+                  </p>
+
+                  <p className="text-[9px] font-medium tracking-wide text-[#b7c8b8]">
+                    Manage Today, Secure Tomorrow
+                  </p>
+
+                </div>
+
+              </a>
+
+
+              <p className="mt-5 max-w-md text-sm leading-6 text-[#c4d2c5]">
+
+                A Personal Finance Operating System that brings
+                your monthly finances, savings, goals, investments
+                and financial commitments together in one connected system.
+
+              </p>
+
+
+              {/* TAG */}
+
+              <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-[#456451] bg-[#244f3b] px-3 py-1.5">
+
+                <CheckCircle2
+                  size={14}
+                  className="text-[#b7d89d]"
+                />
+
+                <span className="text-xs font-medium text-[#d7e5d3]">
+                  One connected financial view
+                </span>
+
+              </div>
 
             </div>
 
+
+
+            {/* ==================================================
+                PRODUCT
+            ================================================== */}
 
             <div>
 
-              <p className="font-bold text-[#43822e]">
-                FinanceOS
-              </p>
+              <h3 className="text-sm font-bold text-white">
+                Product
+              </h3>
 
-              <p className="text-[9px] text-[#75857b]">
-                Manage Today, Secure Tomorrow
-              </p>
+
+              <div className="mt-5 flex flex-col gap-3">
+
+                <a
+                  href="#features"
+                  className="text-sm text-[#b9c9ba] transition hover:text-[#dff5b5]"
+                >
+                  Features
+                </a>
+
+
+                <a
+                  href="#how-it-works"
+                  className="text-sm text-[#b9c9ba] transition hover:text-[#dff5b5]"
+                >
+                  How It Works
+                </a>
+
+
+                <a
+                  href="#about"
+                  className="text-sm text-[#b9c9ba] transition hover:text-[#dff5b5]"
+                >
+                  About FinanceOS
+                </a>
+
+
+                <Link
+                  to="/signup"
+                  className="text-sm text-[#b9c9ba] transition hover:text-[#dff5b5]"
+                >
+                  Get Started
+                </Link>
+
+              </div>
 
             </div>
 
-          </a>
 
 
+            {/* ==================================================
+                ACCOUNT
+            ================================================== */}
 
-          {/* FOOTER NAVIGATION */}
+            <div>
 
-          <div className="flex flex-wrap items-center gap-6 text-xs font-medium text-[#65786d]">
-
-            <a
-              href="#home"
-              className="transition hover:text-[#43822e]"
-            >
-              Home
-            </a>
+              <h3 className="text-sm font-bold text-white">
+                Account
+              </h3>
 
 
-            <a
-              href="#features"
-              className="transition hover:text-[#43822e]"
-            >
-              Features
-            </a>
+              <div className="mt-5 flex flex-col gap-3">
+
+                <Link
+                  to="/signin"
+                  className="text-sm text-[#b9c9ba] transition hover:text-[#dff5b5]"
+                >
+                  Sign In
+                </Link>
 
 
-            <a
-              href="#how-it-works"
-              className="transition hover:text-[#43822e]"
-            >
-              How It Works
-            </a>
+                <Link
+                  to="/signup"
+                  className="text-sm text-[#b9c9ba] transition hover:text-[#dff5b5]"
+                >
+                  Create Account
+                </Link>
+
+              </div>
 
 
-            <a
-              href="#about"
-              className="transition hover:text-[#43822e]"
-            >
-              About Us
-            </a>
+              {/* QUICK ACTION */}
+
+              <Link
+                to="/signup"
+                className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#dff5b5] px-4 py-2.5 text-xs font-bold text-[#173b2b] transition hover:bg-[#cfeaa4]"
+              >
+
+                Start With FinanceOS
+
+                <ArrowRight size={14} />
+
+              </Link>
+
+            </div>
 
           </div>
 
 
 
-          {/* COPYRIGHT */}
+          {/* ==================================================
+              DIVIDER
+          ================================================== */}
 
-          <p className="text-xs text-[#839087]">
-            © 2026 FinanceOS
+          <div className="my-10 h-px bg-[#355642]" />
+
+
+
+          {/* ==================================================
+            FOOTER BOTTOM
+        ================================================== */}
+
+        <div className="flex justify-center text-xs">
+
+          <p className="text-center text-[#9fb3a2]">
+            © 2026 FinanceOS. All rights reserved.
           </p>
+
+        </div>
 
         </div>
 

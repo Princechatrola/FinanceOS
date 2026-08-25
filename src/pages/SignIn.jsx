@@ -926,26 +926,6 @@ function SignIn() {
 
                   )}
 
-                  {/* REMEMBER ME */}
-
-                  <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-[#617268]">
-
-                    <input
-                      type="checkbox"
-                      name="rememberMe"
-                      checked={
-                        formData.rememberMe
-                      }
-                      onChange={
-                        handleChange
-                      }
-                      className="h-4 w-4 accent-[#57923d]"
-                    />
-
-                    Remember Me
-
-                  </label>
-
                   {/* VERIFY BUTTON */}
 
                   <button
@@ -1029,26 +1009,6 @@ function SignIn() {
                     </div>
 
                   )}
-
-                  {/* REMEMBER ME */}
-
-                  <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-[#617268]">
-
-                    <input
-                      type="checkbox"
-                      name="rememberMe"
-                      checked={
-                        formData.rememberMe
-                      }
-                      onChange={
-                        handleChange
-                      }
-                      className="h-4 w-4 accent-[#57923d]"
-                    />
-
-                    Remember Me
-
-                  </label>
 
                   {/* SEND OTP */}
 

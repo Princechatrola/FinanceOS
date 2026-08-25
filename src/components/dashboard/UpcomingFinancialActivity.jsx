@@ -41,6 +41,7 @@ import {
   FiShield,
   FiCreditCard,
   FiClock,
+  FiBell,
 } from "react-icons/fi";
 
 
@@ -237,6 +238,10 @@ function getEventTypeLabel(
 
       return "Liability Completion";
 
+    case "user-reminder":
+
+      return "Custom Reminder";
+
 
     default:
 
@@ -304,6 +309,10 @@ function EventIcon({
   }
 
 
+  if (type === "user-reminder") {
+    return <FiBell />;
+  }
+
   return <FiCalendar />;
 
 }
@@ -322,6 +331,8 @@ function UpcomingFinancialActivity({
   insurancePolicies = [],
 
   liabilities = [],
+
+  userReminders = [],
 
 }) {
 
@@ -374,6 +385,11 @@ function UpcomingFinancialActivity({
               ? liabilities
               : [],
 
+          userReminders:
+            Array.isArray(userReminders)
+              ? userReminders
+              : [],
+
         }),
 
       [
@@ -381,6 +397,7 @@ function UpcomingFinancialActivity({
         investments,
         insurancePolicies,
         liabilities,
+        userReminders,
       ]
     );
 

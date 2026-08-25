@@ -19,7 +19,7 @@ import {
 } from "react-router-dom";
 
 import financeOSLogo
-  from "../../assets/images/financeos-logo.png";
+  from "../../assets/images/financeos-logo-Copy.png";
 
 
 // ============================================================

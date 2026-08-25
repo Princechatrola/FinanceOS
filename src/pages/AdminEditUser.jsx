@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -6,34 +6,74 @@ import {
   UserRound,
   ShieldCheck,
   AlertTriangle,
+  Loader2,
 } from "lucide-react";
 
 import AdminSidebar from "../components/AdminSidebar.jsx";
 import AdminTopbar from "../components/AdminTopbar.jsx";
 
+const API_URL = "http://localhost:5000/api/admin/users";
+
 export default function AdminEditUser() {
   const navigate = useNavigate();
   const { id } = useParams();
 
-  // ==========================================================
-  // TEMPORARY USER DATA
-  // Later:
-  // GET /api/admin/users/:id
-  // ==========================================================
-
   const [form, setForm] = useState({
-    userId: "FOS-U-001248",
-    fullName: "Rahul Patel",
-    dateOfBirth: "2001-03-14",
+    userId: "",
+    fullName: "",
+    dateOfBirth: "",
     gender: "Male",
-    mobile: "9876543210",
-    email: "rahul@example.com",
-    city: "Ahmedabad",
-    state: "Gujarat",
+    mobile: "",
+    email: "",
+    city: "",
+    state: "",
     status: "Active",
   });
 
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    async function fetchUser() {
+      try {
+        setLoading(true);
+        setError("");
+        const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+        const response = await fetch(`${API_URL}/${id}`, {
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || "Failed to fetch user details.");
+        }
+        const u = data.user;
+        setForm({
+          userId: u.userId || "",
+          fullName: u.name || "",
+          dateOfBirth: u.dateOfBirth ? u.dateOfBirth.split("T")[0] : "",
+          gender: u.gender || "Male",
+          mobile: u.phone || "",
+          email: u.email || "",
+          city: u.city || "",
+          state: u.state || "",
+          status: u.status || "Active",
+        });
+      } catch (err) {
+        console.error(err);
+        setError(err.message || "Unable to load user.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    if (id) {
+      fetchUser();
+    }
+  }, [id]);
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -46,20 +86,41 @@ export default function AdminEditUser() {
     setSaved(false);
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
-
-    // ========================================================
-    // TEMPORARY
-    //
-    // Later:
-    // PUT /api/admin/users/:id
-    // ========================================================
-
-    console.log("Updating user:", id);
-    console.log(form);
-
-    setSaved(true);
+    try {
+      setSaving(true);
+      setError("");
+      setSaved(false);
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const response = await fetch(`${API_URL}/${id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          fullName: form.fullName,
+          dateOfBirth: form.dateOfBirth,
+          gender: form.gender,
+          mobile: form.mobile,
+          email: form.email,
+          city: form.city,
+          state: form.state,
+          status: form.status,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to update user.");
+      }
+      setSaved(true);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Unable to save user details.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -113,6 +174,20 @@ export default function AdminEditUser() {
             </div>
 
             {/* ==================================================
+                ERROR MESSAGE
+            ================================================== */}
+
+            {error && (
+              <div className="mt-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
+                <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-600" />
+                <div>
+                  <p className="text-sm font-semibold">Error</p>
+                  <p className="mt-1 text-xs">{error}</p>
+                </div>
+              </div>
+            )}
+
+            {/* ==================================================
                 SUCCESS MESSAGE
             ================================================== */}
 
@@ -129,17 +204,22 @@ export default function AdminEditUser() {
                   </p>
 
                   <p className="mt-1 text-xs text-[#617268]">
-                    The frontend update is working. MongoDB persistence will
-                    be connected when we build the backend.
+                    User profile and account information have been saved to the database.
                   </p>
                 </div>
               </div>
             )}
 
-            <form
-              onSubmit={handleSubmit}
-              className="mt-6 space-y-5"
-            >
+            {loading ? (
+              <div className="mt-12 flex flex-col items-center justify-center gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-[#57923d]" />
+                <p className="text-sm text-[#718177]">Loading user details...</p>
+              </div>
+            ) : (
+              <form
+                onSubmit={handleSubmit}
+                className="mt-6 space-y-5"
+              >
 
               {/* ==================================================
                   INTERNAL ACCOUNT INFORMATION
@@ -327,14 +407,20 @@ export default function AdminEditUser() {
 
                 <button
                   type="submit"
-                  className="flex items-center justify-center gap-2 rounded-xl bg-[#dff3ad] px-5 py-2.5 text-sm font-bold text-[#173b2b] transition hover:bg-[#d5eba2]"
+                  disabled={saving}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-[#dff3ad] px-5 py-2.5 text-sm font-bold text-[#173b2b] transition hover:bg-[#d5eba2] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Save size={16} />
+                  {saving ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Save size={16} />
+                  )}
 
-                  Save Changes
+                  {saving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
+            )}
 
           </div>
         </main>

@@ -207,11 +207,7 @@ const getAdminDashboard = async (req, res) => {
 
 const getAdminUsers = async (req, res) => {
   try {
-    const users = await User.find({
-      role: {
-        $nin: ["admin", "administrator"],
-      },
-    })
+    const users = await User.find({})
       .sort({ createdAt: -1 })
       .select(
         "name userId email mobile phone city state gender dateOfBirth status createdAt role"
@@ -291,7 +287,7 @@ const getAdminUserById = async (req, res) => {
       },
     })
       .select(
-        "name userId email mobile phone city state gender dateOfBirth status createdAt role"
+        "name userId email mobile phone city state gender dateOfBirth status createdAt role permissions"
       )
       .lean();
 
@@ -556,9 +552,82 @@ const updateAdminUser = async (req, res) => {
   }
 };
 
+
+// ============================================================
+// UPDATE USER ACCESS (PERMISSIONS)
+// PUT /api/admin/users/:id/access
+// ============================================================
+
+const updateUserAccess = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { permissions } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID.",
+      });
+    }
+
+    if (!permissions) {
+      return res.status(400).json({
+        success: false,
+        message: "Permissions object is required.",
+      });
+    }
+
+    const user = await User.findOne({
+      _id: id,
+      role: { $nin: ["admin", "administrator"] },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    // Update permissions
+    user.permissions = {
+      dashboard: permissions.dashboard !== undefined ? permissions.dashboard : user.permissions.dashboard,
+      monthlyFinance: permissions.monthlyFinance !== undefined ? permissions.monthlyFinance : user.permissions.monthlyFinance,
+      savingGoals: permissions.savingGoals !== undefined ? permissions.savingGoals : user.permissions.savingGoals,
+      plansCommitments: permissions.plansCommitments !== undefined ? permissions.plansCommitments : user.permissions.plansCommitments,
+      financialCalendar: permissions.financialCalendar !== undefined ? permissions.financialCalendar : user.permissions.financialCalendar,
+      reports: permissions.reports !== undefined ? permissions.reports : user.permissions.reports,
+      aiAdvisor: permissions.aiAdvisor !== undefined ? permissions.aiAdvisor : user.permissions.aiAdvisor,
+    };
+
+    await user.save();
+
+    await logActivity({
+      userId: user._id,
+      userName: user.name || "User",
+      userEmail: user.email,
+      type: "Account",
+      description: "Admin updated user access permissions",
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "User access permissions updated successfully.",
+      permissions: user.permissions,
+    });
+
+  } catch (error) {
+    console.error("Update User Access Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update user access.",
+      error: error.message,
+    });
+  }
+};
+
 // ============================================================
 // UPDATE USER STATUS
-
 // PATCH /api/admin/users/:id/status
 // ============================================================
 
@@ -898,6 +967,8 @@ module.exports = {
   getAdminUsers,
   getAdminUserById,
   createAdminUser,
+  updateAdminUser,
+  updateUserAccess,
   updateUserStatus,
   archiveUser,
   getAdminActivities,

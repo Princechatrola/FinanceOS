@@ -118,10 +118,9 @@ router.put(
         income,
         expenses,
         cashBalance,
-        updateDay,
+        updateDate,
         reminderEnabled,
         emailNotification,
-        smsNotification,
       } = req.body;
 
 
@@ -163,8 +162,6 @@ router.put(
       const numericExpenses = Number(expenses);
       const numericCashBalance =
         Number(cashBalance);
-      const numericUpdateDay =
-        Number(updateDay);
 
 
       if (
@@ -202,16 +199,11 @@ router.put(
         });
       }
 
-
-      if (
-        !Number.isInteger(numericUpdateDay) ||
-        numericUpdateDay < 1 ||
-        numericUpdateDay > 31
-      ) {
+      const parsedUpdateDate = new Date(updateDate);
+      if (isNaN(parsedUpdateDate.getTime())) {
         return res.status(400).json({
           success: false,
-          message:
-            "Monthly update day must be between 1 and 31.",
+          message: "Monthly update date must be a valid date.",
         });
       }
 
@@ -240,17 +232,13 @@ router.put(
               cashBalance:
                 numericCashBalance,
 
-              updateDay:
-                numericUpdateDay,
+              updateDate: parsedUpdateDate,
 
               reminderEnabled:
                 Boolean(reminderEnabled),
 
               emailNotification:
                 Boolean(emailNotification),
-
-              smsNotification:
-                Boolean(smsNotification),
             },
 
             $setOnInsert: {

@@ -272,8 +272,8 @@ export default function AdminMessages() {
         const headers = { Authorization: `Bearer ${token}` };
 
         const [msgRes, usersRes] = await Promise.all([
-          fetch("/api/admin/messages", { headers }),
-          fetch("/api/admin/users", { headers }),
+          fetch("http://localhost:5000/api/admin/messages", { headers }),
+          fetch("http://localhost:5000/api/admin/users", { headers }),
         ]);
 
         const msgData = await msgRes.json();
@@ -351,16 +351,19 @@ export default function AdminMessages() {
     return users.filter((user) =>
       [
         user.id,
+        user._id,
+        user.userId,
         user.name,
         user.email,
         user.phone,
+        user.mobile,
       ].some((value) =>
         String(value || "")
           .toLowerCase()
           .includes(query)
       )
     );
-  }, [userSearch]);
+  }, [userSearch, users]);
 
 
   // ==========================================================
@@ -658,7 +661,7 @@ export default function AdminMessages() {
 
     try {
       const token = localStorage.getItem("financeos_token");
-      const res = await fetch("/api/admin/messages", {
+      const res = await fetch("http://localhost:5000/api/admin/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -748,7 +751,7 @@ export default function AdminMessages() {
 
     try {
       const token = localStorage.getItem("financeos_token");
-      const res = await fetch(`/api/admin/messages/${selectedMessage.id}`, {
+      const res = await fetch(`http://localhost:5000/api/admin/messages/${selectedMessage.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -799,7 +802,7 @@ export default function AdminMessages() {
 
     try {
       const token = localStorage.getItem("financeos_token");
-      const res = await fetch(`/api/admin/messages/${message.id}`, {
+      const res = await fetch(`http://localhost:5000/api/admin/messages/${message.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -871,7 +874,7 @@ export default function AdminMessages() {
 
     try {
       const token = localStorage.getItem("financeos_token");
-      const res = await fetch(`/api/admin/messages/${message.id}`, {
+      const res = await fetch(`http://localhost:5000/api/admin/messages/${message.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

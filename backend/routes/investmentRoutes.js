@@ -22,6 +22,7 @@ const {
   updateSIPContribution,
   recordInvestmentMaturity,
   renewInvestment,
+  processInvestmentMaturityAction,
 } = require("../controllers/investmentController");
 
 // ============================================================
@@ -115,6 +116,13 @@ router.post(
   "/:id/renew",
   authMiddleware,
   renewInvestment
+);
+
+// Process Investment Maturity Action
+router.post(
+  "/:id/maturity-action",
+  authMiddleware,
+  processInvestmentMaturityAction
 );
 
 // ============================================================

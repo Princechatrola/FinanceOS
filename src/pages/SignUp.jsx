@@ -14,7 +14,291 @@ import {
   Users,
 } from "lucide-react";
 
+// ==========================================================
+// INDIAN STATES AND RELATED CITIES
+// ==========================================================
+
+const stateCities = {
+  "Andhra Pradesh": [
+    "Visakhapatnam",
+    "Vijayawada",
+    "Guntur",
+    "Nellore",
+    "Tirupati",
+    "Kurnool",
+  ],
+
+  "Arunachal Pradesh": [
+    "Itanagar",
+    "Tawang",
+    "Naharlagun",
+    "Pasighat",
+  ],
+
+  Assam: [
+    "Guwahati",
+    "Dibrugarh",
+    "Silchar",
+    "Jorhat",
+    "Tezpur",
+  ],
+
+  Bihar: [
+    "Patna",
+    "Gaya",
+    "Muzaffarpur",
+    "Bhagalpur",
+    "Darbhanga",
+  ],
+
+  Chhattisgarh: [
+    "Raipur",
+    "Bhilai",
+    "Bilaspur",
+    "Korba",
+    "Durg",
+  ],
+
+  Goa: [
+    "Panaji",
+    "Margao",
+    "Vasco da Gama",
+    "Mapusa",
+  ],
+
+  Gujarat: [
+    "Ahmedabad",
+    "Bhavnagar",
+    "Gandhinagar",
+    "Rajkot",
+    "Surat",
+    "Vadodara",
+    "Jamnagar",
+    "Junagadh",
+    "Gariyadhar",
+  ],
+
+  Haryana: [
+    "Gurugram",
+    "Faridabad",
+    "Panipat",
+    "Ambala",
+    "Hisar",
+    "Karnal",
+  ],
+
+  "Himachal Pradesh": [
+    "Shimla",
+    "Manali",
+    "Dharamshala",
+    "Solan",
+    "Mandi",
+  ],
+
+  Jharkhand: [
+    "Ranchi",
+    "Jamshedpur",
+    "Dhanbad",
+    "Bokaro",
+    "Deoghar",
+  ],
+
+  Karnataka: [
+    "Bengaluru",
+    "Mysuru",
+    "Mangaluru",
+    "Hubballi",
+    "Belagavi",
+    "Davangere",
+  ],
+
+  Kerala: [
+    "Thiruvananthapuram",
+    "Kochi",
+    "Kozhikode",
+    "Kollam",
+    "Thrissur",
+    "Kannur",
+  ],
+
+  "Madhya Pradesh": [
+    "Bhopal",
+    "Indore",
+    "Jabalpur",
+    "Gwalior",
+    "Ujjain",
+    "Sagar",
+  ],
+
+  Maharashtra: [
+    "Mumbai",
+    "Pune",
+    "Nagpur",
+    "Nashik",
+    "Thane",
+    "Aurangabad",
+    "Kolhapur",
+  ],
+
+  Manipur: [
+    "Imphal",
+    "Thoubal",
+    "Bishnupur",
+  ],
+
+  Meghalaya: [
+    "Shillong",
+    "Tura",
+    "Jowai",
+  ],
+
+  Mizoram: [
+    "Aizawl",
+    "Lunglei",
+    "Champhai",
+  ],
+
+  Nagaland: [
+    "Kohima",
+    "Dimapur",
+    "Mokokchung",
+  ],
+
+  Odisha: [
+    "Bhubaneswar",
+    "Cuttack",
+    "Rourkela",
+    "Berhampur",
+    "Puri",
+    "Sambalpur",
+  ],
+
+  Punjab: [
+    "Amritsar",
+    "Ludhiana",
+    "Jalandhar",
+    "Patiala",
+    "Bathinda",
+  ],
+
+  Rajasthan: [
+    "Jaipur",
+    "Jodhpur",
+    "Udaipur",
+    "Kota",
+    "Ajmer",
+    "Bikaner",
+  ],
+
+  Sikkim: [
+    "Gangtok",
+    "Namchi",
+    "Gyalshing",
+  ],
+
+  "Tamil Nadu": [
+    "Chennai",
+    "Coimbatore",
+    "Madurai",
+    "Salem",
+    "Tiruchirappalli",
+    "Tirunelveli",
+  ],
+
+  Telangana: [
+    "Hyderabad",
+    "Warangal",
+    "Nizamabad",
+    "Karimnagar",
+    "Khammam",
+  ],
+
+  Tripura: [
+    "Agartala",
+    "Udaipur",
+    "Dharmanagar",
+  ],
+
+  "Uttar Pradesh": [
+    "Lucknow",
+    "Kanpur",
+    "Agra",
+    "Varanasi",
+    "Prayagraj",
+    "Noida",
+    "Ghaziabad",
+    "Meerut",
+  ],
+
+  Uttarakhand: [
+    "Dehradun",
+    "Haridwar",
+    "Rishikesh",
+    "Nainital",
+    "Haldwani",
+  ],
+
+  "West Bengal": [
+    "Kolkata",
+    "Howrah",
+    "Durgapur",
+    "Siliguri",
+    "Asansol",
+  ],
+
+  "Andaman and Nicobar Islands": [
+    "Port Blair",
+  ],
+
+  Chandigarh: [
+    "Chandigarh",
+  ],
+
+  "Dadra and Nagar Haveli and Daman and Diu": [
+    "Daman",
+    "Diu",
+    "Silvassa",
+  ],
+
+  Delhi: [
+    "New Delhi",
+    "Delhi",
+  ],
+
+  "Jammu and Kashmir": [
+    "Srinagar",
+    "Jammu",
+    "Anantnag",
+    "Baramulla",
+  ],
+
+  Ladakh: [
+    "Leh",
+    "Kargil",
+  ],
+
+  Lakshadweep: [
+    "Kavaratti",
+    "Agatti",
+  ],
+
+  Puducherry: [
+    "Puducherry",
+    "Karaikal",
+    "Yanam",
+    "Mahe",
+  ],
+};
+
+const states = Object.keys(stateCities);
+
+
+// ==========================================================
+// SIGN UP COMPONENT
+// ==========================================================
+
 function SignUp() {
+
   // ==========================================================
   // NAVIGATION
   // ==========================================================
@@ -26,46 +310,128 @@ function SignUp() {
   // ==========================================================
 
   const [errors, setErrors] = useState({});
-  const [serverError, setServerError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [serverError, setServerError] =
+    useState("");
+
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
 
   const [formData, setFormData] = useState({
+
     fullName: "",
+
     dateOfBirth: "",
+
     gender: "",
+
     mobileNumber: "",
-    city: "",
+
     state: "",
+
+    city: "",
+
     email: "",
+
   });
+
 
   // ==========================================================
   // HANDLE INPUT CHANGE
   // ==========================================================
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+
+    const {
+      name,
+      value,
+    } = e.target;
 
     let newValue = value;
 
-    // Mobile: numbers only, maximum 10 digits
+
+    // ========================================================
+    // MOBILE NUMBER
+    // ========================================================
+
     if (name === "mobileNumber") {
-      newValue = value.replace(/\D/g, "").slice(0, 10);
+
+      newValue =
+        value
+          .replace(/\D/g, "")
+          .slice(0, 10);
+
     }
 
+
+    // ========================================================
+    // STATE CHANGE
+    // ========================================================
+
+    if (name === "state") {
+
+      setFormData((prev) => ({
+
+        ...prev,
+
+        state: newValue,
+
+        // Clear city whenever state changes
+        city: "",
+
+      }));
+
+
+      // Clear state and city errors
+
+      setErrors((prev) => {
+
+        const updatedErrors = {
+          ...prev,
+        };
+
+        delete updatedErrors.state;
+        delete updatedErrors.city;
+
+        return updatedErrors;
+
+      });
+
+
+      if (serverError) {
+        setServerError("");
+      }
+
+      return;
+    }
+
+
+    // ========================================================
+    // NORMAL FIELD CHANGE
+    // ========================================================
+
     setFormData((prev) => ({
+
       ...prev,
+
       [name]: newValue,
+
     }));
 
+
     // Clear backend error
+
     if (serverError) {
       setServerError("");
     }
 
+
     // Remove field error
+
     if (errors[name]) {
+
       setErrors((prev) => {
+
         const updatedErrors = {
           ...prev,
         };
@@ -73,150 +439,209 @@ function SignUp() {
         delete updatedErrors[name];
 
         return updatedErrors;
+
       });
+
     }
+
   };
+
 
   // ==========================================================
   // VALIDATE FORM
   // ==========================================================
 
   const validateForm = () => {
+
     const newErrors = {};
 
-    const nameRegex = /^[A-Za-z\s]+$/;
+    const nameRegex =
+      /^[A-Za-z\s]+$/;
 
-    const locationRegex = /^[A-Za-z\s.'-]+$/;
+    const locationRegex =
+      /^[A-Za-z\s.'-]+$/;
 
     const emailRegex =
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    const mobileRegex = /^[0-9]{10}$/;
+    const mobileRegex =
+      /^[0-9]{10}$/;
+
 
     // ========================================================
     // FULL NAME
     // ========================================================
 
     if (!formData.fullName.trim()) {
+
       newErrors.fullName =
         "Full name is required.";
+
     } else if (
       formData.fullName.trim().length < 3
     ) {
+
       newErrors.fullName =
         "Enter a valid full name.";
+
     } else if (
       !nameRegex.test(
         formData.fullName.trim()
       )
     ) {
+
       newErrors.fullName =
         "Full name should contain letters only.";
+
     }
+
 
     // ========================================================
     // DATE OF BIRTH
     // ========================================================
 
     if (!formData.dateOfBirth) {
+
       newErrors.dateOfBirth =
         "Date of birth is required.";
+
     } else {
-      const selectedDate = new Date(
-        `${formData.dateOfBirth}T00:00:00`
-      );
+
+      const selectedDate =
+        new Date(
+          `${formData.dateOfBirth}T00:00:00`
+        );
 
       const today = new Date();
 
-      today.setHours(0, 0, 0, 0);
+      today.setHours(
+        0,
+        0,
+        0,
+        0
+      );
+
 
       if (
         Number.isNaN(
           selectedDate.getTime()
         )
       ) {
+
         newErrors.dateOfBirth =
           "Enter a valid date of birth.";
+
       } else if (
         selectedDate > today
       ) {
+
         newErrors.dateOfBirth =
           "Date of birth cannot be in the future.";
+
       }
+
     }
+
 
     // ========================================================
     // GENDER
     // ========================================================
 
     if (!formData.gender) {
+
       newErrors.gender =
         "Please select gender.";
+
     }
+
 
     // ========================================================
     // MOBILE NUMBER
     // ========================================================
 
-    if (!formData.mobileNumber.trim()) {
+    if (
+      !formData.mobileNumber.trim()
+    ) {
+
       newErrors.mobileNumber =
         "Mobile number is required.";
+
     } else if (
       !mobileRegex.test(
         formData.mobileNumber.trim()
       )
     ) {
+
       newErrors.mobileNumber =
         "Enter a valid 10-digit mobile number.";
+
     }
 
-    // ========================================================
-    // CITY
-    // ========================================================
-
-    if (!formData.city.trim()) {
-      newErrors.city =
-        "City is required.";
-    } else if (
-      !locationRegex.test(
-        formData.city.trim()
-      )
-    ) {
-      newErrors.city =
-        "Enter a valid city.";
-    }
 
     // ========================================================
     // STATE
     // ========================================================
 
-    if (!formData.state.trim()) {
+    if (!formData.state) {
+
       newErrors.state =
-        "State is required.";
+        "Please select a state.";
+
     } else if (
-      !locationRegex.test(
-        formData.state.trim()
+      !states.includes(
+        formData.state
       )
     ) {
+
       newErrors.state =
-        "Enter a valid state.";
+        "Please select a valid state.";
+
     }
+
+
+    // ========================================================
+    // CITY
+    // ========================================================
+
+    if (!formData.city) {
+
+      newErrors.city =
+        "Please select a city.";
+
+    } else if (
+      !stateCities[
+        formData.state
+      ]?.includes(
+        formData.city
+      )
+    ) {
+
+      newErrors.city =
+        "Please select a valid city for the selected state.";
+
+    }
+
 
     // ========================================================
     // EMAIL
     // ========================================================
 
     if (!formData.email.trim()) {
+
       newErrors.email =
         "Email address is required.";
+
     } else if (
       !emailRegex.test(
         formData.email.trim()
       )
     ) {
+
       newErrors.email =
         "Enter a valid email address.";
+
     }
+
 
     // ========================================================
     // SET ERRORS
@@ -224,33 +649,44 @@ function SignUp() {
 
     setErrors(newErrors);
 
+
     // ========================================================
-    // RETURN VALIDATION RESULT
+    // RETURN RESULT
     // ========================================================
 
-    return Object.keys(newErrors).length === 0;
+    return (
+      Object.keys(newErrors).length === 0
+    );
+
   };
+
 
   // ==========================================================
   // HANDLE SUBMIT
   // ==========================================================
 
   const handleSubmit = async (e) => {
+
     e.preventDefault();
 
     setServerError("");
 
-    const isValid = validateForm();
+
+    const isValid =
+      validateForm();
+
 
     if (!isValid) {
       return;
     }
+
 
     // ========================================================
     // REGISTRATION DATA
     // ========================================================
 
     const registrationData = {
+
       fullName:
         formData.fullName.trim(),
 
@@ -263,56 +699,67 @@ function SignUp() {
       mobileNumber:
         formData.mobileNumber.trim(),
 
-      city:
-        formData.city.trim(),
-
       state:
-        formData.state.trim(),
+        formData.state,
+
+      city:
+        formData.city,
 
       email:
         formData.email
           .trim()
           .toLowerCase(),
+
     };
+
 
     // ========================================================
     // SEND TO BACKEND
     // ========================================================
 
     try {
+
       setIsSubmitting(true);
 
-      const response = await fetch(
-        "http://localhost:5000/api/auth/signup",
-        {
-          method: "POST",
 
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
+      const response =
+        await fetch(
+          "http://localhost:5000/api/auth/signup",
+          {
+            method: "POST",
 
-          body: JSON.stringify(
-            registrationData
-          ),
-        }
-      );
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body:
+              JSON.stringify(
+                registrationData
+              ),
+          }
+        );
+
 
       const data =
         await response.json();
+
 
       // ======================================================
       // BACKEND ERROR
       // ======================================================
 
       if (!response.ok) {
+
         setServerError(
           data.message ||
-            "Unable to create your account."
+          "Unable to create your account."
         );
 
         return;
+
       }
+
 
       // ======================================================
       // SUCCESS
@@ -320,48 +767,69 @@ function SignUp() {
 
       alert(
         data.message ||
-          "FinanceOS account created successfully."
+        "FinanceOS account created successfully."
       );
+
 
       navigate("/signin");
 
     } catch (error) {
+
       console.error(
         "Signup request failed:",
         error
       );
+
 
       setServerError(
         "Unable to connect to the FinanceOS server. Make sure the backend is running."
       );
 
     } finally {
+
       setIsSubmitting(false);
+
     }
+
   };
+
 
   // ==========================================================
   // FIELD BORDER
   // ==========================================================
 
   const inputClass = (field) => `
+
     w-full
+
     rounded-lg
+
     border
+
     bg-[#fbfcfa]
+
     py-2
+
     text-sm
+
     text-[#173b2b]
+
     outline-none
+
     transition
+
     placeholder:text-[#9aa69e]
 
     ${
       errors[field]
+
         ? "border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100"
+
         : "border-[#dce3d8] focus:border-[#9fbd82] focus:ring-2 focus:ring-[#eaf4df]"
     }
+
   `;
+
 
   // ==========================================================
   // FIRST ERROR
@@ -370,19 +838,24 @@ function SignUp() {
   const firstError =
     Object.values(errors)[0];
 
+
   // ==========================================================
   // UI
   // ==========================================================
 
   return (
+
     <div className="h-screen overflow-hidden bg-[#f7f9f4] text-[#173b2b]">
+
 
       {/* ======================================================
           HEADER
       ====================================================== */}
 
       <header className="h-[64px] border-b border-[#e1e7dc] bg-white">
+
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-6 lg:px-8">
+
 
           {/* LOGO */}
 
@@ -390,14 +863,19 @@ function SignUp() {
             to="/"
             className="flex items-center gap-3"
           >
+
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#edf7df]">
+
               <TrendingUp
                 size={20}
                 className="text-[#4f8d32]"
               />
+
             </div>
 
+
             <div>
+
               <p className="text-xl font-bold tracking-tight text-[#43822e]">
                 FinanceOS
               </p>
@@ -405,8 +883,11 @@ function SignUp() {
               <p className="text-[8px] font-medium tracking-wide text-[#6f846e]">
                 Manage Today, Secure Tomorrow
               </p>
+
             </div>
+
           </Link>
+
 
           {/* BACK HOME */}
 
@@ -414,13 +895,17 @@ function SignUp() {
             to="/"
             className="flex items-center gap-2 text-sm font-medium text-[#617268] transition hover:text-[#43822e]"
           >
+
             <ArrowLeft size={16} />
 
             Back to Home
+
           </Link>
 
         </div>
+
       </header>
+
 
       {/* ======================================================
           MAIN
@@ -445,6 +930,7 @@ function SignUp() {
           "
         >
 
+
           {/* ==================================================
               LEFT PANEL
           ================================================== */}
@@ -468,6 +954,7 @@ function SignUp() {
 
             <div className="absolute -bottom-36 -right-24 h-80 w-80 rounded-full bg-[#dcefc2]/60" />
 
+
             {/* HEADING */}
 
             <div className="relative z-10 shrink-0">
@@ -477,25 +964,31 @@ function SignUp() {
               </p>
 
               <h1 className="mt-3 text-3xl font-bold leading-tight text-[#173b2b]">
+
                 Your financial journey
 
                 <span className="block text-[#57923d]">
                   starts here.
                 </span>
+
               </h1>
 
               <p className="mt-3 max-w-sm text-sm leading-6 text-[#65786d]">
+
                 Create your FinanceOS account and build a
                 connected view of your financial life.
+
               </p>
 
             </div>
+
 
             {/* ACCOUNT CARD */}
 
             <div className="relative z-10 mt-5">
 
               <div className="rounded-[22px] border border-[#d7e3d0] bg-white/85 p-5 shadow-sm backdrop-blur">
+
 
                 {/* CARD HEADER */}
 
@@ -509,6 +1002,7 @@ function SignUp() {
                     />
 
                   </div>
+
 
                   <div>
 
@@ -524,7 +1018,9 @@ function SignUp() {
 
                 </div>
 
+
                 <div className="my-4 h-px bg-[#e1e7dd]" />
+
 
                 {/* PERSONAL INFORMATION */}
 
@@ -536,6 +1032,7 @@ function SignUp() {
 
                 <Connector />
 
+
                 {/* ACCOUNT INFORMATION */}
 
                 <AccountStep
@@ -546,6 +1043,7 @@ function SignUp() {
 
                 <Connector />
 
+
                 {/* SECURITY */}
 
                 <AccountStep
@@ -553,6 +1051,7 @@ function SignUp() {
                   title="Email OTP Login"
                   text="Secure passwordless access"
                 />
+
 
                 {/* READY */}
 
@@ -587,6 +1086,7 @@ function SignUp() {
 
           </section>
 
+
           {/* ==================================================
               RIGHT PANEL
           ================================================== */}
@@ -594,6 +1094,7 @@ function SignUp() {
           <section className="h-full overflow-hidden px-7 py-3 lg:px-10 lg:py-4">
 
             <div className="mx-auto flex h-full w-full max-w-[580px] flex-col justify-center">
+
 
               {/* HEADER */}
 
@@ -613,6 +1114,7 @@ function SignUp() {
 
               </div>
 
+
               {/* ==================================================
                   FORM
               ================================================== */}
@@ -623,15 +1125,18 @@ function SignUp() {
                 className="mt-2.5 shrink-0"
               >
 
+
                 {/* PERSONAL INFORMATION */}
 
                 <FormSectionTitle
                   text="Personal Information"
                 />
 
+
                 {/* FULL NAME + DOB */}
 
                 <div className="grid grid-cols-2 gap-3">
+
 
                   {/* FULL NAME */}
 
@@ -643,6 +1148,7 @@ function SignUp() {
                     >
                       Full Name
                     </label>
+
 
                     <div className="relative">
 
@@ -672,6 +1178,7 @@ function SignUp() {
 
                   </div>
 
+
                   {/* DOB */}
 
                   <div>
@@ -682,6 +1189,7 @@ function SignUp() {
                     >
                       Date of Birth
                     </label>
+
 
                     <div className="relative">
 
@@ -717,9 +1225,11 @@ function SignUp() {
 
                 </div>
 
+
                 {/* GENDER + MOBILE */}
 
                 <div className="mt-2 grid grid-cols-2 gap-3">
+
 
                   {/* GENDER */}
 
@@ -731,6 +1241,7 @@ function SignUp() {
                     >
                       Gender
                     </label>
+
 
                     <select
                       id="gender"
@@ -770,6 +1281,7 @@ function SignUp() {
 
                   </div>
 
+
                   {/* MOBILE */}
 
                   <div>
@@ -780,6 +1292,7 @@ function SignUp() {
                     >
                       Mobile Number
                     </label>
+
 
                     <div className="relative">
 
@@ -813,48 +1326,13 @@ function SignUp() {
 
                 </div>
 
-                {/* CITY + STATE */}
+
+                {/* ==================================================
+                    STATE + CITY
+                ================================================== */}
 
                 <div className="mt-2 grid grid-cols-2 gap-3">
 
-                  {/* CITY */}
-
-                  <div>
-
-                    <label
-                      htmlFor="city"
-                      className="mb-1 block text-xs font-semibold text-[#344f42]"
-                    >
-                      City
-                    </label>
-
-                    <div className="relative">
-
-                      <MapPin
-                        size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
-                      />
-
-                      <input
-                        id="city"
-                        type="text"
-                        name="city"
-                        value={
-                          formData.city
-                        }
-                        onChange={
-                          handleChange
-                        }
-                        placeholder="Enter city"
-                        autoComplete="address-level2"
-                        className={`${inputClass(
-                          "city"
-                        )} pl-9 pr-3`}
-                      />
-
-                    </div>
-
-                  </div>
 
                   {/* STATE */}
 
@@ -867,16 +1345,17 @@ function SignUp() {
                       State
                     </label>
 
+
                     <div className="relative">
 
                       <MapPin
                         size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
+                        className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-[#87958c]"
                       />
 
-                      <input
+
+                      <select
                         id="state"
-                        type="text"
                         name="state"
                         value={
                           formData.state
@@ -884,18 +1363,112 @@ function SignUp() {
                         onChange={
                           handleChange
                         }
-                        placeholder="Enter state"
                         autoComplete="address-level1"
                         className={`${inputClass(
                           "state"
                         )} pl-9 pr-3`}
+                      >
+
+                        <option value="">
+                          Select State
+                        </option>
+
+
+                        {states.map(
+                          (state) => (
+
+                            <option
+                              key={state}
+                              value={state}
+                            >
+                              {state}
+                            </option>
+
+                          )
+                        )}
+
+                      </select>
+
+                    </div>
+
+                  </div>
+
+
+                  {/* CITY */}
+
+                  <div>
+
+                    <label
+                      htmlFor="city"
+                      className="mb-1 block text-xs font-semibold text-[#344f42]"
+                    >
+                      City
+                    </label>
+
+
+                    <div className="relative">
+
+                      <MapPin
+                        size={15}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
                       />
+
+
+                      <select
+                        id="city"
+                        name="city"
+                        value={
+                          formData.city
+                        }
+                        onChange={
+                          handleChange
+                        }
+                        disabled={
+                          !formData.state
+                        }
+                        autoComplete="address-level2"
+                        className={`${inputClass(
+                          "city"
+                        )} pl-9 pr-3 ${
+                          !formData.state
+                            ? "cursor-not-allowed bg-[#f1f3ef] text-[#9aa69e]"
+                            : ""
+                        }`}
+                      >
+
+                        <option value="">
+
+                          {formData.state
+                            ? "Select City"
+                            : "Select State First"}
+
+                        </option>
+
+
+                        {formData.state &&
+                          stateCities[
+                            formData.state
+                          ]?.map(
+                            (city) => (
+
+                              <option
+                                key={city}
+                                value={city}
+                              >
+                                {city}
+                              </option>
+
+                            )
+                          )}
+
+                      </select>
 
                     </div>
 
                   </div>
 
                 </div>
+
 
                 {/* ACCOUNT INFORMATION */}
 
@@ -906,6 +1479,7 @@ function SignUp() {
                   />
 
                 </div>
+
 
                 {/* EMAIL */}
 
@@ -918,12 +1492,14 @@ function SignUp() {
                     Email Address
                   </label>
 
+
                   <div className="relative">
 
                     <Mail
                       size={15}
                       className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
                     />
+
 
                     <input
                       id="email"
@@ -946,6 +1522,7 @@ function SignUp() {
 
                 </div>
 
+
                 {/* VALIDATION ERROR */}
 
                 {firstError && (
@@ -964,6 +1541,7 @@ function SignUp() {
                   </div>
 
                 )}
+
 
                 {/* BACKEND ERROR */}
 
@@ -984,6 +1562,7 @@ function SignUp() {
                     </div>
 
                   )}
+
 
                 {/* CREATE ACCOUNT */}
 
@@ -1017,15 +1596,19 @@ function SignUp() {
                     ? "Creating Account..."
                     : "Create Account"}
 
+
                   {!isSubmitting && (
+
                     <ArrowRight
                       size={16}
                     />
+
                   )}
 
                 </button>
 
               </form>
+
 
               {/* SIGN IN */}
 
@@ -1034,6 +1617,7 @@ function SignUp() {
                 <p className="text-xs text-[#718177]">
 
                   Already have a FinanceOS account?{" "}
+
 
                   <Link
                     to="/signin"
@@ -1055,6 +1639,7 @@ function SignUp() {
       </main>
 
     </div>
+
   );
 }
 
@@ -1066,7 +1651,9 @@ function SignUp() {
 function FormSectionTitle({
   text,
 }) {
+
   return (
+
     <div className="mb-1.5 flex items-center gap-2">
 
       <div className="h-1.5 w-1.5 rounded-full bg-[#74a957]" />
@@ -1076,7 +1663,9 @@ function FormSectionTitle({
       </p>
 
     </div>
+
   );
+
 }
 
 
@@ -1089,12 +1678,17 @@ function AccountStep({
   title,
   text,
 }) {
+
   return (
+
     <div className="flex items-center gap-3">
 
       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#edf5e8] text-[#57923d]">
+
         {icon}
+
       </div>
+
 
       <div>
 
@@ -1109,7 +1703,9 @@ function AccountStep({
       </div>
 
     </div>
+
   );
+
 }
 
 
@@ -1118,10 +1714,18 @@ function AccountStep({
 // ============================================================
 
 function Connector() {
+
   return (
+
     <div className="ml-[17px] h-4 w-px bg-[#ccd9c4]" />
+
   );
+
 }
 
+
+// ============================================================
+// EXPORT
+// ============================================================
 
 export default SignUp;

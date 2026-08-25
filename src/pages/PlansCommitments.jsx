@@ -95,6 +95,7 @@ function PlansCommitments() {
     updateInvestmentStatus,
     deleteInvestment,
     renewInvestment,
+    submitInvestmentMaturityAction,
 
     updateInsuranceStatus,
     deleteInsurancePolicy,
@@ -222,6 +223,11 @@ function PlansCommitments() {
     renewalError,
     setRenewalError,
   ] = useState("");
+
+  const [maturityActionType, setMaturityActionType] = useState(null);
+  const [maturityActionAmount, setMaturityActionAmount] = useState("");
+  const [maturityActionNote, setMaturityActionNote] = useState("");
+  const [maturityActionError, setMaturityActionError] = useState("");
 
   // ==========================================================
   // ACTIVE ITEMS
@@ -1003,6 +1009,66 @@ function PlansCommitments() {
 
     }
 
+  };
+
+  // ==========================================================
+  // OPEN MATURITY ACTION FORM
+  // ==========================================================
+
+  const openMaturityActionForm = (type) => {
+    if (!maturityInvestment) return;
+    const maturityAmount = Number(
+      maturityInvestment.estimatedMaturityAmount ||
+      maturityInvestment.principalAmount ||
+      maturityInvestment.amount ||
+      0
+    );
+    setMaturityActionType(type);
+    setMaturityActionAmount(String(maturityAmount));
+    setMaturityActionNote("");
+    setMaturityActionError("");
+  };
+
+  const handleConfirmMaturityAction = async () => {
+    const actionAmount = Number(maturityActionAmount);
+    const maturityAmount = Number(
+      maturityInvestment.estimatedMaturityAmount ||
+      maturityInvestment.principalAmount ||
+      maturityInvestment.amount ||
+      0
+    );
+    if (!Number.isFinite(actionAmount) || actionAmount <= 0) {
+      setMaturityActionError("Please enter a valid amount.");
+      return;
+    }
+    if (actionAmount > maturityAmount) {
+      setMaturityActionError("Action amount cannot exceed the maturity amount.");
+      return;
+    }
+
+    try {
+      const result = await submitInvestmentMaturityAction(maturityInvestment.id || maturityInvestment._id, {
+        actionType: maturityActionType,
+        actionAmount,
+        maturityAmount,
+        remainingAmount: maturityAmount - actionAmount,
+        note: maturityActionNote
+      });
+
+      if (!result?.success) {
+        setMaturityActionError(result?.message || "Failed to process maturity action.");
+        return;
+      }
+
+      setMaturityActionType(null);
+      setMaturityActionAmount("");
+      setMaturityActionNote("");
+      setMaturityActionError("");
+      setMaturityInvestment(null);
+    } catch (error) {
+      console.error(error);
+      setMaturityActionError(error.message || "Failed to process maturity action.");
+    }
   };
 
 
@@ -2006,7 +2072,7 @@ function PlansCommitments() {
                   OPTIONS
               ================================================== */}
 
-              {!renewalMode && (
+              {!renewalMode && !maturityActionType && (
 
                 <div
                   className="
@@ -2181,6 +2247,7 @@ function PlansCommitments() {
 
                   <button
                     type="button"
+                    onClick={() => openMaturityActionForm("BANK_SAVINGS")}
                     className="
                       group
                       rounded-2xl
@@ -2258,6 +2325,7 @@ function PlansCommitments() {
 
                   <button
                     type="button"
+                    onClick={() => openMaturityActionForm("PURCHASE")}
                     className="
                       group
                       rounded-2xl
@@ -2335,6 +2403,7 @@ function PlansCommitments() {
 
                   <button
                     type="button"
+                    onClick={() => openMaturityActionForm("NEW_INVESTMENT")}
                     className="
                       group
                       rounded-2xl
@@ -2412,6 +2481,7 @@ function PlansCommitments() {
 
                   <button
                     type="button"
+                    onClick={() => openMaturityActionForm("PAY_LIABILITY")}
                     className="
                       group
                       rounded-2xl
@@ -2489,6 +2559,7 @@ function PlansCommitments() {
 
                   <button
                     type="button"
+                    onClick={() => openMaturityActionForm("KEEP_CASH")}
                     className="
                       group
                       rounded-2xl
@@ -3421,6 +3492,69 @@ function PlansCommitments() {
 
               )}
 
+              {/* ==================================================
+                  MATURITY ACTION FORM
+              ================================================== */}
+
+              {maturityActionType && (
+                <div className="mt-5 rounded-2xl border border-[#c9dcca] bg-white p-5 shadow-sm">
+                  <div className="mb-4 flex items-center justify-between border-b border-[#e6ebe6] pb-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-[#6c8b72]">
+                      Maturity Action
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMaturityActionType(null);
+                        setMaturityActionError("");
+                      }}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      <FiX size={16} />
+                    </button>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="mb-1.5 ml-1 text-[11px] font-semibold uppercase tracking-wide text-[#597860]">
+                        Action Amount
+                      </p>
+                      <input
+                        type="number"
+                        min="1"
+                        value={maturityActionAmount}
+                        onChange={(e) => setMaturityActionAmount(e.target.value)}
+                        className="w-full rounded-xl border border-[#dfe6da] bg-[#fafcf8] px-4 py-3 text-sm text-[#18392c] outline-none focus:border-[#9fbd8d] focus:bg-white focus:ring-2 focus:ring-[#dcebd4]"
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1.5 ml-1 text-[11px] font-semibold uppercase tracking-wide text-[#597860]">
+                        Note (Optional)
+                      </p>
+                      <input
+                        type="text"
+                        value={maturityActionNote}
+                        onChange={(e) => setMaturityActionNote(e.target.value)}
+                        placeholder="e.g. Moved to SBI savings account"
+                        className="w-full rounded-xl border border-[#dfe6da] bg-[#fafcf8] px-4 py-3 text-sm text-[#18392c] outline-none focus:border-[#9fbd8d] focus:bg-white focus:ring-2 focus:ring-[#dcebd4]"
+                      />
+                    </div>
+                    {maturityActionError && (
+                      <div className="rounded-xl bg-red-50 p-3 text-xs text-red-600">
+                        {maturityActionError}
+                      </div>
+                    )}
+                    <div className="flex justify-end pt-3">
+                      <button
+                        type="button"
+                        onClick={handleConfirmMaturityAction}
+                        className="rounded-xl bg-[#18392c] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#244c3b]"
+                      >
+                        Confirm Action
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* ==================================================
                   AI SUGGESTION
