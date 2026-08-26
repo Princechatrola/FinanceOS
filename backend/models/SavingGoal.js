@@ -93,6 +93,40 @@ const savingGoalSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+
+    fundLocation: {
+      type: { type: String, default: "" },
+      institution: { type: String, default: "" },
+      label: { type: String, default: "" },
+      lastFour: { type: String, default: "" },
+    },
+
+    initialContributionDate: {
+      type: Date,
+    },
+
+    initialContributionSource: {
+      type: String,
+      default: "Existing Savings",
+    },
+
+    reminder: {
+      enabled: {
+        type: Boolean,
+        default: false,
+      },
+      contributionDay: {
+        type: Number,
+        default: 5,
+      },
+      notifyBefore: [{
+        type: Number,
+      }],
+      channels: {
+        inApp: { type: Boolean, default: true },
+        email: { type: Boolean, default: true },
+      },
+    },
   },
   {
     timestamps: true,

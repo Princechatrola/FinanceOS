@@ -347,9 +347,21 @@ function SavingGoalForm({
 
 
   const [
+    inAppNotification,
+    setInAppNotification,
+  ] = useState(true);
+
+
+  const [
     emailNotification,
     setEmailNotification,
   ] = useState(true);
+
+
+  const [
+    isSaving,
+    setIsSaving,
+  ] = useState(false);
 
 
   // ==========================================================
@@ -955,8 +967,8 @@ function SavingGoalForm({
 
 
       if (
-        !emailNotification &&
-        !smsNotification
+        !inAppNotification &&
+        !emailNotification
       ) {
 
         setError(
@@ -1008,119 +1020,135 @@ function SavingGoalForm({
     // CREATE GOAL
     // ========================================================
 
-    const newGoal =
-  await addSavingGoal({
+    try {
+      setIsSaving(true);
 
-    goalName: goalName.trim(),
+      const newGoal =
+        await addSavingGoal({
 
-    // Use the correct category or add a category selector
-    category: "Other",
+          goalName: goalName.trim(),
 
-    alreadySaved: alreadySaved,
+          // Use the correct category or add a category selector
+          category: "Other",
 
-    targetAmount: target,
+          alreadySaved: alreadySaved,
 
-    currentAmount: alreadySaved,
+          targetAmount: target,
 
-    monthlyContribution: requiredPerMonth,
+          currentAmount: alreadySaved,
 
-    startDate,
+          monthlyContribution: requiredPerMonth,
 
-    targetDate,
-
-    status: "Active",
-
-    notes: "",
-
-        // ====================================================
-        // FUND LOCATION
-        // ====================================================
-
-        fundLocation: {
-
-          type:
-            alreadySaved > 0
-              ? fundLocationType
-              : "",
-
-          institution:
-            alreadySaved > 0
-              ? institution.trim()
-              : "",
-
-          label:
-            alreadySaved > 0
-              ? accountLabel.trim()
-              : "",
-
-          lastFour:
-            alreadySaved > 0
-              ? lastFour
-              : "",
-
-        },
-
-
-        // ====================================================
-        // INITIAL CONTRIBUTION
-        // ====================================================
-
-        initialContributionDate:
           startDate,
 
-        initialContributionSource:
-          initialFundSource,
+          targetDate,
 
+          status: "Active",
 
-        // ====================================================
-        // REMINDER
-        // ====================================================
+          notes: "",
 
-        reminder: {
+          // ====================================================
+          // FUND LOCATION
+          // ====================================================
 
-          enabled:
-            reminderEnabled,
+          fundLocation: {
 
-          contributionDay:
-            Number(
-              contributionDay
-            ),
+            type:
+              alreadySaved > 0
+                ? fundLocationType
+                : "",
 
-          notifyBefore,
+            institution:
+              alreadySaved > 0
+                ? institution.trim()
+                : "",
 
-          channels: {
+            label:
+              alreadySaved > 0
+                ? accountLabel.trim()
+                : "",
 
-            email:
-              emailNotification,
+            lastFour:
+              alreadySaved > 0
+                ? lastFour
+                : "",
 
           },
 
-        },
 
-      });
+          // ====================================================
+          // INITIAL CONTRIBUTION
+          // ====================================================
+
+          initialContributionDate:
+            startDate,
+
+          initialContributionSource:
+            initialFundSource,
 
 
-    // ========================================================
-    // SUCCESS
-    // ========================================================
+          // ====================================================
+          // REMINDER
+          // ====================================================
 
-    if (
-      onSuccess
-    ) {
+          reminder: {
 
-      onSuccess(
-        newGoal
+            enabled:
+              reminderEnabled,
+
+            contributionDay:
+              Number(
+                contributionDay
+              ),
+
+            notifyBefore,
+
+            channels: {
+
+              inApp:
+                inAppNotification,
+
+              email:
+                emailNotification,
+
+            },
+
+          },
+
+        });
+
+
+      // ========================================================
+      // SUCCESS
+      // ========================================================
+
+      if (
+        onSuccess
+      ) {
+
+        onSuccess(
+          newGoal
+        );
+
+      }
+
+
+      if (
+        onClose
+      ) {
+
+        onClose();
+
+      }
+
+    } catch (err) {
+      console.error("Failed to create saving goal:", err);
+      setError(
+        err?.message ||
+        "Failed to create saving goal. Please try again."
       );
-
-    }
-
-
-    if (
-      onClose
-    ) {
-
-      onClose();
-
+    } finally {
+      setIsSaving(false);
     }
 
   };
@@ -2142,38 +2170,37 @@ function SavingGoalForm({
 
 
                   <FieldLabel>
-                    Notification Channel
+                    Notification Channels
                   </FieldLabel>
 
 
-                  <div className="mt-4 flex flex-col gap-4">
+                  <div className="mt-3 flex flex-col gap-3">
 
-                    <label className="flex items-center gap-3">
+                    <CheckOption
+                      label="In-App Notification"
+                      checked={
+                        inAppNotification
+                      }
+                      disabled={
+                        isSaving
+                      }
+                      onChange={
+                        setInAppNotification
+                      }
+                    />
 
-                      <input
-                        type="checkbox"
-                        checked={
-                          emailNotification
-                        }
-                        disabled={
-                          isSaving
-                        }
-                        onChange={(
-                          e
-                        ) =>
-                          setEmailNotification(
-                            e.target
-                              .checked
-                          )
-                        }
-                        className="h-4 w-4 rounded border-[#dce5d7] text-[#315c46] focus:ring-[#79a966] disabled:opacity-50"
-                      />
-
-                      <span className="text-sm font-medium text-[#18392c]">
-                        Email Notification
-                      </span>
-
-                    </label>
+                    <CheckOption
+                      label="Email Notification"
+                      checked={
+                        emailNotification
+                      }
+                      disabled={
+                        isSaving
+                      }
+                      onChange={
+                        setEmailNotification
+                      }
+                    />
 
                   </div>
 
@@ -2218,7 +2245,10 @@ function SavingGoalForm({
               onClick={
                 onClose
               }
-              className="rounded-xl border border-[#dfe6da] px-5 py-2.5 text-xs font-semibold text-[#52665b] transition hover:bg-[#f4f7f1]"
+              disabled={
+                isSaving
+              }
+              className="rounded-xl border border-[#dfe6da] px-5 py-2.5 text-xs font-semibold text-[#52665b] transition hover:bg-[#f4f7f1] disabled:opacity-50"
             >
               Cancel
             </button>
@@ -2226,9 +2256,12 @@ function SavingGoalForm({
 
             <button
               type="submit"
-              className="rounded-xl bg-[#18392c] px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-[#244c3b]"
+              disabled={
+                isSaving
+              }
+              className="rounded-xl bg-[#18392c] px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-[#244c3b] disabled:opacity-50"
             >
-              Create Goal
+              {isSaving ? "Creating Goal..." : "Create Goal"}
             </button>
 
 
@@ -2376,11 +2409,12 @@ function CheckOption({
   label,
   checked,
   onChange,
+  disabled = false,
 }) {
 
   return (
 
-    <label className="flex cursor-pointer items-center gap-2 text-xs text-[#52665b]">
+    <label className={`flex items-center gap-2 text-xs text-[#52665b] ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
 
 
       <input
@@ -2388,12 +2422,15 @@ function CheckOption({
         checked={
           checked
         }
+        disabled={
+          disabled
+        }
         onChange={(event) =>
           onChange(
             event.target.checked
           )
         }
-        className="h-4 w-4 accent-[#315c46]"
+        className="h-4 w-4 accent-[#315c46] disabled:opacity-50"
       />
 
 

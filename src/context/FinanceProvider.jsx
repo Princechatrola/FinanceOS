@@ -1052,6 +1052,10 @@ function FinanceProvider({ children }) {
         targetDate: newGoal.targetDate,
         status: newGoal.status,
         notes: newGoal.notes,
+        fundLocation: newGoal.fundLocation,
+        initialContributionDate: newGoal.initialContributionDate,
+        initialContributionSource: newGoal.initialContributionSource,
+        reminder: newGoal.reminder,
       }),
     });
 
@@ -1063,11 +1067,12 @@ function FinanceProvider({ children }) {
     setSavingGoals((current) => [
       ...current,
       {
+        ...newGoal,
         ...data.goal,
-        id: data.goal._id,
-        savedAmount: data.goal.currentAmount,
-        totalContributed: data.goal.currentAmount,
-        alreadySaved: data.goal.currentAmount,
+        id: data.goal?._id || data.goal?.id,
+        savedAmount: data.goal?.currentAmount ?? newGoal.alreadySaved ?? 0,
+        totalContributed: data.goal?.currentAmount ?? newGoal.alreadySaved ?? 0,
+        alreadySaved: data.goal?.currentAmount ?? newGoal.alreadySaved ?? 0,
       },
     ]);
 
