@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Bell,
   CalendarDays,
@@ -8,6 +9,7 @@ import {
   Mail,
   RefreshCw,
   Search,
+  Send,
   Smartphone,
   User,
   X,
@@ -31,6 +33,7 @@ const API_URL =
 // ============================================================
 
 export default function AdminReminders() {
+  const navigate = useNavigate();
   const [reminders, setReminders] =
     useState([]);
 
@@ -174,27 +177,31 @@ export default function AdminReminders() {
           item.itemName,
           item.reminderType,
           item.category,
+          item.rule,
         ].some((value) =>
-          String(value)
+          String(value || "")
             .toLowerCase()
             .includes(query)
         );
 
       const matchesStatus =
         statusFilter === "All" ||
-        item.status === statusFilter;
+        item.status?.toLowerCase() === statusFilter.toLowerCase();
 
       const matchesChannel =
         channelFilter === "All" ||
-        item.channel === channelFilter;
+        item.channels?.some(
+          (c) => c.toLowerCase() === channelFilter.toLowerCase()
+        ) ||
+        item.channel?.toLowerCase().includes(channelFilter.toLowerCase());
 
       const matchesType =
         typeFilter === "All" ||
-        item.reminderType === typeFilter;
+        item.reminderType?.toLowerCase() === typeFilter.toLowerCase();
 
       const matchesCategory =
         categoryFilter === "All" ||
-        item.category === categoryFilter;
+        item.category?.toLowerCase() === categoryFilter.toLowerCase();
 
       return (
         matchesSearch &&
@@ -224,6 +231,26 @@ export default function AdminReminders() {
     setChannelFilter("All");
     setTypeFilter("All");
     setCategoryFilter("All");
+  }
+
+  // ==========================================================
+  // SEND MESSAGE TO USER
+  // ==========================================================
+
+  function handleSendMessage(reminder) {
+    navigate("/admin/messages", {
+      state: {
+        prefillUser: {
+          id: reminder.userId,
+          _id: reminder.rawUserId || reminder.userId,
+          userId: reminder.userId,
+          name: reminder.userName,
+          email: reminder.email,
+          phone: reminder.phone,
+        },
+        prefillReminder: reminder,
+      },
+    });
   }
 
 
@@ -536,6 +563,10 @@ export default function AdminReminders() {
                     All Types
                   </option>
 
+                  <option value="Goal">
+                    Goal
+                  </option>
+
                   <option value="Payment">
                     Payment
                   </option>
@@ -546,6 +577,14 @@ export default function AdminReminders() {
 
                   <option value="Maturity">
                     Maturity
+                  </option>
+
+                  <option value="Insurance">
+                    Insurance
+                  </option>
+
+                  <option value="General">
+                    General
                   </option>
 
                 </FilterSelect>
@@ -566,8 +605,8 @@ export default function AdminReminders() {
                     All Categories
                   </option>
 
-                  <option value="Liability">
-                    Liability
+                  <option value="Saving Goal">
+                    Saving Goal
                   </option>
 
                   <option value="Investment">
@@ -576,6 +615,18 @@ export default function AdminReminders() {
 
                   <option value="Insurance">
                     Insurance
+                  </option>
+
+                  <option value="Liability">
+                    Liability
+                  </option>
+
+                  <option value="Monthly Finance">
+                    Monthly Finance
+                  </option>
+
+                  <option value="General">
+                    General
                   </option>
 
                 </FilterSelect>
@@ -819,6 +870,9 @@ export default function AdminReminders() {
                                 channel={
                                   item.channel
                                 }
+                                channels={
+                                  item.channels
+                                }
                               />
 
                             </td>
@@ -841,19 +895,36 @@ export default function AdminReminders() {
 
                             <td className="px-4 py-4">
 
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectedReminder(
-                                    item
-                                  )
-                                }
-                                className="flex items-center gap-2 rounded-lg border border-[#dce4d8] px-3 py-2 text-xs font-semibold text-[#526459] transition hover:bg-[#f2f6ef]"
-                              >
-                                <Eye size={14} />
+                              <div className="flex items-center gap-2">
 
-                                View
-                              </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setSelectedReminder(
+                                      item
+                                    )
+                                  }
+                                  className="flex items-center gap-1.5 rounded-lg border border-[#dce4d8] px-2.5 py-1.5 text-xs font-semibold text-[#526459] transition hover:bg-[#f2f6ef]"
+                                >
+                                  <Eye size={13} />
+                                  View
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleSendMessage(
+                                      item
+                                    )
+                                  }
+                                  className="flex items-center gap-1.5 rounded-lg bg-[#e8f4dc] px-2.5 py-1.5 text-xs font-semibold text-[#315c46] transition hover:bg-[#d6ecc2]"
+                                  title="Send Message to User"
+                                >
+                                  <Send size={12} />
+                                  Message
+                                </button>
+
+                              </div>
 
                             </td>
 
@@ -1041,13 +1112,13 @@ export default function AdminReminders() {
 
 
               {/* ==================================================
-                  REMINDER INFO
+                  REMINDER INFO & NOTIFICATION SCHEDULE
               ================================================== */}
 
               <div className="mt-6">
 
                 <SectionTitle>
-                  Reminder Information
+                  Reminder Configuration & Message Timings
                 </SectionTitle>
 
 
@@ -1089,25 +1160,83 @@ export default function AdminReminders() {
                   />
 
                   <LockedField
-                    label="Channel"
+                    label="Enabled Channels"
                     value={
-                      selectedReminder.channel
+                      Array.isArray(selectedReminder.channels) &&
+                      selectedReminder.channels.length > 0
+                        ? selectedReminder.channels.join(", ")
+                        : selectedReminder.channel || "In-App"
                     }
                   />
 
-                  <LockedField
-                    label="Scheduled Date"
-                    value={formatDate(
-                      selectedReminder.scheduledDate
-                    )}
-                  />
+                </div>
 
-                  <LockedField
-                    label="Scheduled Time"
-                    value={formatTime(
-                      selectedReminder.scheduledTime
+                {/* WHEN USER WANTS TO RECEIVE MESSAGES */}
+                <div className="mt-4 rounded-xl border border-[#dcebd4] bg-[#f4faef] p-4">
+
+                  <div className="flex items-center gap-2 text-xs font-bold text-[#2e5d42]">
+
+                    <Clock3 size={15} className="text-[#57923d]" />
+
+                    <span>When User Wants To Get Messages</span>
+
+                  </div>
+
+                  <div className="mt-3 space-y-2">
+
+                    {Array.isArray(selectedReminder.dispatchSchedule) &&
+                    selectedReminder.dispatchSchedule.length > 0 ? (
+                      selectedReminder.dispatchSchedule.map((sched, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between rounded-lg border border-[#e2ebd9] bg-white px-3 py-2 text-xs"
+                        >
+
+                          <div className="flex items-center gap-2">
+
+                            <CalendarDays size={13} className="text-[#57923d]" />
+
+                            <span className="font-semibold text-[#1c402e]">
+                              {sched.label}
+                            </span>
+
+                          </div>
+
+                          <div className="font-mono text-xs font-medium text-[#467332]">
+                            {formatDate(sched.date)} at {sched.time || "09:00 AM"}
+                          </div>
+
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-lg border border-[#e2ebd9] bg-white px-3 py-2 text-xs text-[#526459]">
+                        Scheduled dispatch: {formatDate(selectedReminder.scheduledDate)} at {formatTime(selectedReminder.scheduledTime)}
+                      </div>
                     )}
-                  />
+
+                  </div>
+
+                  {/* CHANNELS BADGES */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#e2ebd9] pt-3">
+
+                    <span className="text-[11px] font-semibold text-[#5a7c66]">
+                      Delivery Channels:
+                    </span>
+
+                    {(Array.isArray(selectedReminder.channels) &&
+                    selectedReminder.channels.length > 0
+                      ? selectedReminder.channels
+                      : [selectedReminder.channel || "In-App"]
+                    ).map((ch) => (
+                      <span
+                        key={ch}
+                        className="rounded-full bg-[#dff2d2] px-2.5 py-0.5 text-[10px] font-bold text-[#315c46]"
+                      >
+                        ✓ {ch}
+                      </span>
+                    ))}
+
+                  </div>
 
                 </div>
 
@@ -1261,6 +1390,35 @@ export default function AdminReminders() {
 
               </div>
 
+              {/* ACTION FOOTER */}
+
+              <div className="mt-6 flex justify-end gap-3 border-t border-[#edf0eb] pt-4">
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedReminder(null)
+                  }
+                  className="rounded-xl border border-[#dce4d8] px-4 py-2.5 text-xs font-semibold text-[#526459] hover:bg-[#f4f7f1]"
+                >
+                  Close
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const rem = selectedReminder;
+                    setSelectedReminder(null);
+                    handleSendMessage(rem);
+                  }}
+                  className="flex items-center gap-2 rounded-xl bg-[#173b2b] px-5 py-2.5 text-xs font-bold text-white hover:bg-[#25523d]"
+                >
+                  <Send size={13} />
+                  Send Message to User
+                </button>
+
+              </div>
+
             </div>
 
           </div>
@@ -1387,25 +1545,38 @@ function SmallBadge({ children }) {
 // CHANNEL BADGE
 // ============================================================
 
-function ChannelBadge({ channel }) {
-  let Icon = Bell;
-
-  if (channel === "Email") {
-    Icon = Mail;
-  }
-
-  if (channel === "SMS") {
-    Icon = Smartphone;
-  }
+function ChannelBadge({ channel, channels }) {
+  const channelList =
+    Array.isArray(channels) && channels.length > 0
+      ? channels
+      : typeof channel === "string"
+      ? channel.split(",").map((c) => c.trim()).filter(Boolean)
+      : ["In-App"];
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f0f5ed] px-3 py-1 text-[10px] font-semibold text-[#526459]">
+    <div className="flex flex-wrap gap-1.5">
+      {channelList.map((ch) => {
+        let Icon = Bell;
 
-      <Icon size={11} />
+        if (ch === "Email") {
+          Icon = Mail;
+        }
 
-      {channel}
+        if (ch === "SMS") {
+          Icon = Smartphone;
+        }
 
-    </span>
+        return (
+          <span
+            key={ch}
+            className="inline-flex items-center gap-1 rounded-full bg-[#f0f5ed] px-2.5 py-0.5 text-[10px] font-semibold text-[#526459]"
+          >
+            <Icon size={11} />
+            {ch}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 

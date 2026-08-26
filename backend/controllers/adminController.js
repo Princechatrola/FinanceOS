@@ -7,9 +7,14 @@ const mongoose = require("mongoose");
 const User = require("../models/User");
 const Activity = require("../models/Activity");
 const MonthlyFinance = require("../models/MonthlyFinance");
+const SavingGoal = require("../models/SavingGoal");
+const Investment = require("../models/Investment");
+const Insurance = require("../models/Insurance");
+const Liability = require("../models/Liability");
+const Message = require("../models/Message");
 
 const { logActivity } = require("../utils/activityLogger");
-const Message = require("../models/Message");
+const { sendAdminMessageEmail } = require("../utils/emailService");
 
 // ============================================================
 // HELPERS
@@ -214,23 +219,105 @@ const getAdminUsers = async (req, res) => {
       )
       .lean();
 
-    const totalUsers = users.length;
+    // Query active saving goals and other reminder settings to enrich users
+    const [goals, investments, insurances, liabilities, monthlyFinances] =
+      await Promise.all([
+        SavingGoal.find({ "reminder.enabled": true, status: "Active" })
+          .select("user reminder")
+          .lean(),
+        Investment.find({
+          status: "Active",
+          $or: [
+            { "reminder.enabled": true },
+            { "maturityReminder.enabled": true },
+          ],
+        })
+          .select("user reminder maturityReminder")
+          .lean(),
+        Insurance.find({ status: "Active", "reminder.enabled": true })
+          .select("user reminder")
+          .lean(),
+        Liability.find({ status: "Active", "reminder.enabled": true })
+          .select("user reminder")
+          .lean(),
+        MonthlyFinance.find({ reminderEnabled: true })
+          .select("user reminderEnabled emailNotification")
+          .lean(),
+      ]);
 
-    const activeUsers = users.filter(
+    const userRemindersMap = {};
+    const registerUserReminder = (userIdStr, channel) => {
+      if (!userIdStr) return;
+      if (!userRemindersMap[userIdStr]) {
+        userRemindersMap[userIdStr] = { count: 0, channels: new Set() };
+      }
+      userRemindersMap[userIdStr].count += 1;
+      if (channel) userRemindersMap[userIdStr].channels.add(channel);
+    };
+
+    goals.forEach((g) => {
+      const uid = String(g.user);
+      if (g.reminder?.channels?.inApp !== false) registerUserReminder(uid, "In-App");
+      if (g.reminder?.channels?.email) registerUserReminder(uid, "Email");
+    });
+
+    investments.forEach((inv) => {
+      const uid = String(inv.user);
+      if (inv.reminder?.channels?.inApp !== false) registerUserReminder(uid, "In-App");
+      if (inv.reminder?.channels?.email) registerUserReminder(uid, "Email");
+      if (inv.reminder?.channels?.sms) registerUserReminder(uid, "SMS");
+    });
+
+    insurances.forEach((ins) => {
+      const uid = String(ins.user);
+      if (ins.reminder?.premiumReminders?.channels?.inApp !== false) registerUserReminder(uid, "In-App");
+      if (ins.reminder?.premiumReminders?.channels?.email) registerUserReminder(uid, "Email");
+      if (ins.reminder?.premiumReminders?.channels?.sms) registerUserReminder(uid, "SMS");
+    });
+
+    liabilities.forEach((l) => {
+      const uid = String(l.user);
+      if (l.reminder?.channels?.inApp !== false) registerUserReminder(uid, "In-App");
+      if (l.reminder?.channels?.email) registerUserReminder(uid, "Email");
+      if (l.reminder?.channels?.sms) registerUserReminder(uid, "SMS");
+    });
+
+    monthlyFinances.forEach((mf) => {
+      const uid = String(mf.user);
+      registerUserReminder(uid, "In-App");
+      if (mf.emailNotification) registerUserReminder(uid, "Email");
+    });
+
+    const enrichedUsers = users.map((u) => {
+      const uid = String(u._id);
+      const rem = userRemindersMap[uid];
+      const channels = rem && rem.channels.size > 0 ? Array.from(rem.channels) : ["In-App"];
+      return {
+        ...u,
+        id: u.userId || String(u._id),
+        phone: u.phone || u.mobile || "",
+        enabledChannels: channels,
+        activeRemindersCount: rem ? rem.count : 0,
+      };
+    });
+
+    const totalUsers = enrichedUsers.length;
+
+    const activeUsers = enrichedUsers.filter(
       (user) => user.status === "Active"
     ).length;
 
-    const inactiveUsers = users.filter(
+    const inactiveUsers = enrichedUsers.filter(
       (user) => user.status === "Inactive"
     ).length;
 
-    const suspendedUsers = users.filter(
+    const suspendedUsers = enrichedUsers.filter(
       (user) => user.status === "Suspended"
     ).length;
 
     const monthStart = startOfCurrentMonth();
 
-    const newThisMonth = users.filter(
+    const newThisMonth = enrichedUsers.filter(
       (user) =>
         user.createdAt &&
         new Date(user.createdAt) >= monthStart
@@ -238,9 +325,7 @@ const getAdminUsers = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-
-      users,
-
+      users: enrichedUsers,
       stats: {
         totalUsers,
         activeUsers,
@@ -921,8 +1006,75 @@ const getAdminMessages = async (req, res) => {
 
 const createAdminMessage = async (req, res) => {
   try {
-    const newMessage = new Message(req.body);
+    const messageData = { ...req.body };
+    const channels = Array.isArray(messageData.channels) ? messageData.channels : [];
+    const isEmailChannel = channels.some((ch) => ch.toLowerCase() === "email");
+    const isScheduled = messageData.status === "Scheduled" || messageData.delivery === "Schedule";
+
+    const newMessage = new Message(messageData);
     await newMessage.save();
+
+    // If Email channel is selected and message is immediate, dispatch email
+    if (isEmailChannel && !isScheduled) {
+      if (newMessage.type === "Personal") {
+        let recipientEmail = newMessage.recipientEmail;
+        let recipientName = newMessage.recipient;
+
+        if (!recipientEmail && newMessage.userId) {
+          const user = await User.findOne({
+            $or: [
+              { userId: newMessage.userId },
+              ...(mongoose.Types.ObjectId.isValid(newMessage.userId) ? [{ _id: newMessage.userId }] : []),
+            ],
+          }).lean();
+
+          if (user?.email) {
+            recipientEmail = user.email;
+            recipientName = user.name || recipientName;
+          }
+        }
+
+        if (recipientEmail) {
+          const result = await sendAdminMessageEmail({
+            to: recipientEmail,
+            recipientName: recipientName || "FinanceOS User",
+            subject: newMessage.title,
+            message: newMessage.message,
+            category: "Admin Communication",
+          });
+
+          if (newMessage.deliveryStatus) {
+            if (newMessage.deliveryStatus instanceof Map) {
+              newMessage.deliveryStatus.set("Email", result.success ? "Sent" : "Failed");
+            } else {
+              newMessage.deliveryStatus["Email"] = result.success ? "Sent" : "Failed";
+            }
+            await newMessage.save();
+          }
+        }
+      } else if (newMessage.type === "Bulk") {
+        // Send bulk emails to all active users
+        const activeUsers = await User.find({
+          status: "Active",
+          email: { $exists: true, $ne: "" },
+        })
+          .select("name email")
+          .lean();
+
+        for (const user of activeUsers) {
+          if (user.email) {
+            sendAdminMessageEmail({
+              to: user.email,
+              recipientName: user.name || "FinanceOS User",
+              subject: newMessage.title,
+              message: newMessage.message,
+              category: "General Announcement",
+            }).catch((err) => console.error("Bulk email error for", user.email, err.message));
+          }
+        }
+      }
+    }
+
     return res.status(201).json({ success: true, message: "Message created", data: newMessage });
   } catch (error) {
     console.error("Create Message Error:", error);
@@ -937,6 +1089,19 @@ const updateAdminMessage = async (req, res) => {
     if (!updatedMessage) {
       return res.status(404).json({ success: false, message: "Message not found" });
     }
+
+    // Check if retry was requested for email
+    const deliveryStatus = req.body.deliveryStatus || {};
+    if (deliveryStatus.Email === "Sent" && updatedMessage.recipientEmail) {
+      sendAdminMessageEmail({
+        to: updatedMessage.recipientEmail,
+        recipientName: updatedMessage.recipient || "FinanceOS User",
+        subject: updatedMessage.title,
+        message: updatedMessage.message,
+        category: "Admin Communication",
+      }).catch((err) => console.error("Retry email error:", err.message));
+    }
+
     return res.status(200).json({ success: true, message: "Message updated", data: updatedMessage });
   } catch (error) {
     console.error("Update Message Error:", error);
@@ -955,6 +1120,165 @@ const deleteAdminMessage = async (req, res) => {
   } catch (error) {
     console.error("Delete Message Error:", error);
     return res.status(500).json({ success: false, message: "Failed to delete message", error: error.message });
+  }
+};
+
+const getUserRemindersAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    let userQuery = { _id: id };
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      userQuery = { userId: id };
+    }
+
+    const user = await User.findOne(userQuery).lean();
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const [goals, investments, insurances, liabilities, monthlyFinances] =
+      await Promise.all([
+        SavingGoal.find({ user: user._id, "reminder.enabled": true, status: "Active" }).lean(),
+        Investment.find({
+          user: user._id,
+          status: "Active",
+          $or: [
+            { "reminder.enabled": true },
+            { "maturityReminder.enabled": true },
+          ],
+        }).lean(),
+        Insurance.find({ user: user._id, status: "Active", "reminder.enabled": true }).lean(),
+        Liability.find({ user: user._id, status: "Active", "reminder.enabled": true }).lean(),
+        MonthlyFinance.find({ user: user._id, reminderEnabled: true }).sort({ year: -1, month: -1 }).limit(1).lean(),
+      ]);
+
+    const enabledChannelsSet = new Set();
+    const items = [];
+
+    // Saving goals
+    for (const g of goals) {
+      const chs = [];
+      if (g.reminder?.channels?.inApp !== false) {
+        chs.push("In-App");
+        enabledChannelsSet.add("In-App");
+      }
+      if (g.reminder?.channels?.email) {
+        chs.push("Email");
+        enabledChannelsSet.add("Email");
+      }
+      if (chs.length === 0) {
+        chs.push("In-App");
+        enabledChannelsSet.add("In-App");
+      }
+
+      const notifyBefore = Array.isArray(g.reminder?.notifyBefore) ? g.reminder.notifyBefore : [];
+      const rules = [];
+      if (notifyBefore.includes(5)) rules.push("5 days before");
+      if (notifyBefore.includes(1)) rules.push("1 day before");
+      if (notifyBefore.includes(0)) rules.push("On contribution date");
+
+      items.push({
+        id: `goal-${g._id}`,
+        category: "Saving Goal",
+        name: g.goalName,
+        rule: `Day ${g.reminder?.contributionDay || 5} of month${rules.length ? ` (${rules.join(", ")})` : ""}`,
+        channels: chs,
+        monthlyContribution: g.monthlyContribution,
+        targetAmount: g.targetAmount,
+        alreadySaved: g.alreadySaved || g.currentAmount || 0,
+      });
+    }
+
+    // Investments
+    for (const inv of investments) {
+      if (inv.reminder?.enabled) {
+        const chs = [];
+        if (inv.reminder.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
+        if (inv.reminder.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
+        if (inv.reminder.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
+        items.push({
+          id: `inv-sip-${inv._id}`,
+          category: "Investment (SIP)",
+          name: inv.name,
+          rule: `SIP Day ${inv.reminder.contributionDay || 5} of month`,
+          channels: chs,
+          monthlyContribution: inv.monthlyContribution,
+        });
+      }
+    }
+
+    // Insurances
+    for (const ins of insurances) {
+      if (ins.reminder?.premiumReminders) {
+        const chs = [];
+        if (ins.reminder.premiumReminders.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
+        if (ins.reminder.premiumReminders.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
+        if (ins.reminder.premiumReminders.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
+        items.push({
+          id: `ins-prem-${ins._id}`,
+          category: "Insurance",
+          name: ins.policyName,
+          rule: "Premium Due Date",
+          channels: chs,
+          premiumAmount: ins.premiumAmount,
+        });
+      }
+    }
+
+    // Liabilities
+    for (const l of liabilities) {
+      if (l.reminder?.enabled) {
+        const chs = [];
+        if (l.reminder.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
+        if (l.reminder.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
+        if (l.reminder.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
+        items.push({
+          id: `liab-${l._id}`,
+          category: "Liability",
+          name: l.name,
+          rule: `${l.reminder.daysBefore || 3} days before due date`,
+          channels: chs,
+        });
+      }
+    }
+
+    // Monthly Finance
+    for (const mf of monthlyFinances) {
+      const chs = mf.emailNotification ? ["In-App", "Email"] : ["In-App"];
+      chs.forEach((c) => enabledChannelsSet.add(c));
+      items.push({
+        id: `mf-${mf._id}`,
+        category: "Monthly Finance",
+        name: "Monthly Financial Status",
+        rule: "Monthly review",
+        channels: chs,
+      });
+    }
+
+    const enabledChannels = Array.from(enabledChannelsSet);
+    if (enabledChannels.length === 0) {
+      enabledChannels.push("In-App");
+    }
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        _id: user._id,
+        userId: user.userId,
+        name: user.name,
+        email: user.email,
+        phone: user.phone || user.mobile || "",
+      },
+      enabledChannels,
+      activeReminders: items,
+    });
+  } catch (error) {
+    console.error("Get user reminders admin error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch user reminder settings",
+      error: error.message,
+    });
   }
 };
 
@@ -977,4 +1301,5 @@ module.exports = {
   createAdminMessage,
   updateAdminMessage,
   deleteAdminMessage,
+  getUserRemindersAdmin,
 };

@@ -53,6 +53,7 @@ import {
   FiDollarSign,
   FiX,
   FiEdit3,
+  FiBell,
 } from "react-icons/fi";
 
 
@@ -1337,15 +1338,31 @@ function SavingGoalCard({
               </h3>
 
 
-              <p className="mt-1 text-[10px] text-slate-400">
+              <div className="mt-1 flex flex-wrap items-center gap-2">
 
-                {goal?.targetDate
-                  ? `Target ${formatDate(
-                      goal.targetDate
-                    )}`
-                  : "Saving Goal"}
+                <p className="text-[10px] text-slate-400">
 
-              </p>
+                  {goal?.targetDate
+                    ? `Target ${formatDate(
+                        goal.targetDate
+                      )}`
+                    : "Saving Goal"}
+
+                </p>
+
+                {goal?.reminder?.enabled && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-[#edf5e8] px-2 py-0.5 text-[9px] font-bold text-[#315c46]">
+                    <FiBell size={9} />
+                    Day {goal.reminder.contributionDay || 5} • {
+                      [
+                        goal.reminder.channels?.inApp !== false ? "In-App" : null,
+                        goal.reminder.channels?.email ? "Email" : null,
+                      ].filter(Boolean).join(", ") || "In-App"
+                    }
+                  </span>
+                )}
+
+              </div>
 
 
             </div>

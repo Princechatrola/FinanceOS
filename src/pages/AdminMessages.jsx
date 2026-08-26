@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import {
   Bell,
@@ -241,6 +242,8 @@ function calculateOverallStatus(deliveryStatus) {
 // ============================================================
 
 export default function AdminMessages() {
+  const location = useLocation();
+
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
 
@@ -252,6 +255,9 @@ export default function AdminMessages() {
 
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedUserReminders, setSelectedUserReminders] = useState([]);
+  const [selectedUserChannels, setSelectedUserChannels] = useState([]);
+  const [userRemindersLoading, setUserRemindersLoading] = useState(false);
 
   const [userSearch, setUserSearch] = useState("");
 
@@ -262,14 +268,28 @@ export default function AdminMessages() {
   const [loading, setLoading] = useState(true);
 
   // ==========================================================
+  // AUTH HEADERS HELPER
+  // ==========================================================
+
+  function getAuthHeaders() {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    return {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }
+
+  // ==========================================================
   // FETCH DATA
   // ==========================================================
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const token = localStorage.getItem("financeos_token");
-        const headers = { Authorization: `Bearer ${token}` };
+        const headers = getAuthHeaders();
 
         const [msgRes, usersRes] = await Promise.all([
           fetch("http://localhost:5000/api/admin/messages", { headers }),
@@ -303,6 +323,80 @@ export default function AdminMessages() {
   useEffect(() => {
     saveInAppMessages(messages);
   }, [messages]);
+
+  // ==========================================================
+  // HANDLE PREFILL FROM NAVIGATION (e.g. from AdminReminders)
+  // ==========================================================
+
+  useEffect(() => {
+    if (location.state?.prefillUser) {
+      const user = location.state.prefillUser;
+      setSelectedUser(user);
+      setShowCompose(true);
+
+      if (location.state?.prefillReminder) {
+        const rem = location.state.prefillReminder;
+        const initialChannels =
+          Array.isArray(rem.channels) && rem.channels.length > 0
+            ? [...rem.channels]
+            : ["In-App"];
+
+        setForm((current) => ({
+          ...current,
+          messageType: "Personal",
+          subject: `Reminder: ${rem.itemName} (${rem.category})`,
+          message:
+            rem.message ||
+            `Hello ${user.name},\n\nThis is a notification regarding your ${rem.itemName} (${rem.rule}).\nDue Date: ${rem.dueDate || "Upcoming"}.\n\nPlease review your FinanceOS dashboard.`,
+          channels: initialChannels,
+        }));
+      }
+    }
+  }, [location.state]);
+
+  // ==========================================================
+  // FETCH USER REMINDERS & CHANNELS WHEN USER IS SELECTED
+  // ==========================================================
+
+  useEffect(() => {
+    async function loadUserReminders() {
+      if (!selectedUser) {
+        setSelectedUserReminders([]);
+        setSelectedUserChannels([]);
+        return;
+      }
+
+      try {
+        setUserRemindersLoading(true);
+        const userIdToFetch = selectedUser._id || selectedUser.id;
+        const res = await fetch(
+          `http://localhost:5000/api/admin/users/${userIdToFetch}/reminders`,
+          {
+            headers: getAuthHeaders(),
+          }
+        );
+        const data = await res.json();
+        if (data.success) {
+          setSelectedUserReminders(data.activeReminders || []);
+          setSelectedUserChannels(data.enabledChannels || ["In-App"]);
+
+          // Auto-sync delivery channels if creating new message
+          if (!showEdit && data.enabledChannels?.length) {
+            setForm((current) => ({
+              ...current,
+              channels: [...data.enabledChannels],
+            }));
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load user reminder settings:", err);
+      } finally {
+        setUserRemindersLoading(false);
+      }
+    }
+
+    loadUserReminders();
+  }, [selectedUser, showEdit]);
 
 
   // ==========================================================
@@ -433,6 +527,31 @@ export default function AdminMessages() {
   function chooseUser(user) {
     setSelectedUser(user);
     setUserSearch("");
+    if (user?.enabledChannels?.length) {
+      setForm((current) => ({
+        ...current,
+        channels: [...user.enabledChannels],
+      }));
+    }
+  }
+
+  // ==========================================================
+  // APPLY REMINDER TEMPLATE
+  // ==========================================================
+
+  function applyReminderTemplate(rem) {
+    if (!selectedUser) return;
+    const chs =
+      Array.isArray(rem.channels) && rem.channels.length > 0
+        ? [...rem.channels]
+        : form.channels;
+
+    setForm((current) => ({
+      ...current,
+      subject: `Reminder: ${rem.name} (${rem.category})`,
+      message: `Hello ${selectedUser.name},\n\nThis is a notification regarding your ${rem.category} "${rem.name}".\nSchedule / Rule: ${rem.rule}.\n\nPlease check your FinanceOS dashboard to stay updated.`,
+      channels: chs,
+    }));
   }
 
 
@@ -443,6 +562,8 @@ export default function AdminMessages() {
   function openCompose() {
     setSelectedMessage(null);
     setSelectedUser(null);
+    setSelectedUserReminders([]);
+    setSelectedUserChannels([]);
     setUserSearch("");
 
     setForm({
@@ -457,6 +578,8 @@ export default function AdminMessages() {
     setShowCompose(false);
 
     setSelectedUser(null);
+    setSelectedUserReminders([]);
+    setSelectedUserChannels([]);
     setUserSearch("");
 
     setForm({
@@ -660,13 +783,9 @@ export default function AdminMessages() {
     };
 
     try {
-      const token = localStorage.getItem("financeos_token");
       const res = await fetch("http://localhost:5000/api/admin/messages", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newMessage),
       });
       
@@ -750,13 +869,9 @@ export default function AdminMessages() {
     };
 
     try {
-      const token = localStorage.getItem("financeos_token");
       const res = await fetch(`http://localhost:5000/api/admin/messages/${selectedMessage.id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify(updatedData),
       });
       
@@ -801,13 +916,9 @@ export default function AdminMessages() {
     });
 
     try {
-      const token = localStorage.getItem("financeos_token");
       const res = await fetch(`http://localhost:5000/api/admin/messages/${message.id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           status: "Cancelled",
           deliveryStatus,
@@ -873,13 +984,9 @@ export default function AdminMessages() {
       calculateOverallStatus(newDeliveryStatus);
 
     try {
-      const token = localStorage.getItem("financeos_token");
       const res = await fetch(`http://localhost:5000/api/admin/messages/${message.id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           deliveryStatus: newDeliveryStatus,
           status: newOverallStatus,
@@ -1309,6 +1416,10 @@ export default function AdminMessages() {
           form={form}
           setForm={setForm}
           selectedUser={selectedUser}
+          selectedUserChannels={selectedUserChannels}
+          selectedUserReminders={selectedUserReminders}
+          userRemindersLoading={userRemindersLoading}
+          applyReminderTemplate={applyReminderTemplate}
           userSearch={userSearch}
           setUserSearch={setUserSearch}
           userResults={userResults}
@@ -1333,6 +1444,10 @@ export default function AdminMessages() {
           form={form}
           setForm={setForm}
           selectedUser={selectedUser}
+          selectedUserChannels={selectedUserChannels}
+          selectedUserReminders={selectedUserReminders}
+          userRemindersLoading={userRemindersLoading}
+          applyReminderTemplate={applyReminderTemplate}
           userSearch=""
           setUserSearch={() => {}}
           userResults={[]}
@@ -1391,6 +1506,10 @@ function MessageFormModal({
   setForm,
 
   selectedUser,
+  selectedUserChannels = [],
+  selectedUserReminders = [],
+  userRemindersLoading = false,
+  applyReminderTemplate = () => {},
 
   userSearch,
   setUserSearch,
@@ -1537,40 +1656,132 @@ function MessageFormModal({
 
               ) : selectedUser ? (
 
-                <div className="rounded-xl border border-[#dfe6da] bg-[#f8faf7] p-4">
+                <div className="space-y-3">
 
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="rounded-xl border border-[#dfe6da] bg-[#f8faf7] p-4">
 
-                    <div>
+                    <div className="flex items-start justify-between gap-3">
 
-                      <p className="text-sm font-bold text-[#173b2b]">
-                        {selectedUser.name}
-                      </p>
+                      <div>
 
-                      <p className="mt-1 font-mono text-[10px] text-[#639a48]">
-                        {selectedUser.id}
-                      </p>
+                        <p className="text-sm font-bold text-[#173b2b]">
+                          {selectedUser.name}
+                        </p>
 
-                      <p className="mt-1 text-xs text-[#718177]">
-                        {selectedUser.email}
-                      </p>
+                        <p className="mt-1 font-mono text-[10px] text-[#639a48]">
+                          {selectedUser.id || selectedUser.userId}
+                        </p>
 
-                      <p className="mt-1 text-xs text-[#718177]">
-                        {selectedUser.phone}
-                      </p>
+                        <p className="mt-1 text-xs text-[#718177]">
+                          {selectedUser.email}
+                        </p>
+
+                        <p className="mt-1 text-xs text-[#718177]">
+                          {selectedUser.phone}
+                        </p>
+
+                      </div>
+
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          chooseUser(null)
+                        }
+                        className="rounded-lg border border-[#dce4d8] px-3 py-1.5 text-[10px] font-semibold text-[#617268] hover:bg-white"
+                      >
+                        Change
+                      </button>
 
                     </div>
 
+                  </div>
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        chooseUser(null)
-                      }
-                      className="rounded-lg border border-[#dce4d8] px-3 py-1.5 text-[10px] font-semibold text-[#617268]"
-                    >
-                      Change
-                    </button>
+                  {/* USER ACTIVE REMINDERS & CHANNELS CARD */}
+                  <div className="rounded-xl border border-[#dcebd4] bg-[#f4faef] p-4">
+
+                    <div className="flex items-center justify-between gap-2">
+
+                      <div className="flex items-center gap-2 text-xs font-bold text-[#2e5d42]">
+
+                        <Bell size={14} className="text-[#57923d]" />
+
+                        <span>User Reminder Preferences</span>
+
+                      </div>
+
+                      {/* ENABLED CHANNELS BADGES */}
+                      <div className="flex flex-wrap gap-1">
+
+                        {selectedUserChannels.length > 0 ? (
+                          selectedUserChannels.map((ch) => (
+                            <span
+                              key={ch}
+                              className="rounded-full bg-[#dff2d2] px-2.5 py-0.5 text-[10px] font-bold text-[#315c46]"
+                            >
+                              ✓ {ch}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                            In-App Default
+                          </span>
+                        )}
+
+                      </div>
+
+                    </div>
+
+                    {userRemindersLoading ? (
+                      <p className="mt-2 text-xs text-[#617268]">
+                        Loading user reminder preferences...
+                      </p>
+                    ) : selectedUserReminders.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6c8b72]">
+                          Active Enabled Reminders ({selectedUserReminders.length})
+                        </p>
+
+                        <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1">
+
+                          {selectedUserReminders.map((rem, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between rounded-lg border border-[#e1ebdc] bg-white p-2.5 text-xs shadow-sm"
+                            >
+
+                              <div className="min-w-0 flex-1 pr-2">
+
+                                <p className="truncate font-semibold text-[#18392c]">
+                                  {rem.category}: {rem.name}
+                                </p>
+
+                                <p className="mt-0.5 truncate text-[10px] text-[#718177]">
+                                  {rem.rule} • Channels: {rem.channels?.join(", ")}
+                                </p>
+
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => applyReminderTemplate(rem)}
+                                className="shrink-0 rounded-lg bg-[#e8f4dc] px-2.5 py-1 text-[10px] font-bold text-[#315c46] transition hover:bg-[#d6ecc2]"
+                              >
+                                Use Template
+                              </button>
+
+                            </div>
+                          ))}
+
+                        </div>
+
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-[#617268]">
+                        No specific recurring reminders currently configured. User receives standard notifications via enabled channels.
+                      </p>
+                    )}
 
                   </div>
 
@@ -1620,9 +1831,19 @@ function MessageFormModal({
 
                             <div>
 
-                              <p className="text-sm font-semibold text-[#173b2b]">
-                                {user.name}
-                              </p>
+                              <div className="flex items-center gap-2">
+
+                                <p className="text-sm font-semibold text-[#173b2b]">
+                                  {user.name}
+                                </p>
+
+                                {user.activeRemindersCount > 0 && (
+                                  <span className="rounded-full bg-[#dff2d2] px-2 py-0.5 text-[9px] font-bold text-[#315c46]">
+                                    {user.activeRemindersCount} Reminder{user.activeRemindersCount > 1 ? "s" : ""}
+                                  </span>
+                                )}
+
+                              </div>
 
                               <p className="mt-1 font-mono text-[10px] text-[#639a48]">
                                 {user.id}
@@ -1637,9 +1858,17 @@ function MessageFormModal({
                                 {user.email}
                               </p>
 
-                              <p className="mt-1 text-[10px] text-[#8a978f]">
-                                {user.phone}
-                              </p>
+                              <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-[#8a978f]">
+
+                                <span>{user.phone}</span>
+
+                                {user.enabledChannels?.length > 0 && (
+                                  <span className="text-[#315c46]">
+                                    • [{user.enabledChannels.join(", ")}]
+                                  </span>
+                                )}
+
+                              </div>
 
                             </div>
 

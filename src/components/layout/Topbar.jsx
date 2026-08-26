@@ -907,12 +907,12 @@ function Topbar() {
                       // ========================================
 
                       const isAdmin =
-                        notification.notificationType ===
-                          "admin" ||
-                        notification.source ===
-                          "admin" ||
-                        notification.source ===
-                          "admin-message";
+                        notification.notificationType === "admin" ||
+                        notification.source === "admin" ||
+                        notification.source === "admin-message" ||
+                        notification.source === "FinanceOS Admin" ||
+                        notification.type === "message" ||
+                        notification.type === "in-app-message";
 
 
                       return (

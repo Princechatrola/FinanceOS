@@ -33,6 +33,7 @@ const {
   createAdminMessage,
   updateAdminMessage,
   deleteAdminMessage,
+  getUserRemindersAdmin,
 } = require("../controllers/adminController");
 
 // ============================================================
@@ -40,51 +41,14 @@ const {
 // ============================================================
 
 const authMiddleware = require("../middleware/authMiddleware");
-
-// ============================================================
-// CHECK CONTROLLER FUNCTIONS
-// ============================================================
-
-console.log("ADMIN CONTROLLER CHECK:");
-console.log("getAdminDashboard:", typeof getAdminDashboard);
-console.log("getAdminUsers:", typeof getAdminUsers);
-console.log("getAdminUserById:", typeof getAdminUserById);
-console.log("updateUserStatus:", typeof updateUserStatus);
-console.log("archiveUser:", typeof archiveUser);
-console.log("getAdminActivities:", typeof getAdminActivities);
-
-// ============================================================
-// ADMIN AUTHORIZATION
-// ============================================================
-
-const adminOnly = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({
-      success: false,
-      message: "Authentication required.",
-    });
-  }
-
-  if (
-    !["admin", "administrator"].includes(
-      req.user.role
-    )
-  ) {
-    return res.status(403).json({
-      success: false,
-      message: "Admin access required.",
-    });
-  }
-
-  next();
-};
+const adminMiddleware = require("../middleware/adminMiddleware");
 
 // ============================================================
 // AUTHENTICATION
 // ============================================================
 
 router.use(authMiddleware);
-router.use(adminOnly);
+router.use(adminMiddleware);
 
 // ============================================================
 // ADMIN DASHBOARD
@@ -112,6 +76,11 @@ router.post(
 router.get(
   "/users/:id",
   getAdminUserById
+);
+
+router.get(
+  "/users/:id/reminders",
+  getUserRemindersAdmin
 );
 
 router.put(

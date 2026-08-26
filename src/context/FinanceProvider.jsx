@@ -468,6 +468,19 @@ function FinanceProvider({ children }) {
       }
     };
     fetchData();
+
+    const handleFocus = () => {
+      if (userData) {
+        loadUserMessages();
+        loadUserReminders();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    const interval = setInterval(handleFocus, 20000);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      clearInterval(interval);
+    };
   }, [userData]);
 
   // ==========================================================
