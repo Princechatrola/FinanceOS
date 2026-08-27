@@ -27,6 +27,10 @@ import {
   FiTrendingDown,
   FiSave,
   FiPieChart,
+  FiMessageSquare,
+  FiCheckCircle,
+  FiAlertCircle,
+  FiBell,
 } from "react-icons/fi";
 
 
@@ -103,8 +107,16 @@ function UserDashboard() {
     insurancePolicies,
     activeLiabilities,
     userReminders,
-    availableToAllocate
+    availableToAllocate,
+    notifications,
+    markNotificationAsRead,
   } = useFinance();
+
+  const unreadAdminMessages = useMemo(() => {
+    return (notifications || []).filter(
+      (n) => (n.notificationType === "admin" || n.source === "FinanceOS Admin" || n.source === "admin") && !n.read
+    );
+  }, [notifications]);
 
 
   // ==========================================================
@@ -532,13 +544,94 @@ function UserDashboard() {
 
 
             <p className="mt-1 text-sm text-slate-500">
-
               Here is an overview of your financial position.
-
             </p>
 
-
           </div>
+
+
+          {/* ==================================================
+              PERSONALIZED ADMIN COMMUNICATIONS
+             ================================================== */}
+
+          {unreadAdminMessages.length > 0 && (
+            <div className="mb-6 space-y-3">
+              {unreadAdminMessages.slice(0, 3).map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`relative overflow-hidden rounded-2xl border p-5 transition-all shadow-sm ${
+                    msg.priority === "Urgent"
+                      ? "border-red-200 bg-gradient-to-r from-red-50/80 to-white"
+                      : msg.priority === "Important"
+                      ? "border-amber-200 bg-gradient-to-r from-amber-50/80 to-white"
+                      : "border-[#e0edd8] bg-gradient-to-r from-[#f4f9f0] to-white"
+                  }`}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex items-start gap-3.5">
+                      <div
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                          msg.priority === "Urgent"
+                            ? "bg-red-100 text-red-700"
+                            : msg.priority === "Important"
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-[#dff2d2] text-[#24533a]"
+                        }`}
+                      >
+                        {msg.priority === "Urgent" ? (
+                          <FiAlertCircle size={20} />
+                        ) : (
+                          <FiMessageSquare size={19} />
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#496556]">
+                            FinanceOS Notice
+                          </span>
+                          {msg.category && (
+                            <span className="rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-[#18392c] border border-black/5">
+                              {msg.category}
+                            </span>
+                          )}
+                          {msg.priority === "Urgent" && (
+                            <span className="rounded-md bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                              Urgent
+                            </span>
+                          )}
+                          {msg.priority === "Important" && (
+                            <span className="rounded-md bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                              Important
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className="mt-1 text-sm font-bold text-[#18392c]">
+                          {msg.title}
+                        </h3>
+
+                        <p className="mt-1.5 whitespace-pre-line text-xs leading-relaxed text-[#40564b]">
+                          {msg.message}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center justify-end gap-2 pt-1 sm:pt-0">
+                      <button
+                        type="button"
+                        onClick={() => markNotificationAsRead(msg.id)}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[#cde0c5] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#25523b] shadow-sm hover:bg-[#f6faf3]"
+                      >
+                        <FiCheckCircle size={14} />
+                        Mark Read
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
 
           {/* ==================================================

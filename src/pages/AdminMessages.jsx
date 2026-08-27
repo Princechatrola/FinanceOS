@@ -380,11 +380,13 @@ export default function AdminMessages() {
           setSelectedUserReminders(data.activeReminders || []);
           setSelectedUserChannels(data.enabledChannels || ["In-App"]);
 
-          // Auto-sync delivery channels if creating new message
-          if (!showEdit && data.enabledChannels?.length) {
+          // Auto-sync delivery channels & pre-fill personalized text if empty
+          if (!showEdit) {
             setForm((current) => ({
               ...current,
-              channels: [...data.enabledChannels],
+              ...(data.enabledChannels?.length ? { channels: [...data.enabledChannels] } : {}),
+              subject: current.subject || data.defaultSubject || "",
+              message: current.message || data.defaultMessage || "",
             }));
           }
         }
@@ -548,8 +550,10 @@ export default function AdminMessages() {
 
     setForm((current) => ({
       ...current,
-      subject: `Reminder: ${rem.name} (${rem.category})`,
-      message: `Hello ${selectedUser.name},\n\nThis is a notification regarding your ${rem.category} "${rem.name}".\nSchedule / Rule: ${rem.rule}.\n\nPlease check your FinanceOS dashboard to stay updated.`,
+      subject: rem.resolvedSubject || `Reminder: ${rem.name} (${rem.category})`,
+      message:
+        rem.resolvedMessage ||
+        `Hello ${selectedUser.name},\n\nThis is a notification regarding your ${rem.category} "${rem.name}".\nSchedule / Rule: ${rem.rule}.\n\nPlease check your FinanceOS dashboard to stay updated.`,
       channels: chs,
     }));
   }

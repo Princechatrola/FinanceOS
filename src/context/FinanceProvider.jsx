@@ -423,6 +423,8 @@ function FinanceProvider({ children }) {
     }
   };
 
+  const [userMessages, setUserMessages] = useState([]);
+
   const loadUserMessages = async () => {
     try {
       const token =
@@ -436,15 +438,23 @@ function FinanceProvider({ children }) {
       const data = await response.json();
       if (!data.success || !data.data) return;
 
+      setUserMessages(data.data);
+
       data.data.forEach((msg) => {
         addNotification({
           id: msg.id,
+          rawId: msg.rawId,
           type: "message",
           title: msg.title,
           message: msg.message,
-          source: "FinanceOS Admin",
+          category: msg.category || "General",
+          priority: msg.priority || "Normal",
+          source: msg.source || "FinanceOS Admin",
+          notificationType: "admin",
           date: msg.createdAt,
-          read: msg.read
+          createdAt: msg.createdAt,
+          read: Boolean(msg.read),
+          readAt: msg.readAt,
         });
       });
     } catch (error) {
@@ -2546,14 +2556,49 @@ function FinanceProvider({ children }) {
     return notification;
   };
 
-  const markNotificationAsRead = (id) => {
+  const markNotificationAsRead = async (id) => {
     setNotifications((current) =>
       current.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
+
+    if (String(id).startsWith("msg-")) {
+      try {
+        const token =
+          localStorage.getItem("financeos_token") ||
+          sessionStorage.getItem("financeos_token");
+        if (token) {
+          await fetch(`http://localhost:5000/api/messages/${id}/read`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          });
+        }
+      } catch (err) {
+        console.error("Failed to mark message read on backend:", err);
+      }
+    }
   };
 
-  const markAllNotificationsAsRead = () => {
+  const markAllNotificationsAsRead = async () => {
     setNotifications((current) => current.map((n) => ({ ...n, read: true })));
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+      if (token) {
+        await fetch(`http://localhost:5000/api/messages/mark-all-read`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      }
+    } catch (err) {
+      console.error("Failed to mark all messages read on backend:", err);
+    }
   };
 
   const deleteNotification = (id) => {
@@ -2690,7 +2735,9 @@ function FinanceProvider({ children }) {
     clearNotifications,
     unreadNotificationCount,
 
-    // User Reminders
+    // User Messages & Reminders
+    userMessages,
+    loadUserMessages,
     userReminders,
     loadUserReminders,
   };

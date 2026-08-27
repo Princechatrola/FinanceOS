@@ -34,6 +34,8 @@ const {
   updateAdminMessage,
   deleteAdminMessage,
   getUserRemindersAdmin,
+  getPersonalizationVariables,
+  previewPersonalizedMessage,
 } = require("../controllers/adminController");
 
 // ============================================================
@@ -125,6 +127,8 @@ router.get(
 // ADMIN MESSAGES
 // ============================================================
 
+router.get("/messages/variables", getPersonalizationVariables);
+router.post("/messages/preview", previewPersonalizedMessage);
 router.get("/messages", getAdminMessages);
 router.post("/messages", createAdminMessage);
 router.put("/messages/:id", updateAdminMessage);

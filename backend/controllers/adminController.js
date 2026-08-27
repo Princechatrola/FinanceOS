@@ -15,6 +15,14 @@ const Message = require("../models/Message");
 
 const { logActivity } = require("../utils/activityLogger");
 const { sendAdminMessageEmail } = require("../utils/emailService");
+const {
+  APPROVED_VARIABLES,
+  SUPPORTED_CONDITIONS,
+  fetchUserFinancialContext,
+  resolveTemplate,
+  cleanResolvedText,
+  evaluateAudienceCondition,
+} = require("../services/personalizationService");
 
 // ============================================================
 // HELPERS
@@ -994,10 +1002,132 @@ const getAdminReportUsers = async (req, res) => {
 // ADMIN MESSAGES CONTROLLERS
 // ============================================================
 
+const { processScheduledMessages } = require("../utils/schedulerService");
+
+const getPersonalizationVariables = async (req, res) => {
+  try {
+    return res.status(200).json({
+      success: true,
+      variables: APPROVED_VARIABLES,
+      conditions: SUPPORTED_CONDITIONS,
+    });
+  } catch (error) {
+    console.error("Get Variables Error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const previewPersonalizedMessage = async (req, res) => {
+  try {
+    const {
+      userId,
+      audienceType = "Personal",
+      condition = null,
+      category = "General",
+      templateTitle = "",
+      templateMessage = "",
+      selectedUserIds = [],
+    } = req.body;
+
+    let targetUser = null;
+    let totalMatched = 1;
+    let sampleUsers = [];
+
+    if (audienceType === "Personal") {
+      if (userId) {
+        targetUser = await User.findOne({
+          $or: [
+            { userId: String(userId) },
+            ...(mongoose.Types.ObjectId.isValid(userId) ? [{ _id: userId }] : []),
+          ],
+        }).lean();
+      }
+    } else if (audienceType === "Conditional") {
+      const matched = await evaluateAudienceCondition(condition);
+      totalMatched = matched.length;
+      sampleUsers = matched.slice(0, 5).map((u) => ({ id: u.userId, _id: u._id, name: u.name, email: u.email }));
+      if (userId) {
+        targetUser = matched.find((u) => String(u._id) === String(userId) || u.userId === String(userId));
+      }
+      if (!targetUser && matched.length > 0) {
+        targetUser = matched[0];
+      }
+    } else if (audienceType === "Multiple") {
+      const ids = Array.isArray(selectedUserIds) ? selectedUserIds : [];
+      const matched = await User.find({
+        $or: [
+          { userId: { $in: ids } },
+          { _id: { $in: ids.filter((id) => mongoose.Types.ObjectId.isValid(id)) } },
+        ],
+      }).lean();
+      totalMatched = matched.length;
+      sampleUsers = matched.slice(0, 5).map((u) => ({ id: u.userId, _id: u._id, name: u.name, email: u.email }));
+      if (userId) {
+        targetUser = matched.find((u) => String(u._id) === String(userId) || u.userId === String(userId));
+      }
+      if (!targetUser && matched.length > 0) {
+        targetUser = matched[0];
+      }
+    } else if (audienceType === "Bulk") {
+      const all = await User.find({ role: { $nin: ["admin", "administrator"] }, status: "Active" }).lean();
+      totalMatched = all.length;
+      sampleUsers = all.slice(0, 5).map((u) => ({ id: u.userId, _id: u._id, name: u.name, email: u.email }));
+      if (userId) {
+        targetUser = all.find((u) => String(u._id) === String(userId) || u.userId === String(userId));
+      }
+      if (!targetUser && all.length > 0) {
+        targetUser = all[0];
+      }
+    }
+
+    if (!targetUser) {
+      targetUser = await User.findOne({ role: { $nin: ["admin", "administrator"] } }).lean();
+    }
+
+    const context = targetUser
+      ? await fetchUserFinancialContext(targetUser, category)
+      : { userName: "User", userEmail: "", userId: "", userPhone: "" };
+
+    const resolvedTitle = cleanResolvedText(resolveTemplate(templateTitle, context)) || "FinanceOS Communication";
+    const resolvedMessage = cleanResolvedText(resolveTemplate(templateMessage, context)) || "";
+
+    return res.status(200).json({
+      success: true,
+      totalMatched,
+      sampleUsers,
+      selectedUser: targetUser ? { id: targetUser.userId || String(targetUser._id), name: targetUser.name, email: targetUser.email } : null,
+      context,
+      preview: {
+        title: resolvedTitle,
+        message: resolvedMessage,
+      },
+    });
+  } catch (error) {
+    console.error("Preview Message Error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 const getAdminMessages = async (req, res) => {
   try {
+    await processScheduledMessages();
     const messages = await Message.find({}).sort({ createdAt: -1 }).lean();
-    return res.status(200).json({ success: true, data: messages });
+
+    const stats = {
+      total: messages.length,
+      scheduled: messages.filter((m) => m.status === "Scheduled").length,
+      sent: messages.filter((m) => m.status === "Sent").length,
+      failed: messages.filter((m) => m.status === "Failed").length,
+      partial: messages.filter((m) => m.status === "Partially Delivered").length,
+      cancelled: messages.filter((m) => m.status === "Cancelled").length,
+      readCount: messages.filter((m) => m.read === true).length,
+    };
+
+    return res.status(200).json({
+      success: true,
+      stats,
+      data: messages,
+    });
   } catch (error) {
     console.error("Get Messages Error:", error);
     return res.status(500).json({ success: false, message: "Failed to load messages", error: error.message });
@@ -1006,79 +1136,155 @@ const getAdminMessages = async (req, res) => {
 
 const createAdminMessage = async (req, res) => {
   try {
-    const messageData = { ...req.body };
-    const channels = Array.isArray(messageData.channels) ? messageData.channels : [];
-    const isEmailChannel = channels.some((ch) => ch.toLowerCase() === "email");
-    const isScheduled = messageData.status === "Scheduled" || messageData.delivery === "Schedule";
+    const {
+      audienceType = "Personal",
+      selectedUserIds = [],
+      userId = null,
+      condition = null,
+      category = "General",
+      priority = "Normal",
+      channels = ["In-App"],
+      delivery = "Now",
+      scheduleDate = null,
+      scheduleTime = null,
+      subject = "",
+      message = "",
+      templateTitle = "",
+      templateMessage = "",
+    } = req.body;
 
-    const newMessage = new Message(messageData);
-    await newMessage.save();
+    const titleTemplate = templateTitle || subject || "FinanceOS Communication";
+    const bodyTemplate = templateMessage || message || "";
 
-    // If Email channel is selected and message is immediate, dispatch email
-    if (isEmailChannel && !isScheduled) {
-      if (newMessage.type === "Personal") {
-        let recipientEmail = newMessage.recipientEmail;
-        let recipientName = newMessage.recipient;
+    const isScheduled = delivery === "Schedule";
+    const hasEmail = channels.some((c) => c.toLowerCase() === "email");
+    const hasInApp = channels.some((c) => c.toLowerCase().includes("app") || c.toLowerCase() === "in-app");
 
-        if (!recipientEmail && newMessage.userId) {
-          const user = await User.findOne({
-            $or: [
-              { userId: newMessage.userId },
-              ...(mongoose.Types.ObjectId.isValid(newMessage.userId) ? [{ _id: newMessage.userId }] : []),
-            ],
-          }).lean();
+    // Resolve audience users from authoritative MongoDB data
+    let targetUsers = [];
 
-          if (user?.email) {
-            recipientEmail = user.email;
-            recipientName = user.name || recipientName;
-          }
-        }
-
-        if (recipientEmail) {
-          const result = await sendAdminMessageEmail({
-            to: recipientEmail,
-            recipientName: recipientName || "FinanceOS User",
-            subject: newMessage.title,
-            message: newMessage.message,
-            category: "Admin Communication",
-          });
-
-          if (newMessage.deliveryStatus) {
-            if (newMessage.deliveryStatus instanceof Map) {
-              newMessage.deliveryStatus.set("Email", result.success ? "Sent" : "Failed");
-            } else {
-              newMessage.deliveryStatus["Email"] = result.success ? "Sent" : "Failed";
-            }
-            await newMessage.save();
-          }
-        }
-      } else if (newMessage.type === "Bulk") {
-        // Send bulk emails to all active users
-        const activeUsers = await User.find({
-          status: "Active",
-          email: { $exists: true, $ne: "" },
-        })
-          .select("name email")
-          .lean();
-
-        for (const user of activeUsers) {
-          if (user.email) {
-            sendAdminMessageEmail({
-              to: user.email,
-              recipientName: user.name || "FinanceOS User",
-              subject: newMessage.title,
-              message: newMessage.message,
-              category: "General Announcement",
-            }).catch((err) => console.error("Bulk email error for", user.email, err.message));
-          }
-        }
+    if (audienceType === "Personal") {
+      const targetId = userId || (selectedUserIds.length > 0 ? selectedUserIds[0] : null);
+      if (!targetId) {
+        return res.status(400).json({ success: false, message: "Please select a recipient user." });
       }
+      const user = await User.findOne({
+        $or: [
+          { userId: String(targetId) },
+          ...(mongoose.Types.ObjectId.isValid(targetId) ? [{ _id: targetId }] : []),
+        ],
+      }).lean();
+      if (!user) {
+        return res.status(404).json({ success: false, message: "Recipient user not found." });
+      }
+      targetUsers = [user];
+    } else if (audienceType === "Multiple") {
+      if (!Array.isArray(selectedUserIds) || selectedUserIds.length === 0) {
+        return res.status(400).json({ success: false, message: "Please select at least one recipient user." });
+      }
+      targetUsers = await User.find({
+        $or: [
+          { userId: { $in: selectedUserIds } },
+          { _id: { $in: selectedUserIds.filter((id) => mongoose.Types.ObjectId.isValid(id)) } },
+        ],
+        status: "Active",
+      }).lean();
+    } else if (audienceType === "Conditional") {
+      targetUsers = await evaluateAudienceCondition(condition);
+    } else if (audienceType === "Bulk") {
+      targetUsers = await User.find({
+        role: { $nin: ["admin", "administrator"] },
+        status: "Active",
+      }).lean();
     }
 
-    return res.status(201).json({ success: true, message: "Message created", data: newMessage });
+    if (targetUsers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No active users found matching the selected audience criteria.",
+      });
+    }
+
+    const createdMessages = [];
+
+    // For EACH target user, generate personalized message using THEIR MongoDB data
+    for (const user of targetUsers) {
+      const context = await fetchUserFinancialContext(user, category);
+      const personalizedTitle = cleanResolvedText(resolveTemplate(titleTemplate, context)) || "FinanceOS Communication";
+      const personalizedBody = cleanResolvedText(resolveTemplate(bodyTemplate, context)) || "";
+
+      const deliveryStatusMap = {};
+      if (hasInApp) {
+        deliveryStatusMap["In-App"] = isScheduled ? "Scheduled" : "Sent";
+      }
+      if (hasEmail) {
+        deliveryStatusMap["Email"] = isScheduled ? "Scheduled" : "Sent";
+      }
+
+      // If sending immediately and email channel is enabled, dispatch email
+      let emailFailed = false;
+      if (!isScheduled && hasEmail && user.email) {
+        const emailResult = await sendAdminMessageEmail({
+          to: user.email,
+          recipientName: user.name || "FinanceOS User",
+          subject: personalizedTitle,
+          message: personalizedBody,
+          category: category || "Important Communication",
+        });
+
+        if (!emailResult.success) {
+          deliveryStatusMap["Email"] = "Failed";
+          emailFailed = true;
+        }
+      }
+
+      const overallStatus = isScheduled
+        ? "Scheduled"
+        : emailFailed
+        ? "Partially Delivered"
+        : "Sent";
+
+      const newMsg = new Message({
+        recipientUser: user._id,
+        userId: user.userId || String(user._id),
+        recipient: user.name || "FinanceOS User",
+        recipientEmail: user.email || "",
+        senderAdmin: "Super Admin",
+        title: personalizedTitle,
+        message: personalizedBody,
+        templateTitle: titleTemplate,
+        templateMessage: bodyTemplate,
+        category,
+        priority,
+        type: audienceType,
+        condition: audienceType === "Conditional" ? condition : null,
+        channels: [...channels],
+        deliveryStatus: deliveryStatusMap,
+        status: overallStatus,
+        scheduledDate: isScheduled ? scheduleDate : null,
+        scheduledTime: isScheduled ? scheduleTime : null,
+        sentAt: isScheduled ? null : new Date(),
+        read: false,
+        metadata: context,
+      });
+
+      await newMsg.save();
+      createdMessages.push(newMsg);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `Successfully created ${createdMessages.length} personalized message(s).`,
+      count: createdMessages.length,
+      data: createdMessages[0],
+    });
   } catch (error) {
-    console.error("Create Message Error:", error);
-    return res.status(500).json({ success: false, message: "Failed to create message", error: error.message });
+    console.error("Create Admin Message Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create message.",
+      error: error.message,
+    });
   }
 };
 
@@ -1098,7 +1304,7 @@ const updateAdminMessage = async (req, res) => {
         recipientName: updatedMessage.recipient || "FinanceOS User",
         subject: updatedMessage.title,
         message: updatedMessage.message,
-        category: "Admin Communication",
+        category: updatedMessage.category || "Admin Communication",
       }).catch((err) => console.error("Retry email error:", err.message));
     }
 
@@ -1152,8 +1358,7 @@ const getUserRemindersAdmin = async (req, res) => {
         MonthlyFinance.find({ user: user._id, reminderEnabled: true }).sort({ year: -1, month: -1 }).limit(1).lean(),
       ]);
 
-    const enabledChannelsSet = new Set();
-    const items = [];
+    const context = await fetchUserFinancialContext(user);
 
     // Saving goals
     for (const g of goals) {
@@ -1177,6 +1382,10 @@ const getUserRemindersAdmin = async (req, res) => {
       if (notifyBefore.includes(1)) rules.push("1 day before");
       if (notifyBefore.includes(0)) rules.push("On contribution date");
 
+      const gAmt = (g.monthlyContribution ? Number(g.monthlyContribution).toLocaleString("en-IN") : context.amount) || "1,960";
+      const gSaved = (g.alreadySaved || g.currentAmount ? Number(g.alreadySaved || g.currentAmount).toLocaleString("en-IN") : context.savedAmount) || "1,000";
+      const gTarget = (g.targetAmount ? Number(g.targetAmount).toLocaleString("en-IN") : context.goalAmount) || "50,000";
+
       items.push({
         id: `goal-${g._id}`,
         category: "Saving Goal",
@@ -1186,60 +1395,77 @@ const getUserRemindersAdmin = async (req, res) => {
         monthlyContribution: g.monthlyContribution,
         targetAmount: g.targetAmount,
         alreadySaved: g.alreadySaved || g.currentAmount || 0,
+        resolvedSubject: `Reminder: ${g.goalName} (Saving Goal)`,
+        resolvedMessage: `Hello ${user.name},\n\nYour monthly contribution of ₹${gAmt} for saving goal "${g.goalName}" is scheduled for ${context.dueDate}.\nCurrent Saved: ₹${gSaved} of target ₹${gTarget}.\n\nPayment source: ${context.upiApp} linked with ${context.bankName} (ending ${context.accountLast4}).\n\nPlease check your FinanceOS dashboard.`,
       });
     }
 
     // Investments
     for (const inv of investments) {
-      if (inv.reminder?.enabled) {
+      if (inv.reminder?.enabled || inv.type === "SIP" || inv.monthlyContribution > 0) {
         const chs = [];
-        if (inv.reminder.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
-        if (inv.reminder.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
-        if (inv.reminder.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
+        if (inv.reminder?.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
+        if (inv.reminder?.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
+        if (inv.reminder?.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
+        if (chs.length === 0) chs.push("In-App");
+
+        const invAmt = (inv.monthlyContribution ? Number(inv.monthlyContribution).toLocaleString("en-IN") : context.amount) || "2,000";
+
         items.push({
           id: `inv-sip-${inv._id}`,
-          category: "Investment (SIP)",
+          category: inv.type || "Investment (SIP)",
           name: inv.name,
-          rule: `SIP Day ${inv.reminder.contributionDay || 5} of month`,
+          rule: `SIP Day ${inv.reminder?.contributionDay || 5} of month`,
           channels: chs,
           monthlyContribution: inv.monthlyContribution,
+          resolvedSubject: `Reminder: ${inv.name} (${inv.type || "SIP"})`,
+          resolvedMessage: `Hello ${user.name},\n\nYour monthly ${inv.name} contribution of ₹${invAmt} is scheduled for ${context.dueDate}.\n\nConfigured Payment Source: ${context.upiApp} linked with ${context.bankName} (ending ${context.accountLast4}).\n\nPlease ensure your account has sufficient balance.`,
         });
       }
     }
 
     // Insurances
     for (const ins of insurances) {
-      if (ins.reminder?.premiumReminders) {
-        const chs = [];
-        if (ins.reminder.premiumReminders.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
-        if (ins.reminder.premiumReminders.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
-        if (ins.reminder.premiumReminders.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
-        items.push({
-          id: `ins-prem-${ins._id}`,
-          category: "Insurance",
-          name: ins.policyName,
-          rule: "Premium Due Date",
-          channels: chs,
-          premiumAmount: ins.premiumAmount,
-        });
-      }
+      const chs = [];
+      if (ins.reminder?.premiumReminders?.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
+      if (ins.reminder?.premiumReminders?.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
+      if (ins.reminder?.premiumReminders?.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
+      if (chs.length === 0) chs.push("In-App");
+
+      const insAmt = (ins.premiumAmount ? Number(ins.premiumAmount).toLocaleString("en-IN") : context.premiumAmount) || "1,000";
+
+      items.push({
+        id: `ins-prem-${ins._id}`,
+        category: "Insurance",
+        name: ins.name || ins.policyName,
+        rule: "Premium Due Date",
+        channels: chs,
+        premiumAmount: ins.premiumAmount,
+        resolvedSubject: `Insurance Premium Due: ${ins.name || ins.policyName}`,
+        resolvedMessage: `Hello ${user.name},\n\nYour insurance premium of ₹${insAmt} for ${ins.name || ins.policyName} is due on ${context.premiumDueDate || context.dueDate}.\n\nPayment source: ${context.bankName} (ending ${context.accountLast4}).\n\nPlease keep your policy active to maintain continuous protection.`,
+      });
     }
 
     // Liabilities
     for (const l of liabilities) {
-      if (l.reminder?.enabled) {
-        const chs = [];
-        if (l.reminder.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
-        if (l.reminder.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
-        if (l.reminder.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
-        items.push({
-          id: `liab-${l._id}`,
-          category: "Liability",
-          name: l.name,
-          rule: `${l.reminder.daysBefore || 3} days before due date`,
-          channels: chs,
-        });
-      }
+      const chs = [];
+      if (l.reminder?.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
+      if (l.reminder?.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
+      if (l.reminder?.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
+      if (chs.length === 0) chs.push("In-App");
+
+      const emiAmt = (l.monthlyEMI ? Number(l.monthlyEMI).toLocaleString("en-IN") : context.emiAmount) || "3,260";
+      const remAmt = (l.remainingAmount ? Number(l.remainingAmount).toLocaleString("en-IN") : context.liabilityOutstanding) || "13,740";
+
+      items.push({
+        id: `liab-${l._id}`,
+        category: "Liability",
+        name: l.name,
+        rule: `${l.reminder?.daysBefore || 3} days before due date`,
+        channels: chs,
+        resolvedSubject: `Reminder: ${l.name} (Liability)`,
+        resolvedMessage: `Hello ${user.name},\n\nYour monthly payment / EMI of ₹${emiAmt} for ${l.name} is due on ${context.dueDate}.\nOutstanding Balance: ₹${remAmt}.\n\nConfigured Payment Source: ${context.upiApp} linked with ${context.bankName} (ending ${context.accountLast4}).\n\nPlease ensure sufficient funds are available.`,
+      });
     }
 
     // Monthly Finance
@@ -1252,6 +1478,8 @@ const getUserRemindersAdmin = async (req, res) => {
         name: "Monthly Financial Status",
         rule: "Monthly review",
         channels: chs,
+        resolvedSubject: `Monthly Financial Status for ${user.name}`,
+        resolvedMessage: `Hello ${user.name},\n\nYour monthly financial summary has been updated for this month.\n\nPlease check your FinanceOS dashboard to review your income, expenses, and net worth progress.`,
       });
     }
 
@@ -1259,6 +1487,9 @@ const getUserRemindersAdmin = async (req, res) => {
     if (enabledChannels.length === 0) {
       enabledChannels.push("In-App");
     }
+
+    const defaultPersonalizedSubject = items.length > 0 ? items[0].resolvedSubject : `Important Financial Notice for ${user.name}`;
+    const defaultPersonalizedMessage = items.length > 0 ? items[0].resolvedMessage : `Hello ${user.name},\n\nYour monthly contribution of ₹${context.amount} is scheduled for ${context.dueDate}.\n\nConfigured Payment Source: ${context.upiApp} linked with ${context.bankName} (ending ${context.accountLast4}).\n\nPlease check your FinanceOS dashboard for details.`;
 
     return res.status(200).json({
       success: true,
@@ -1269,6 +1500,9 @@ const getUserRemindersAdmin = async (req, res) => {
         email: user.email,
         phone: user.phone || user.mobile || "",
       },
+      context,
+      defaultSubject: defaultPersonalizedSubject,
+      defaultMessage: defaultPersonalizedMessage,
       enabledChannels,
       activeReminders: items,
     });
@@ -1302,4 +1536,6 @@ module.exports = {
   updateAdminMessage,
   deleteAdminMessage,
   getUserRemindersAdmin,
+  getPersonalizationVariables,
+  previewPersonalizedMessage,
 };

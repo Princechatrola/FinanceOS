@@ -983,35 +983,47 @@ function Topbar() {
 
 
                             {/* ================================
-                                SOURCE
+                                SOURCE & BADGES
                             ================================ */}
 
-                            <div className="mb-1 flex items-center gap-1.5">
+                            <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
 
                               {
                                 isAdmin
 
                                   ? (
                                     <>
-
-                                      <FiUser className="text-[9px] text-[#6572ad]" />
-
-                                      <span className="text-[9px] font-semibold text-[#6572ad]">
+                                      <span className="inline-flex items-center gap-1 rounded-md bg-[#eef2ff] px-1.5 py-0.5 text-[9px] font-bold text-[#4353a4]">
+                                        <FiUser className="text-[9px]" />
                                         FinanceOS Admin
                                       </span>
 
+                                      {notification.category && (
+                                        <span className="rounded-md bg-[#f0fdf4] px-1.5 py-0.5 text-[9px] font-semibold text-[#166534] border border-[#dcfce7]">
+                                          {notification.category}
+                                        </span>
+                                      )}
+
+                                      {notification.priority === "Urgent" && (
+                                        <span className="rounded-md bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-700">
+                                          🚨 Urgent
+                                        </span>
+                                      )}
+
+                                      {notification.priority === "Important" && (
+                                        <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-800">
+                                          ⭐ Important
+                                        </span>
+                                      )}
                                     </>
                                   )
 
                                   : (
                                     <>
-
                                       <FiCalendar className="text-[9px] text-[#639a48]" />
-
                                       <span className="text-[9px] font-semibold text-[#639a48]">
                                         Automatic Reminder
                                       </span>
-
                                     </>
                                   )
                               }
@@ -1036,7 +1048,7 @@ function Topbar() {
 
                               {!notification.read && (
 
-                                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-red-500" />
+                                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-red-500 ring-2 ring-red-200" />
 
                               )}
 
@@ -1049,7 +1061,7 @@ function Topbar() {
 
                             {notification.message && (
 
-                              <p className="mt-1 text-[10px] leading-4 text-[#52665b]">
+                              <p className="mt-1 whitespace-pre-line text-[11px] leading-relaxed text-[#455a4f]">
 
                                 {
                                   notification.message
@@ -1066,14 +1078,22 @@ function Topbar() {
 
                             {isAdmin && (
 
-                              <div className="mt-2 text-[9px] text-slate-400">
+                              <div className="mt-2 flex items-center justify-between text-[9px] text-slate-400">
 
-                                {
-                                  formatDateTime(
-                                    notification.createdAt ||
-                                    notification.date
-                                  )
-                                }
+                                <span>
+                                  {
+                                    formatDateTime(
+                                      notification.createdAt ||
+                                      notification.date
+                                    )
+                                  }
+                                </span>
+
+                                {!notification.read && (
+                                  <span className="text-[9px] font-medium text-[#4f5fa8]">
+                                    Click to mark read
+                                  </span>
+                                )}
 
                               </div>
 

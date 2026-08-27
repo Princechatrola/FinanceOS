@@ -149,17 +149,21 @@ app.use((req, res) => {
   });
 });
 
+const { startScheduler } = require("./utils/schedulerService");
+
 // ============================================================
 // MONGODB
 // ============================================================
 
 mongoose
   .connect(process.env.MONGO_URI)
-
   .then(() => {
     console.log(
       "MongoDB connected successfully"
     );
+
+    // Start background scheduler worker
+    startScheduler();
 
     const PORT =
       process.env.PORT || 5000;
