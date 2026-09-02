@@ -10,7 +10,7 @@
 //
 // ============================================================
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 import {
   FiTrendingUp,
@@ -30,7 +30,11 @@ import {
   FiZap,
   FiList,
   FiEye,
+  FiAlertTriangle,
+  FiClock,
+  FiLock,
 } from "react-icons/fi";
+import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../utils/dueDateSchedule.js";
 
 
 // ============================================================
@@ -75,6 +79,8 @@ import SIPContributionModal
 // ============================================================
 
 import useFinance from "../context/useFinance.js";
+import { AISuggestionDetailsModal } from "../components/dashboard/FinancialSuggestions.jsx";
+import { isItemActiveInMonth, parseSelectedMonth } from "../utils/monthLifecycle.js";
 
 
 // ============================================================
@@ -103,7 +109,47 @@ function PlansCommitments() {
     recordLiabilityPayment,
     updateLiabilityStatus,
     deleteLiability,
+    selectedMonth,
+    sidebarCollapsed,
+
+    // AI Adviser
+    latestAISuggestion,
+    aiLoading,
+    aiError,
+    generateAISuggestion,
   } = useFinance();
+
+  // ==========================================================
+  // AI ADVISER HANDLER & MODAL STATE
+  // ==========================================================
+
+  const [isAISuggestionModalOpen, setIsAISuggestionModalOpen] = useState(false);
+
+  const handleGetAISuggestion = async () => {
+    try {
+      const suggestion = await generateAISuggestion({
+        context: "plans_commitments",
+        selectedMonth: selectedMonth || undefined,
+        targetItem: maturityInvestment
+          ? {
+              id: maturityInvestment.id || maturityInvestment._id,
+              name: maturityInvestment.name,
+              type: maturityInvestment.type,
+              amount:
+                maturityInvestment.estimatedMaturityAmount ||
+                maturityInvestment.principalAmount ||
+                maturityInvestment.amount ||
+                0,
+            }
+          : null,
+      });
+      if (suggestion) {
+        setIsAISuggestionModalOpen(true);
+      }
+    } catch (err) {
+      console.error("AI Suggestion error:", err);
+    }
+  };
 
   // ==========================================================
   // SAFE ARRAYS
@@ -230,25 +276,32 @@ function PlansCommitments() {
   const [maturityActionError, setMaturityActionError] = useState("");
 
   // ==========================================================
-  // ACTIVE ITEMS
+  // ACTIVE WORKING PERIOD & MONTH LIFECYCLE FILTERING
   // ==========================================================
+
+  const activeWorkingPeriod = useMemo(() => {
+    return parseSelectedMonth(selectedMonth);
+  }, [selectedMonth]);
 
   const activeInvestments =
     investmentList.filter(
       (investment) =>
-        investment.status === "Active"
+        investment.status === "Active" &&
+        isItemActiveInMonth(investment, activeWorkingPeriod.year, activeWorkingPeriod.month)
     );
 
   const activeInsurance =
     insuranceList.filter(
       (policy) =>
-        policy.status === "Active"
+        policy.status === "Active" &&
+        isItemActiveInMonth(policy, activeWorkingPeriod.year, activeWorkingPeriod.month)
     );
 
   const activeLiabilities =
     liabilityList.filter(
       (liability) =>
-        liability.status === "Active"
+        liability.status === "Active" &&
+        isItemActiveInMonth(liability, activeWorkingPeriod.year, activeWorkingPeriod.month)
     );
 
 
@@ -341,6 +394,52 @@ function PlansCommitments() {
         )
       : 0;
 
+
+  // ==========================================================
+  // FORMATTED ACTIVE PERIOD
+  // ==========================================================
+
+  const formattedPeriod = useMemo(() => {
+    const saved =
+      selectedMonth ||
+      (typeof window !== "undefined"
+        ? sessionStorage.getItem("financeos_selected_month")
+        : "");
+    if (saved && /^\d{4}-\d{1,2}$/.test(saved)) {
+      const [y, m] = saved.split("-").map(Number);
+      const months = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ];
+      return `${months[m - 1]} ${y}`;
+    }
+    const now = new Date();
+    const months = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
+    return `${months[now.getMonth()]} ${now.getFullYear()}`;
+  }, [selectedMonth]);
 
   // ==========================================================
   // PLAN SELECTOR
@@ -1093,7 +1192,7 @@ function PlansCommitments() {
       <Sidebar />
 
 
-      <main className="ml-64 min-h-screen">
+      <main className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? "ml-20" : "ml-64"}`}>
 
         <Topbar />
 
@@ -1112,31 +1211,50 @@ function PlansCommitments() {
                 FinanceOS
               </p>
 
-              <h1 className="mt-1 text-2xl font-bold text-[#18392c]">
-                Plans & Commitments
-              </h1>
+              <div className="mt-1 flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-[#18392c]">
+                  Plans & Commitments
+                </h1>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#edf6e8] border border-[#d6e8ce] px-3 py-1 text-xs font-bold text-[#315c46]">
+                  <FiCalendar size={13} />
+                  {formattedPeriod}
+                </span>
+              </div>
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
                 Track and update your investments,
-                insurance policies and liabilities.
+                insurance policies and liabilities for {formattedPeriod}.
               </p>
 
             </div>
 
 
-            <button
-              type="button"
-              onClick={
-                openPlanSelector
-              }
-              className="flex shrink-0 items-center gap-2 rounded-xl bg-[#18392c] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#244c3b]"
-            >
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleGetAISuggestion}
+                disabled={aiLoading}
+                className="flex shrink-0 items-center gap-2 rounded-xl border border-[#315c46] bg-white px-4 py-3 text-sm font-semibold text-[#18392c] transition hover:bg-[#edf6e8] shadow-xs cursor-pointer disabled:opacity-50"
+                title="Run Live AI Financial Analysis"
+              >
+                <FiZap className={`text-base ${aiLoading ? "animate-spin text-amber-600" : "text-[#315c46]"}`} />
+                <span>{aiLoading ? "Analyzing Situation..." : "Get AI Suggestion"}</span>
+              </button>
 
-              <FiPlus />
+              <button
+                type="button"
+                onClick={
+                  openPlanSelector
+                }
+                className="flex shrink-0 items-center gap-2 rounded-xl bg-[#18392c] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#244c3b] shadow-xs cursor-pointer"
+              >
 
-              Add Plan / Commitment
+                <FiPlus />
 
-            </button>
+                Add Plan / Commitment
+
+              </button>
+            </div>
 
           </div>
 
@@ -1631,6 +1749,9 @@ function PlansCommitments() {
           }
           onClose={
             closePaymentModal
+          }
+          selectedMonth={
+            selectedMonth
           }
         />
 
@@ -3570,98 +3691,235 @@ function PlansCommitments() {
                   from-[#edf6e8]
                   to-[#f4f8f1]
                   p-5
+                  transition-all
                 "
               >
+                {aiLoading ? (
+                  <div className="flex flex-col items-center justify-center py-6 text-center">
+                    <FiRefreshCw className="h-8 w-8 animate-spin text-[#315c46]" />
+                    <p className="mt-3 text-sm font-bold text-[#18392c]">
+                      Analyzing your finances with Gemini AI...
+                    </p>
+                    <p className="mt-1 max-w-md text-xs leading-5 text-[#61766a]">
+                      Evaluating your monthly income, recurring commitments, emergency fund, and real-time market benchmark rates.
+                    </p>
+                  </div>
+                ) : latestAISuggestion ? (
+                  <div className="space-y-4">
+                    {/* Header */}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-[#d7e5d5] pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#315c46] text-white">
+                          <FiZap size={17} />
+                        </div>
+                        <div>
+                          <span className="inline-block rounded-full bg-[#315c46]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#315c46]">
+                            {latestAISuggestion.category || "AI Recommendation"}
+                          </span>
+                          <h4 className="text-sm font-bold text-[#18392c]">
+                            {latestAISuggestion.title}
+                          </h4>
+                        </div>
+                      </div>
 
-                <div
-                  className="
-                    flex
-                    flex-col
-                    gap-4
-                    sm:flex-row
-                    sm:items-center
-                    sm:justify-between
-                  "
-                >
+                      <button
+                        type="button"
+                        onClick={handleGetAISuggestion}
+                        disabled={aiLoading}
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[#cbdac8] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#315c46] shadow-sm transition hover:bg-[#edf4ea] disabled:opacity-50"
+                      >
+                        <FiRefreshCw size={12} className={aiLoading ? "animate-spin" : ""} />
+                        Re-analyze
+                      </button>
+                    </div>
 
+                    {/* Summary */}
+                    <p className="text-xs font-medium leading-5 text-[#2d493a]">
+                      {latestAISuggestion.summary}
+                    </p>
+
+                    {/* Key Observations */}
+                    {Array.isArray(latestAISuggestion.keyObservations) && latestAISuggestion.keyObservations.length > 0 && (
+                      <div className="rounded-xl bg-white/80 p-3.5 border border-[#dce7d9]">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#61766a] mb-2">
+                          Key Observations
+                        </p>
+                        <ul className="space-y-1.5 text-xs text-[#2e473a]">
+                          {latestAISuggestion.keyObservations.map((obs, idx) => (
+                            <li key={idx} className="flex items-start gap-2">
+                              <FiCheckCircle size={14} className="shrink-0 text-[#315c46] mt-0.5" />
+                              <span>{obs}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Action Steps */}
+                    {Array.isArray(latestAISuggestion.actionSteps) && latestAISuggestion.actionSteps.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#61766a] mb-2">
+                          Recommended Action Steps
+                        </p>
+                        <div className="space-y-2">
+                          {latestAISuggestion.actionSteps.map((action, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-start gap-3 rounded-xl border border-[#dce7d9] bg-white p-3 shadow-xs"
+                            >
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#edf6e8] text-[11px] font-bold text-[#315c46]">
+                                {action.step || idx + 1}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs font-bold text-[#18392c]">
+                                    {action.title}
+                                  </p>
+                                  {action.priority && (
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                                        action.priority === "high"
+                                          ? "bg-red-50 text-red-600 border border-red-100"
+                                          : action.priority === "medium"
+                                          ? "bg-amber-50 text-amber-700 border border-amber-100"
+                                          : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                                      }`}
+                                    >
+                                      {action.priority} priority
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-0.5 text-xs leading-5 text-slate-500">
+                                  {action.description}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Detailed Advice snippet */}
+                    {latestAISuggestion.detailedAdvice && (
+                      <div className="text-xs leading-5 text-slate-600 bg-white/60 p-3 rounded-xl border border-[#e2ece0]">
+                        <p className="line-clamp-3 hover:line-clamp-none transition-all cursor-pointer">
+                          {latestAISuggestion.detailedAdvice}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Footer / Timestamp */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[10px] text-[#6c8b72]">
+                      <span>
+                        Generated: {new Date(latestAISuggestion.createdAt || Date.now()).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                      <span>
+                        Model / Source: {latestAISuggestion.modelUsed || "Gemini AI Adviser"}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
                   <div
                     className="
                       flex
-                      items-start
-                      gap-3
+                      flex-col
+                      gap-4
+                      sm:flex-row
+                      sm:items-center
+                      sm:justify-between
                     "
                   >
-
                     <div
                       className="
                         flex
-                        h-10
-                        w-10
-                        shrink-0
-                        items-center
-                        justify-center
-                        rounded-xl
-                        bg-[#315c46]
-                        text-white
+                        items-start
+                        gap-3
                       "
                     >
-                      <FiZap
-                        size={18}
-                      />
-                    </div>
-
-                    <div>
-
-                      <p
+                      <div
                         className="
-                          text-sm
-                          font-bold
-                          text-[#18392c]
+                          flex
+                          h-10
+                          w-10
+                          shrink-0
+                          items-center
+                          justify-center
+                          rounded-xl
+                          bg-[#315c46]
+                          text-white
                         "
                       >
-                        Want an AI suggestion?
-                      </p>
+                        <FiZap size={18} />
+                      </div>
 
-                      <p
-                        className="
-                          mt-1
-                          max-w-2xl
-                          text-[11px]
-                          leading-5
-                          text-[#61766a]
-                        "
-                      >
-                        Gemini can analyze your FinanceOS
-                        financial data and suggest possible
-                        ways to use this maturity amount.
-                      </p>
+                      <div>
+                        <p
+                          className="
+                            text-sm
+                            font-bold
+                            text-[#18392c]
+                          "
+                        >
+                          Want an AI suggestion?
+                        </p>
 
+                        <p
+                          className="
+                            mt-1
+                            max-w-2xl
+                            text-[11px]
+                            leading-5
+                            text-[#61766a]
+                          "
+                        >
+                          Gemini can analyze your FinanceOS financial data and suggest possible ways to use this maturity amount.
+                        </p>
+                      </div>
                     </div>
 
+                    <button
+                      type="button"
+                      onClick={handleGetAISuggestion}
+                      disabled={aiLoading}
+                      className="
+                        shrink-0
+                        rounded-xl
+                        bg-[#315c46]
+                        px-5
+                        py-2.5
+                        text-xs
+                        font-semibold
+                        text-white
+                        shadow-sm
+                        transition
+                        hover:bg-[#18392c]
+                        disabled:opacity-60
+                      "
+                    >
+                      Get AI Suggestions
+                    </button>
                   </div>
+                )}
 
-
-                  <button
-                    type="button"
-                    className="
-                      shrink-0
-                      rounded-xl
-                      bg-[#315c46]
-                      px-5
-                      py-2.5
-                      text-xs
-                      font-semibold
-                      text-white
-                      shadow-sm
-                      transition
-                      hover:bg-[#18392c]
-                    "
-                  >
-                    Get AI Suggestions
-                  </button>
-
-                </div>
-
+                {/* Error Notice */}
+                {aiError && (
+                  <div className="mt-3 rounded-xl bg-red-50 p-3 text-xs text-red-600 border border-red-100 flex items-center justify-between">
+                    <span>{aiError}</span>
+                    <button
+                      type="button"
+                      onClick={handleGetAISuggestion}
+                      className="font-bold underline ml-2 hover:text-red-700"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
               </div>
 
             </div>
@@ -3714,6 +3972,13 @@ function PlansCommitments() {
         </div>
 
       )}
+
+      {/* AI SUGGESTION DETAILS MODAL */}
+      <AISuggestionDetailsModal
+        isOpen={isAISuggestionModalOpen}
+        suggestion={latestAISuggestion}
+        onClose={() => setIsAISuggestionModalOpen(false)}
+      />
 
     </div>
 
@@ -5119,7 +5384,14 @@ function PaymentModal({
   formatMoney,
   onSubmit,
   onClose,
+  selectedMonth,
 }) {
+  const monthBounds = parseSelectedMonth(selectedMonth);
+  const storedDueDay = liability?.dueDay
+    || (liability?.nextDueDate ? new Date(liability.nextDueDate).getDate() : 5);
+  const derivedDueDateISO = formatDateISO(
+    calculateDueDateForMonth(storedDueDay, monthBounds.year, monthBounds.month)
+  );
 
   const remaining =
     Number(
@@ -5228,6 +5500,30 @@ function PaymentModal({
                 liability.monthlyEMI
               )}
 
+            </p>
+
+          </div>
+
+
+          {/* SCHEDULED DUE DATE (READ-ONLY) */}
+
+          <div className="mt-4">
+
+            <label className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.08em] text-[#52665b]">
+              <FiLock size={11} className="text-amber-500" />
+              Scheduled Due Date (Auto)
+            </label>
+
+            <input
+              type="text"
+              readOnly
+              value={formatDateDisplay(derivedDueDateISO)}
+              title={`Automatically derived from EMI due day ${storedDueDay} for ${monthBounds.formatted}`}
+              className="mt-1.5 w-full rounded-xl border border-[#dfe6da] bg-[#fafcf8] py-2.5 px-4 text-sm font-semibold text-[#18392c] cursor-not-allowed"
+            />
+
+            <p className="mt-1 text-[10px] text-[#8fa895]">
+              Day {storedDueDay} of {monthBounds.formatted}
             </p>
 
           </div>

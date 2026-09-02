@@ -15,9 +15,12 @@ import {
   FiAlertCircle,
   FiCpu,
   FiList,
-  FiBell
+  FiBell,
+  FiLock,
 } from "react-icons/fi";
 import useFinance from "../../context/useFinance.js";
+import { parseSelectedMonth } from "../../utils/monthLifecycle.js";
+import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../../utils/dueDateSchedule.js";
 
 const inputClass =
   "mt-2 w-full rounded-xl border border-[#dfe6da] bg-[#fafcf8] px-4 py-3 text-sm text-[#18392c] outline-none transition placeholder:text-slate-300 focus:border-[#9fbd8d]";
@@ -75,12 +78,15 @@ function formatDateInput(dateStr) {
 
 export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
   const {
+    selectedMonth,
     deleteInsurancePolicy,
     addInsurancePayment,
     renewInsurance,
     recordInsuranceMaturity,
     updateInsurancePolicy
   } = useFinance();
+
+  const monthBounds = parseSelectedMonth(selectedMonth);
 
   const [activeTab, setActiveTab] = useState("details"); // details, payments, actions
   const [error, setError] = useState("");
@@ -92,8 +98,15 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
 
   // Payment form states
   const [payAmount, setPayAmount] = useState(policy?.premiumAmount || "");
-  const [payDueDate, setPayDueDate] = useState("");
-  const [payPaidDate, setPayPaidDate] = useState(formatDateInput(new Date()));
+
+  // Derive due date from policy.premiumDueDay + selected month
+  const storedDueDay = policy?.premiumDueDay
+    || (policy?.startDate ? new Date(policy.startDate).getDate() : 1);
+  const derivedDueDateISO = formatDateISO(
+    calculateDueDateForMonth(storedDueDay, monthBounds.year, monthBounds.month)
+  );
+
+  const [payPaidDate, setPayPaidDate] = useState(monthBounds.defaultDate);
   const [payStatus, setPayStatus] = useState("Paid");
   const [payMethod, setPayMethod] = useState(policy?.paymentSource?.method || "Cash");
   const [payBankName, setPayBankName] = useState(policy?.paymentSource?.bankName || "");
@@ -158,11 +171,11 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
 
       await addInsurancePayment(policy._id, {
         amount: Number(payAmount),
-        dueDate: payDueDate || undefined,
         paidDate: payStatus === "Paid" ? payPaidDate : undefined,
         status: payStatus,
         paymentSource,
-        note: payNote
+        note: payNote,
+        selectedMonth: monthBounds.iso,
       });
 
       setSuccess("Premium payment recorded successfully.");
@@ -650,13 +663,27 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
                     </select>
                   </div>
                   <div>
-                    <FieldLabel>Due Date</FieldLabel>
-                    <input type="date" value={payDueDate} onChange={(e) => setPayDueDate(e.target.value)} className={inputClass} />
+                    <FieldLabel>
+                      <span className="inline-flex items-center gap-1">
+                        <FiLock size={10} className="text-amber-500" />
+                        Due Date (Auto)
+                      </span>
+                    </FieldLabel>
+                    <input
+                      type="text"
+                      readOnly
+                      value={formatDateDisplay(derivedDueDateISO)}
+                      title={`Automatically derived from premium due day ${storedDueDay} for ${monthBounds.formatted}`}
+                      className={`${inputClass} bg-[#f9fbf6] cursor-not-allowed`}
+                    />
+                    <p className="mt-1 text-[10px] text-[#8fa895]">
+                      Day {storedDueDay} of {monthBounds.formatted}
+                    </p>
                   </div>
                   {payStatus === "Paid" && (
                     <div>
                       <FieldLabel>Paid Date</FieldLabel>
-                      <input type="date" value={payPaidDate} onChange={(e) => setPayPaidDate(e.target.value)} className={inputClass} />
+                      <input type="date" min={monthBounds.minDate} max={monthBounds.maxDate} value={payPaidDate} onChange={(e) => setPayPaidDate(e.target.value)} className={inputClass} />
                     </div>
                   )}
                   <div>

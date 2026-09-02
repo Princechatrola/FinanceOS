@@ -571,6 +571,12 @@ function InvestmentForm({ onClose, onSuccess }) {
       amount: isSIP ? contributionAmountNumber : amountNumber,
       contributionType: effectiveContributionType,
       frequency: effectiveContributionType === "Recurring" ? frequency : null,
+      // --------------------------------------------------------
+      // RECURRING DUE DAY — stored on the investment document.
+      // The backend uses this to automatically derive the full
+      // due date for each month (e.g., dueDay=10 → 10 Mar 2026).
+      // --------------------------------------------------------
+      dueDay: effectiveContributionType === "Recurring" ? Number(contributionDay) : null,
       monthlyContribution: (isFixedDeposit || isRecurringDeposit) ? 0 : monthlyContribution,
       paymentSource: paymentSource || undefined,
       contributionNote: contributionNote.trim(),

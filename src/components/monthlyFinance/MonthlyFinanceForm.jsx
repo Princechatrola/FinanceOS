@@ -9,10 +9,22 @@ import {
 
 import {
   useNavigate,
+  useSearchParams,
 } from "react-router-dom";
+
+import {
+  FiLayers,
+  FiInfo,
+  FiCheckCircle,
+  FiArrowRight,
+  FiTrendingUp,
+} from "react-icons/fi";
 
 import useFinance
   from "../../context/useFinance.js";
+
+import CalculationBreakdownModal
+  from "./CalculationBreakdownModal.jsx";
 
 
 // ============================================================
@@ -105,13 +117,26 @@ function MonthlyFinanceForm() {
     updateMonthlyFinance,
     updateCashBalance,
     saveNetWorthSnapshot,
+    selectedMonth,
+    setSelectedMonth,
 
     goalMonthlyCommitment = 0,
     investmentMonthlyCommitment = 0,
     insuranceMonthlyCommitment = 0,
     liabilityMonthlyCommitment = 0,
+
+    // Real-time actual outflows & authoritative breakdown
+    cashFlowBreakdown,
+    totalActualOutflowCommitments = 0,
+    totalMonthlyCommitments = 0,
+    actualInvestmentOutflow = 0,
+    actualGoalOutflow = 0,
+    actualInsuranceOutflow = 0,
+    actualLiabilityOutflow = 0,
   } = useFinance();
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [showBreakdownModal, setShowBreakdownModal] = useState(false);
 
   // ==========================================================
   // CURRENT PERIOD
@@ -126,53 +151,34 @@ function MonthlyFinanceForm() {
   const currentYear =
     today.getFullYear();
 
-
   // ==========================================================
-  // INITIAL PERIOD
+  // RESOLVE INITIAL PERIOD FROM URL / CONTEXT
   // ==========================================================
 
-  const contextMonth =
-    safeNumber(
-      monthlyFinance?.month,
-      currentMonth
-    );
+  const monthParamStr = searchParams.get("month") || selectedMonth;
+  let resolvedInitialMonth = currentMonth;
+  let resolvedInitialYear = currentYear;
 
-  const contextYear =
-    safeNumber(
-      monthlyFinance?.year,
-      currentYear
-    );
-
-
-  const contextIsFuture =
-    contextYear > currentYear ||
-    (
-      contextYear === currentYear &&
-      contextMonth > currentMonth
-    );
-
-
-  const initialMonth =
-    contextIsFuture
-      ? currentMonth
-      : contextMonth;
-
-
-  const initialYear =
-    contextIsFuture
-      ? currentYear
-      : contextYear;
-
+  if (monthParamStr && /^\d{4}-\d{1,2}$/.test(monthParamStr)) {
+    const [y, m] = monthParamStr.split("-").map(Number);
+    if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12) {
+      resolvedInitialYear = y;
+      resolvedInitialMonth = m;
+    }
+  } else if (monthlyFinance?.year && monthlyFinance?.month) {
+    resolvedInitialYear = safeNumber(monthlyFinance.year, currentYear);
+    resolvedInitialMonth = safeNumber(monthlyFinance.month, currentMonth);
+  }
 
   // ==========================================================
   // FORM STATE
   // ==========================================================
 
   const [month, setMonth] =
-    useState(initialMonth);
+    useState(resolvedInitialMonth);
 
   const [year, setYear] =
-    useState(initialYear);
+    useState(resolvedInitialYear);
 
   const [income, setIncome] =
     useState("");
@@ -281,6 +287,9 @@ function MonthlyFinanceForm() {
   const numericExpenses =
     safeNumber(expenses);
 
+  const numericOpening =
+    safeNumber(existingSavings);
+
   const monthlySavings =
     numericIncome -
     numericExpenses;
@@ -307,16 +316,23 @@ function MonthlyFinanceForm() {
     );
 
 
-  const totalMonthlyCommitments =
-    goalCommitment +
-    investmentCommitment +
-    insuranceCommitment +
-    liabilityCommitment;
+  // Actual Outflows (Only actual paid cash deducted)
+  const actualOutflowsTotal =
+    safeNumber(actualInvestmentOutflow) +
+    safeNumber(actualGoalOutflow) +
+    safeNumber(actualInsuranceOutflow) +
+    safeNumber(actualLiabilityOutflow);
 
+  const availableToAllocate =
+    numericOpening +
+    monthlySavings -
+    actualOutflowsTotal;
 
   const remainingBalance =
-    monthlySavings -
-    totalMonthlyCommitments;
+    availableToAllocate;
+
+  const closingBalance =
+    availableToAllocate;
 
 
   // ==========================================================
@@ -416,9 +432,13 @@ function MonthlyFinanceForm() {
               finance.expenses ?? 0
             );
 
+            const opening =
+              finance.openingBalance !== undefined
+                ? finance.openingBalance
+                : (finance.cashBalance ?? 0);
 
             setExistingSavings(
-              finance.cashBalance ?? 0
+              opening
             );
 
 
@@ -446,14 +466,16 @@ function MonthlyFinanceForm() {
 
 
           // ==================================================
-          // NO RECORD FOR THIS MONTH
+          // NO RECORD FOR THIS MONTH (USE CARRIED BALANCE)
           // ==================================================
 
           setExistingRecord(null);
 
           setIncome("");
           setExpenses("");
-          setExistingSavings("");
+          setExistingSavings(
+            data.carriedOpeningBalance !== undefined ? data.carriedOpeningBalance : ""
+          );
           setUpdateDate(new Date().toISOString().split('T')[0]);
 
           setReminderEnabled(false);
@@ -551,6 +573,12 @@ function MonthlyFinanceForm() {
 
     setMonth(selected);
 
+    if (year && selected) {
+      const formatted = `${year}-${String(selected).padStart(2, "0")}`;
+      setSelectedMonth(formatted);
+      setSearchParams({ month: formatted });
+    }
+
     setErrorMessage("");
     setSuccessMessage("");
 
@@ -598,18 +626,22 @@ function MonthlyFinanceForm() {
 
     setYear(selected);
 
-
+    let activeM = month;
     if (
       selected === currentYear &&
       Number(month) > currentMonth
     ) {
-
+      activeM = currentMonth;
       setMonth(
         currentMonth
       );
-
     }
 
+    if (selected && activeM) {
+      const formatted = `${selected}-${String(activeM).padStart(2, "0")}`;
+      setSelectedMonth(formatted);
+      setSearchParams({ month: formatted });
+    }
 
     setErrorMessage("");
     setSuccessMessage("");
@@ -631,9 +663,6 @@ function MonthlyFinanceForm() {
 
     const savingsValue =
       Number(existingSavings);
-
-    const dayValue =
-      Number(updateDay);
 
 
     if (
@@ -722,7 +751,7 @@ function MonthlyFinanceForm() {
       return false;
     }
 
-    if (isNaN(new Date(updateDate).getTime())) {
+    if (!updateDate || isNaN(new Date(updateDate).getTime())) {
       setErrorMessage(
         "Please select a valid update date."
       );
@@ -759,40 +788,32 @@ function MonthlyFinanceForm() {
       return true;
     }
 
+    const currentIncome = Number(income);
+    const currentExpenses = Number(expenses);
+    const currentSavings = Number(existingSavings);
+
+    const prevIncome = Number(existingRecord.income ?? 0);
+    const prevExpenses = Number(existingRecord.expenses ?? 0);
+    const prevSavings = Number(
+      existingRecord.openingBalance !== undefined
+        ? existingRecord.openingBalance
+        : (existingRecord.cashBalance ?? 0)
+    );
+
+    const prevUpdateDate = existingRecord.updateDate
+      ? new Date(existingRecord.updateDate).toISOString().split("T")[0]
+      : "";
+
+    const prevReminder = Boolean(existingRecord.reminderEnabled);
+    const prevEmail = Boolean(existingRecord.emailNotification);
 
     return (
-      Number(income) !==
-      numericIncome !==
-        Number(
-          existingRecord.income
-        ) ||
-
-      numericExpenses !==
-        Number(
-          existingRecord.expenses
-        ) ||
-
-      numericSavings !==
-        Number(
-          existingRecord.cashBalance
-        ) ||
-
-      updateDate !==
-        (existingRecord.updateDate ? new Date(existingRecord.updateDate).toISOString().split('T')[0] : "") ||
-
-      Boolean(
-        reminderEnabled
-      ) !==
-        Boolean(
-          existingRecord.reminderEnabled
-        ) ||
-
-      Boolean(
-        emailNotification
-      ) !==
-        Boolean(
-          existingRecord.emailNotification
-        )
+      currentIncome !== prevIncome ||
+      currentExpenses !== prevExpenses ||
+      currentSavings !== prevSavings ||
+      updateDate !== prevUpdateDate ||
+      Boolean(reminderEnabled) !== prevReminder ||
+      Boolean(emailNotification) !== prevEmail
     );
   }
 
@@ -816,22 +837,9 @@ function MonthlyFinanceForm() {
     }
 
 
-    // Existing MongoDB record.
+    // Existing MongoDB record - show confirmation modal before updating
     if (existingRecord) {
-
-      if (!hasChanges()) {
-
-        setErrorMessage(
-          "No changes to save."
-        );
-
-        return;
-      }
-
-
-      // Show confirmation before update.
       setShowConfirmation(true);
-
       return;
     }
 
@@ -884,10 +892,10 @@ function MonthlyFinanceForm() {
 
 
     const savedTotalCommitments =
-      totalMonthlyCommitments;
-
+      actualOutflowsTotal;
 
     const savedAvailable =
+      numericSavings +
       savedMonthlySavings -
       savedTotalCommitments;
 
@@ -930,6 +938,15 @@ function MonthlyFinanceForm() {
 
                 cashBalance:
                   numericSavings,
+
+                openingBalance:
+                  numericSavings,
+
+                commitments:
+                  savedTotalCommitments,
+
+                closingBalance:
+                  savedAvailable,
 
                 updateDate:
                   updateDate,
@@ -990,6 +1007,15 @@ function MonthlyFinanceForm() {
 
         cashBalance:
           numericSavings,
+
+        openingBalance:
+          numericSavings,
+
+        closingBalance:
+          savedAvailable,
+
+        commitments:
+          savedTotalCommitments,
 
         updateDate:
           updateDate,
@@ -1527,23 +1553,23 @@ function MonthlyFinanceForm() {
 
 
         {/* ====================================================
-            CASH & SAVINGS
+            OPENING / EXISTING BALANCE
         ==================================================== */}
 
         <section className="rounded-2xl border border-[#dce5d7] bg-[#fcfdfb] p-5">
 
           <SectionTitle
             eyebrow="Financial Position"
-            title="Existing Cash & Savings"
-            description="Enter the cash and savings you already had before this month's calculated savings."
+            title="Opening / Existing Balance"
+            description="Money available at the start of this month. For ongoing months, this carries forward automatically from the previous month's closing balance."
           />
 
 
           <div className="mt-5 max-w-xl">
 
             <FormField
-              label="Existing Balance"
-              description="Money already available in cash, bank accounts or savings."
+              label="Opening / Starting Balance"
+              description="Funds already available in cash, bank accounts or liquid savings at the beginning of the month."
             >
 
               <MoneyInput
@@ -1555,7 +1581,7 @@ function MonthlyFinanceForm() {
                   setExistingSavings
                 }
 
-                placeholder="Enter existing balance"
+                placeholder="Enter starting balance"
 
                 disabled={
                   isLoading ||
@@ -1565,6 +1591,61 @@ function MonthlyFinanceForm() {
 
             </FormField>
 
+          </div>
+
+          {/* ====================================================
+              DETAILED OPENING BALANCE CALCULATION CARD (RULE 2 & 7)
+             ==================================================== */}
+          <div className="mt-5 rounded-2xl border border-[#dce8d6] bg-white p-4 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FiInfo className="text-[#315c46]" />
+                <span className="text-xs font-bold text-[#18392c] uppercase tracking-wider">
+                  Opening Balance Provenance
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBreakdownModal(true)}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-[#315c46] hover:text-[#18392c] hover:underline cursor-pointer"
+              >
+                <span>View Full Calculation</span>
+                <FiArrowRight size={12} />
+              </button>
+            </div>
+
+            <div className="text-xs space-y-1.5 text-[#305440]">
+              {cashFlowBreakdown?.openingBalance?.previousMonthLabel ? (
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-1 border-b border-[#f0f4ee]">
+                  <span className="text-slate-600">Previous Month Closing ({cashFlowBreakdown.openingBalance.previousMonthLabel}):</span>
+                  <span className="font-bold text-slate-800">
+                    ₹{formatMoney(cashFlowBreakdown.openingBalance.previousMonthClosingBalance)}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-1 border-b border-[#f0f4ee]">
+                  <span className="text-slate-600">Starting Source:</span>
+                  <span className="font-bold text-slate-800">User-entered initial starting balance</span>
+                </div>
+              )}
+
+              {cashFlowBreakdown?.openingBalance?.hasAdjustment && (
+                <div className="flex items-center justify-between py-1 border-b border-[#f0f4ee] text-amber-700">
+                  <span>Current Month Opening Adjustment:</span>
+                  <span className="font-bold">
+                    {cashFlowBreakdown.openingBalance.adjustmentAmount > 0 ? "+" : ""}
+                    ₹{formatMoney(cashFlowBreakdown.openingBalance.adjustmentAmount)}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1 font-bold text-[#18392c]">
+                <span>Existing / Opening Balance:</span>
+                <span className="text-sm text-[#24533a] bg-[#eef7ec] px-2.5 py-0.5 rounded-lg border border-[#cbe1c3]">
+                  ₹{formatMoney(numericOpening)}
+                </span>
+              </div>
+            </div>
           </div>
 
         </section>
@@ -1579,7 +1660,7 @@ function MonthlyFinanceForm() {
           <SectionTitle
             eyebrow="Commitments"
             title="Monthly Financial Commitments"
-            description="FinanceOS subtracts active commitments from monthly savings to calculate the amount available to allocate."
+            description="FinanceOS subtracts active commitments and expenses from your opening balance and income to calculate available allocation and closing balance."
           />
 
 
@@ -1616,13 +1697,14 @@ function MonthlyFinanceForm() {
           </div>
 
 
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+          {/* Monthly Summary & Carry-Forward Card */}
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
 
 
             <div className="rounded-xl border border-[#e4ebe0] bg-[#f8faf6] p-4">
 
               <p className="text-xs text-[#5f7568]">
-                Total Monthly Commitments
+                Total Actual Outflows Recorded
               </p>
 
 
@@ -1630,19 +1712,56 @@ function MonthlyFinanceForm() {
 
                 <MoneyValue
                   value={
-                    totalMonthlyCommitments
+                    actualOutflowsTotal
                   }
                 />
 
               </div>
+
+              <p className="mt-1 text-[11px] text-slate-400">
+                Sum of actual paid investments, goals, insurance & EMIs.
+              </p>
 
             </div>
 
 
             <div className="rounded-xl border border-[#dcebd4] bg-[#f3f8ef] p-4">
 
-              <p className="text-xs text-[#5f7568]">
-                Available to Allocate
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-[#315c46]">
+                  Available to Allocate
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowBreakdownModal(true)}
+                  className="text-[10px] font-bold text-[#315c46] hover:underline cursor-pointer"
+                >
+                  View Details
+                </button>
+              </div>
+
+
+              <div className="mt-2">
+
+                <MoneyValue
+                  value={
+                    availableToAllocate
+                  }
+                />
+
+              </div>
+
+              <p className="mt-1 text-[11px] text-[#5f7568]">
+                Opening (₹{formatMoney(numericOpening)}) + Income (₹{formatMoney(numericIncome)}) − Outflows (₹{formatMoney(numericExpenses + actualOutflowsTotal)})
+              </p>
+
+            </div>
+
+
+            <div className="rounded-xl border border-[#cfe2c9] bg-[#eaf4e6] p-4">
+
+              <p className="text-xs font-semibold text-[#18392c]">
+                Next Month Opening Balance
               </p>
 
 
@@ -1650,15 +1769,30 @@ function MonthlyFinanceForm() {
 
                 <MoneyValue
                   value={
-                    remainingBalance
+                    closingBalance
                   }
                 />
 
               </div>
 
+              <p className="mt-1 text-[11px] text-[#4f6e5c]">
+                Carried forward automatically into next month.
+              </p>
+
             </div>
 
+
           </div>
+
+          {/* ====================================================
+              CALCULATION BREAKDOWN MODAL
+             ==================================================== */}
+          <CalculationBreakdownModal
+            isOpen={showBreakdownModal}
+            onClose={() => setShowBreakdownModal(false)}
+            breakdown={cashFlowBreakdown}
+            monthLabel={`${monthLabel} ${numericYear}`}
+          />
 
         </section>
 
@@ -1816,7 +1950,7 @@ function MonthlyFinanceForm() {
 
             onClick={() =>
               navigate(
-                "/dashboard"
+                selectedMonth ? `/dashboard?month=${selectedMonth}` : "/dashboard"
               )
             }
 

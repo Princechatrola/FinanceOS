@@ -59,6 +59,8 @@ const userReminderRoutes =
 const liabilityRoutes = require("./routes/liabilityRoutes");
 const insuranceRoutes = require("./routes/insuranceRoutes");
 const messageRoutes = require("./routes/messageRoutes");
+const aiRoutes = require("./routes/aiRoutes");
+const reportRoutes = require("./routes/reportRoutes");
 
 // ============================================================
 // AUTH
@@ -127,6 +129,16 @@ app.use(
   insuranceRoutes
 );
 
+app.use(
+  "/api/ai",
+  aiRoutes
+);
+
+app.use(
+  "/api/reports",
+  reportRoutes
+);
+
 // ============================================================
 // TEST
 // ============================================================
@@ -150,6 +162,7 @@ app.use((req, res) => {
 });
 
 const { startScheduler } = require("./utils/schedulerService");
+const { migrateRecurringSchedules } = require("./utils/migrateDueDates");
 
 // ============================================================
 // MONGODB
@@ -157,10 +170,13 @@ const { startScheduler } = require("./utils/schedulerService");
 
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => {
+  .then(async () => {
     console.log(
       "MongoDB connected successfully"
     );
+
+    // Safely migrate any existing plans to recurring schedule model
+    await migrateRecurringSchedules();
 
     // Start background scheduler worker
     startScheduler();

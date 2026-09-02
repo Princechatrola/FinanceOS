@@ -10,6 +10,10 @@ const MonthlyFinance =
 const authMiddleware =
   require("../middleware/authMiddleware");
 
+const {
+  calculateMonthlyCashFlowBreakdown,
+} = require("../utils/cashFlowBreakdown");
+
 const router = express.Router();
 
 
@@ -78,24 +82,61 @@ function validatePeriod(year, month) {
     };
   }
 
-  if (
-    compareWithCurrentMonth(
-      numericYear,
-      numericMonth
-    ) > 0
-  ) {
-    return {
-      valid: false,
-      message:
-        "Future monthly finance records are not allowed.",
-    };
-  }
-
   return {
     valid: true,
     year: numericYear,
     month: numericMonth,
   };
+}
+
+
+// ============================================================
+// PROPAGATE CARRY FORWARD CHAIN
+// ============================================================
+
+async function propagateCarryForwardChain(userId) {
+  try {
+    const allRecords = await MonthlyFinance.find({ user: userId }).sort({
+      year: 1,
+      month: 1,
+    });
+
+    if (!allRecords || allRecords.length === 0) return;
+
+    let previousClosing = null;
+
+    for (let i = 0; i < allRecords.length; i++) {
+      const record = allRecords[i];
+      let changed = false;
+
+      if (i > 0 && previousClosing !== null) {
+        if (record.openingBalance !== previousClosing) {
+          record.openingBalance = previousClosing;
+          record.cashBalance = previousClosing;
+          changed = true;
+        }
+      }
+
+      const opening = record.openingBalance !== undefined ? record.openingBalance : (record.cashBalance || 0);
+      const inc = Number(record.income || 0);
+      const exp = Number(record.expenses || 0);
+      const comm = Number(record.commitments || 0) + Number(record.goalAllocations || 0);
+      const calculatedClosing = opening + inc - exp - comm;
+
+      if (record.closingBalance !== calculatedClosing) {
+        record.closingBalance = calculatedClosing;
+        changed = true;
+      }
+
+      previousClosing = record.closingBalance;
+
+      if (changed) {
+        await record.save();
+      }
+    }
+  } catch (err) {
+    console.error("propagateCarryForwardChain error:", err);
+  }
 }
 
 
@@ -118,6 +159,9 @@ router.put(
         income,
         expenses,
         cashBalance,
+        openingBalance,
+        commitments,
+        closingBalance,
         updateDate,
         reminderEnabled,
         emailNotification,
@@ -160,8 +204,10 @@ router.put(
 
       const numericIncome = Number(income);
       const numericExpenses = Number(expenses);
-      const numericCashBalance =
-        Number(cashBalance);
+      const numericOpening = Number(
+        openingBalance !== undefined ? openingBalance : (cashBalance ?? 0)
+      );
+      const numericCommitments = Number(commitments || 0);
 
 
       if (
@@ -189,15 +235,18 @@ router.put(
 
 
       if (
-        !Number.isFinite(numericCashBalance) ||
-        numericCashBalance < 0
+        !Number.isFinite(numericOpening) ||
+        numericOpening < 0
       ) {
         return res.status(400).json({
           success: false,
           message:
-            "Cash and savings balance must be zero or greater.",
+            "Opening / cash balance must be zero or greater.",
         });
       }
+
+      const calculatedClosing =
+        numericOpening + numericIncome - numericExpenses - numericCommitments;
 
       const parsedUpdateDate = new Date(updateDate);
       if (isNaN(parsedUpdateDate.getTime())) {
@@ -210,9 +259,6 @@ router.put(
 
       // ======================================================
       // SAVE / UPDATE
-      //
-      // IMPORTANT:
-      // user comes from JWT, never request body.
       // ======================================================
 
       const finance =
@@ -230,7 +276,18 @@ router.put(
               expenses: numericExpenses,
 
               cashBalance:
-                numericCashBalance,
+                numericOpening,
+
+              openingBalance:
+                numericOpening,
+
+              commitments:
+                numericCommitments,
+
+              closingBalance:
+                closingBalance !== undefined && Number.isFinite(Number(closingBalance))
+                  ? Number(closingBalance)
+                  : calculatedClosing,
 
               updateDate: parsedUpdateDate,
 
@@ -257,6 +314,18 @@ router.put(
           }
         );
 
+      // Recalculate downstream carry-forward chain
+      await propagateCarryForwardChain(userId);
+
+      // Reload updated record after chain propagation
+      const refreshedFinance = await MonthlyFinance.findById(finance._id);
+
+      // Calculate authoritative cash flow breakdown
+      const breakdown = await calculateMonthlyCashFlowBreakdown({
+        userId,
+        year: period.year,
+        month: period.month,
+      });
 
       // ======================================================
       // RESPONSE
@@ -264,11 +333,16 @@ router.put(
 
       return res.status(200).json({
         success: true,
-
-        message:
-          "Monthly finance saved successfully.",
-
-        finance,
+        message: "Monthly finance saved successfully.",
+        finance: refreshedFinance || finance,
+        breakdown,
+        calculationBreakdown: breakdown,
+        openingBalance: breakdown.openingBalance,
+        fundsBeforeOutflows: breakdown.fundsBeforeOutflows,
+        outflows: breakdown.outflows,
+        closingBalance: breakdown.closingBalance,
+        availableToAllocate: breakdown.availableToAllocate,
+        explanation: breakdown.explanation,
       });
 
     } catch (error) {
@@ -335,10 +409,48 @@ router.get(
           month: period.month,
         });
 
+      let carriedOpeningBalance = 0;
+
+      if (!finance) {
+        // Find most recent previous recorded month
+        const previousMonthRecord = await MonthlyFinance.findOne({
+          user: userId,
+          $or: [
+            { year: { $lt: period.year } },
+            { year: period.year, month: { $lt: period.month } },
+          ],
+        }).sort({
+          year: -1,
+          month: -1,
+        });
+
+        if (previousMonthRecord) {
+          carriedOpeningBalance =
+            previousMonthRecord.closingBalance !== undefined
+              ? previousMonthRecord.closingBalance
+              : (previousMonthRecord.cashBalance || 0);
+        }
+      }
+
+      // Calculate authoritative cash flow breakdown
+      const breakdown = await calculateMonthlyCashFlowBreakdown({
+        userId,
+        year: period.year,
+        month: period.month,
+      });
 
       return res.status(200).json({
         success: true,
         finance: finance || null,
+        carriedOpeningBalance: breakdown.openingBalance.amount,
+        breakdown,
+        calculationBreakdown: breakdown,
+        openingBalance: breakdown.openingBalance,
+        fundsBeforeOutflows: breakdown.fundsBeforeOutflows,
+        outflows: breakdown.outflows,
+        closingBalance: breakdown.closingBalance,
+        availableToAllocate: breakdown.availableToAllocate,
+        explanation: breakdown.explanation,
       });
 
     } catch (error) {

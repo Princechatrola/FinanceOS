@@ -15,6 +15,9 @@ const {
   updateSavingGoal,
   deleteSavingGoal,
   addGoalContribution,
+  updateGoalContribution,
+  deleteGoalContribution,
+  withdrawGoalFunds,
 } = require("../controllers/savingGoalController");
 
 // ============================================================
@@ -54,6 +57,27 @@ router.post(
   "/:id/contribution",
   authMiddleware,
   addGoalContribution
+);
+
+// Update Goal Contribution
+router.put(
+  "/:id/contribution/:contributionId",
+  authMiddleware,
+  updateGoalContribution
+);
+
+// Delete Goal Contribution
+router.delete(
+  "/:id/contribution/:contributionId",
+  authMiddleware,
+  deleteGoalContribution
+);
+
+// Withdraw Goal Funds
+router.post(
+  "/:id/withdraw",
+  authMiddleware,
+  withdrawGoalFunds
 );
 
 // Delete Saving Goal

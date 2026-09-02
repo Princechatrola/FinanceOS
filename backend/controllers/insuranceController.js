@@ -103,6 +103,10 @@ const deleteInsurance = async (req, res) => {
   }
 };
 
+const { isItemActiveInMonth, parseSelectedMonth, isDateInMonth, getMonthName } = require("../utils/monthLifecycle");
+const { calculateDueDateForMonth, formatDateISO } = require("../utils/dueDateSchedule");
+const MonthlyFinance = require("../models/MonthlyFinance");
+
 const addInsurancePayment = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
@@ -112,30 +116,82 @@ const addInsurancePayment = async (req, res) => {
       return res.status(404).json({ success: false, message: "Insurance policy not found." });
     }
 
-    const { amount, dueDate, paidDate, status, paymentSource, note } = req.body;
+    const {
+      amount,
+      paidDate,
+      status,
+      paymentSource,
+      note,
+      selectedMonth: reqSelectedMonth
+    } = req.body;
     
     if (!amount || amount <= 0) {
       return res.status(400).json({ success: false, message: "Valid payment amount is required." });
     }
 
+    // Determine target working month context
+    const monthCtx = parseSelectedMonth(reqSelectedMonth || (paidDate ? String(paidDate).slice(0, 7) : null));
+    const targetYear = monthCtx.year;
+    const targetMonth = monthCtx.month;
+    const formattedMonth = `${getMonthName(targetMonth)} ${targetYear}`;
+
+    // 1. Lifecycle check: Insurance must have started on or before target month
+    if (!isItemActiveInMonth(insurance, targetYear, targetMonth)) {
+      const insStart = new Date(insurance.startDate || insurance.createdAt);
+      const startMonthName = getMonthName(insStart.getMonth() + 1);
+      return res.status(400).json({
+        success: false,
+        message: `Cannot record payment in ${formattedMonth}. This policy starts in ${startMonthName} ${insStart.getFullYear()}.`,
+      });
+    }
+
+    // --------------------------------------------------------
+    // DERIVE DUE DATE FROM STORED SCHEDULE (server-side only)
+    // --------------------------------------------------------
+    const storedDueDay = insurance.premiumDueDay
+      || (insurance.startDate ? new Date(insurance.startDate).getDate() : null)
+      || 1; // fallback
+
+    const effectiveDueDate = calculateDueDateForMonth(storedDueDay, targetYear, targetMonth);
+
+    const effectivePaidDate = status === "Paid" || !status
+      ? (paidDate ? new Date(paidDate) : new Date())
+      : null;
+
+    // Validate paid date belongs to selected month
+    if (reqSelectedMonth && effectivePaidDate) {
+      if (!isDateInMonth(effectivePaidDate, targetYear, targetMonth)) {
+        return res.status(400).json({
+          success: false,
+          message: `Payment date must be within the selected month: ${formattedMonth}.`,
+        });
+      }
+    }
+
     const payment = {
-      amount,
-      dueDate: dueDate ? new Date(dueDate) : undefined,
-      paidDate: paidDate ? new Date(paidDate) : undefined,
-      date: paidDate ? new Date(paidDate) : new Date(),
+      amount: Number(amount),
+      dueDate: effectiveDueDate,
+      paidDate: effectivePaidDate,
+      date: effectivePaidDate || effectiveDueDate,
       status: status || "Paid",
       paymentSource: paymentSource || { method: "Cash" },
       note: note || "",
     };
+
+    if (!Array.isArray(insurance.payments)) {
+      insurance.payments = [];
+    }
 
     insurance.payments.push(payment);
     await insurance.save();
 
     res.status(201).json({
       success: true,
-      message: "Premium payment recorded successfully.",
+      message: `Premium payment of ₹${Number(amount).toLocaleString("en-IN")} recorded for ${formattedMonth}.`,
       insurance,
       payment,
+      selectedMonth: monthCtx.iso,
+      derivedDueDate: formatDateISO(effectiveDueDate),
     });
   } catch (error) {
     console.error("Add Insurance Payment:", error);

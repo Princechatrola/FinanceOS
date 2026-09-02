@@ -24,27 +24,27 @@ const userSchema = new mongoose.Schema(
 
     phone: {
       type: String,
-      required: true,
+      default: "",
     },
 
     dateOfBirth: {
       type: Date,
-      required: true,
+      default: null,
     },
 
     gender: {
       type: String,
-      required: true,
+      default: "",
     },
 
     city: {
       type: String,
-      required: true,
+      default: "",
     },
 
     state: {
       type: String,
-      required: true,
+      default: "",
     },
 
     role: {

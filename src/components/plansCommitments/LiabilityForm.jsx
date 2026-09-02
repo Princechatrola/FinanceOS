@@ -341,6 +341,12 @@ export default function LiabilityForm({ editingLiability, onClose, onSuccess }) 
         endDate: expectedEndDateInput ? new Date(expectedEndDateInput) : (calculatedEndDate ? new Date(calculatedEndDate) : undefined),
         nextDueDate: nextDueDate ? new Date(nextDueDate) : undefined,
         paymentFrequency,
+        // --------------------------------------------------------
+        // RECURRING DUE DAY — stored on the liability document.
+        // The backend uses this to automatically derive the full
+        // due date for each month (e.g., dueDay=5 → 5 Mar 2026).
+        // --------------------------------------------------------
+        dueDay: Number(dueDay) || 5,
         paymentSource,
         status,
         notes,

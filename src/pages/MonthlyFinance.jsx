@@ -54,12 +54,17 @@ import Topbar
 import MonthlyFinanceForm
   from "../components/monthlyFinance/MonthlyFinanceForm.jsx";
 
+import useFinance
+  from "../context/useFinance.js";
+
 
 // ============================================================
 // MONTHLY FINANCE PAGE
 // ============================================================
 
 function MonthlyFinance() {
+
+  const { sidebarCollapsed } = useFinance();
 
   return (
 
@@ -77,7 +82,7 @@ function MonthlyFinance() {
           MAIN PAGE
          ====================================================== */}
 
-      <main className="ml-64 min-h-screen">
+      <main className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? "ml-20" : "ml-64"}`}>
 
 
         {/* ====================================================
@@ -132,7 +137,7 @@ function MonthlyFinance() {
               INFORMATION CARDS
              ================================================== */}
 
-          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
 
             {/* =================================================
@@ -201,10 +206,42 @@ function MonthlyFinance() {
 
 
             {/* =================================================
-                NET WORTH
+                AVAILABLE TO ALLOCATE BREAKDOWN
                ================================================= */}
 
             <div className="rounded-2xl border border-[#dcebd4] bg-[#f7fbf4] p-4">
+
+
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#315c46]">
+
+                Cash Flow Engine
+
+              </p>
+
+
+              <h3 className="mt-2 text-sm font-semibold text-[#18392c]">
+
+                Available to Allocate
+
+              </h3>
+
+
+              <p className="mt-1 text-xs leading-5 text-[#5f7568]">
+
+                Opening balance plus monthly income minus actual
+                recorded cash outflows to show true unallocated liquidity.
+
+              </p>
+
+
+            </div>
+
+
+            {/* =================================================
+                NET WORTH
+               ================================================= */}
+
+            <div className="rounded-2xl border border-[#e2e8dc] bg-white p-4">
 
 
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6c8b72]">
@@ -221,11 +258,11 @@ function MonthlyFinance() {
               </h3>
 
 
-              <p className="mt-1 text-xs leading-5 text-[#5f7568]">
+              <p className="mt-1 text-xs leading-5 text-slate-400">
 
-                FinanceOS combines your cash, savings and
+                FinanceOS combines cash, savings and
                 investments, then subtracts outstanding
-                liabilities to calculate your net worth.
+                liabilities.
 
               </p>
 

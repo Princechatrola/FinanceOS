@@ -160,6 +160,21 @@ const investmentSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // --------------------------------------------------------
+    // RECURRING DUE DAY (1-31)
+    // The day of the month when recurring contributions are due.
+    // Configured once when the plan is created.
+    // The system derives the full due date automatically for
+    // each month: e.g., dueDay=10 + March 2026 → 10 Mar 2026.
+    // For months with fewer days (e.g., Feb), the system clamps
+    // to the last valid day of the month.
+    // --------------------------------------------------------
+    dueDay: {
+      type: Number,
+      min: 1,
+      max: 31,
+      default: null,
+    },
     monthlyContribution: {
       type: Number,
       default: 0,

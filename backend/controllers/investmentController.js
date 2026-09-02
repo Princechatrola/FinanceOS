@@ -357,9 +357,12 @@ const addInvestmentTransaction = async (req, res) => {
 };
 
 // ============================================================
+const { isItemActiveInMonth, parseSelectedMonth, isDateInMonth, getMonthName } = require("../utils/monthLifecycle");
+const { deriveDueDateForMonth, calculateDueDateForMonth, formatDateISO } = require("../utils/dueDateSchedule");
+
+// ============================================================
 // ADD SIP CONTRIBUTION
 // ============================================================
-
 
 const addSIPContribution = async (req, res) => {
   try {
@@ -376,20 +379,35 @@ const addSIPContribution = async (req, res) => {
       });
     }
 
-    const { amount, dueDate, paidDate, status, note } = req.body;
+    const {
+      amount,
+      paidDate,
+      status,
+      note,
+      selectedMonth: reqSelectedMonth
+    } = req.body;
+
+    // Determine target working month context
+    const monthCtx = parseSelectedMonth(reqSelectedMonth || (paidDate ? String(paidDate).slice(0, 7) : null));
+    const targetYear = monthCtx.year;
+    const targetMonth = monthCtx.month;
+    const formattedMonth = `${getMonthName(targetMonth)} ${targetYear}`;
+
+    // 1. Lifecycle check: Investment must have existed on or before target month
+    if (!isItemActiveInMonth(investment, targetYear, targetMonth)) {
+      const invStart = new Date(investment.startDate || investment.createdAt);
+      const startMonthName = getMonthName(invStart.getMonth() + 1);
+      return res.status(400).json({
+        success: false,
+        message: `Cannot record contribution in ${formattedMonth}. This investment started in ${startMonthName} ${invStart.getFullYear()}.`,
+      });
+    }
 
     const contributionAmount = Number(amount ?? investment.monthlyContribution ?? investment.amount ?? 0);
     if (!Number.isFinite(contributionAmount) || contributionAmount < 0) {
       return res.status(400).json({
         success: false,
         message: "Contribution amount must be a valid non-negative number.",
-      });
-    }
-
-    if (!dueDate) {
-      return res.status(400).json({
-        success: false,
-        message: "Due date is required.",
       });
     }
 
@@ -402,10 +420,35 @@ const addSIPContribution = async (req, res) => {
       });
     }
 
+    // --------------------------------------------------------
+    // DERIVE DUE DATE FROM STORED SCHEDULE (server-side only)
+    // The client does NOT supply dueDate for recurring plans.
+    // --------------------------------------------------------
+    const storedDueDay = investment.dueDay
+      || (investment.reminder && investment.reminder.contributionDay)
+      || (investment.nextContributionDate ? new Date(investment.nextContributionDate).getDate() : null)
+      || 10; // fallback
+
+    const effectiveDueDate = calculateDueDateForMonth(storedDueDay, targetYear, targetMonth);
+
+    const effectivePaidDate = contributionStatus === "Paid"
+      ? (paidDate ? new Date(paidDate) : new Date())
+      : null;
+
+    // Validate paid date belongs to selected month
+    if (reqSelectedMonth && effectivePaidDate) {
+      if (!isDateInMonth(effectivePaidDate, targetYear, targetMonth)) {
+        return res.status(400).json({
+          success: false,
+          message: `Paid date must be within the selected month: ${formattedMonth}.`,
+        });
+      }
+    }
+
     const contribution = {
       amount: contributionAmount,
-      dueDate: new Date(dueDate),
-      paidDate: contributionStatus === "Paid" ? (paidDate ? new Date(paidDate) : new Date()) : null,
+      dueDate: effectiveDueDate,
+      paidDate: effectivePaidDate,
       status: contributionStatus,
       note: note || "",
     };
@@ -427,9 +470,11 @@ const addSIPContribution = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "SIP contribution added successfully.",
+      message: `SIP contribution of ₹${contributionAmount.toLocaleString("en-IN")} recorded for ${formattedMonth}.`,
       contribution: createdContribution,
       investment,
+      selectedMonth: monthCtx.iso,
+      derivedDueDate: formatDateISO(effectiveDueDate),
     });
   } catch (error) {
     console.error("Add SIP Contribution:", error);

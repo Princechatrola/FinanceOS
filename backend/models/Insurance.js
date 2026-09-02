@@ -83,6 +83,19 @@ const insuranceSchema = new mongoose.Schema(
       enum: ["Monthly", "Quarterly", "Half-Yearly", "Yearly", "One Time"],
       default: "Yearly",
     },
+    // --------------------------------------------------------
+    // RECURRING PREMIUM DUE DAY (1-31)
+    // The day of the month when premium payments are due.
+    // Configured once when the policy is created.
+    // The system derives the full due date automatically for
+    // each month: e.g., premiumDueDay=20 + March 2026 → 20 Mar 2026.
+    // --------------------------------------------------------
+    premiumDueDay: {
+      type: Number,
+      min: 1,
+      max: 31,
+      default: null,
+    },
     startDate: {
       type: Date,
     },

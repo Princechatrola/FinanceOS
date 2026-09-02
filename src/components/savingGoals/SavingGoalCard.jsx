@@ -54,11 +54,14 @@ import {
   FiX,
   FiEdit3,
   FiBell,
+  FiLock,
 } from "react-icons/fi";
 
 
 import useFinance
   from "../../context/useFinance.js";
+import { parseSelectedMonth } from "../../utils/monthLifecycle.js";
+import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../../utils/dueDateSchedule.js";
 
 
 // ============================================================
@@ -328,18 +331,17 @@ function SavingGoalCard({
   // ==========================================================
 
   const {
-
+    selectedMonth,
     addGoalContribution,
-
+    updateGoalContribution,
+    deleteGoalContribution,
     updateSavingGoal,
-
     deleteSavingGoal,
-
     withdrawGoalFunds,
-
     updateGoalFundLocation,
-
   } = useFinance();
+
+  const monthBounds = parseSelectedMonth(selectedMonth);
 
 
   // ==========================================================
@@ -396,7 +398,12 @@ function SavingGoalCard({
     contributionDate,
     setContributionDate,
   ] = useState(
-    getToday()
+    monthBounds.defaultDate
+  );
+
+  const goalDay = goal?.contributionDay || (goal?.reminder && goal?.reminder.contributionDay) || 5;
+  const derivedGoalDueDateISO = formatDateISO(
+    calculateDueDateForMonth(goalDay, monthBounds.year, monthBounds.month)
   );
 
 
@@ -428,7 +435,7 @@ function SavingGoalCard({
     withdrawalDate,
     setWithdrawalDate,
   ] = useState(
-    getToday()
+    monthBounds.defaultDate
   );
 
 
@@ -761,35 +768,12 @@ function SavingGoalCard({
 
 
       // -------------------------------------------------------
-      // FUND LOCATION REQUIRED
-      // -------------------------------------------------------
-
-      if (
-        !goal?.fundLocation?.type
-      ) {
-
-        setError(
-          "Record where this goal money is stored before adding a contribution."
-        );
-
-
-        setShowFundLocation(
-          true
-        );
-
-
-        return;
-
-      }
-
-
-      // -------------------------------------------------------
       // RECORD CONTRIBUTION
       // -------------------------------------------------------
 
       try {
         await addGoalContribution(
-          goal.id,
+          goal._id || goal.id,
           {
 
             amount,
@@ -830,7 +814,7 @@ function SavingGoalCard({
 
 
         setContributionDate(
-          getToday()
+          monthBounds.defaultDate
         );
 
 
@@ -867,6 +851,21 @@ function SavingGoalCard({
         setError(err.message || "Failed to add contribution.");
       }
     };
+
+  // ==========================================================
+  // HANDLE DELETE CONTRIBUTION
+  // ==========================================================
+
+  const handleDeleteContribution = async (contributionId) => {
+    if (!contributionId) return;
+    try {
+      clearFeedback();
+      await deleteGoalContribution(goal._id || goal.id, contributionId);
+      setMessage("Contribution removed successfully.");
+    } catch (err) {
+      setError(err.message || "Failed to delete contribution.");
+    }
+  };
 
 
   // ==========================================================
@@ -982,7 +981,7 @@ function SavingGoalCard({
       // -------------------------------------------------------
 
       withdrawGoalFunds(
-        goal.id,
+        goal._id || goal.id,
         {
 
           amount,
@@ -1071,7 +1070,7 @@ function SavingGoalCard({
   // ==========================================================
 
   const handleFundLocation =
-    (event) => {
+    async (event) => {
 
       event.preventDefault();
 
@@ -1138,33 +1137,37 @@ function SavingGoalCard({
       // UPDATE LOCATION
       // -------------------------------------------------------
 
-      updateGoalFundLocation(
-        goal.id,
-        {
+      try {
+        await updateGoalFundLocation(
+          goal._id || goal.id,
+          {
 
-          type:
-            fundLocationType,
+            type:
+              fundLocationType,
 
-          institution:
-            institution.trim(),
+            institution:
+              institution.trim(),
 
-          label:
-            accountLabel.trim(),
+            label:
+              accountLabel.trim(),
 
-          lastFour,
+            lastFour,
 
-        }
-      );
-
-
-      setShowFundLocation(
-        false
-      );
+          }
+        );
 
 
-      setMessage(
-        "Goal fund location updated."
-      );
+        setShowFundLocation(
+          false
+        );
+
+
+        setMessage(
+          "Goal fund location updated."
+        );
+      } catch (err) {
+        setError(err.message || "Failed to update fund location.");
+      }
 
     };
 
@@ -1180,7 +1183,7 @@ function SavingGoalCard({
 
 
       updateSavingGoal(
-        goal.id,
+        goal._id || goal.id,
         {
 
           status:
@@ -1208,7 +1211,7 @@ function SavingGoalCard({
 
 
       updateSavingGoal(
-        goal.id,
+        goal._id || goal.id,
         {
 
           status:
@@ -1248,7 +1251,7 @@ function SavingGoalCard({
 
 
       deleteSavingGoal(
-        goal.id
+        goal._id || goal.id
       );
 
     };
@@ -2212,20 +2215,46 @@ function SavingGoalCard({
           </div>
 
 
-          {/* DATE */}
+          {/* SCHEDULED DUE DATE (AUTO) */}
 
           <div className="mt-3">
 
+            <FieldLabel>
+              <span className="inline-flex items-center gap-1">
+                <FiLock size={10} className="text-amber-500" />
+                Scheduled Due Date (Auto)
+              </span>
+            </FieldLabel>
+
+            <input
+              type="text"
+              readOnly
+              value={formatDateDisplay(derivedGoalDueDateISO)}
+              title={`Automatically derived from contribution day ${goalDay} for ${monthBounds.formatted}`}
+              className={`${inputClass} bg-[#f9fbf6] cursor-not-allowed`}
+            />
+
+            <p className="mt-1 text-[10px] text-[#8fa895]">
+              Day {goalDay} of {monthBounds.formatted}
+            </p>
+
+          </div>
+
+
+          {/* ACTUAL PAID / CONTRIBUTION DATE */}
+
+          <div className="mt-3">
 
             <FieldLabel>
               Contribution Date
             </FieldLabel>
 
-
             <input
               type="date"
+              min={monthBounds.minDate}
+              max={monthBounds.maxDate}
               value={
-                contributionDate
+                contributionDate || monthBounds.defaultDate
               }
               onChange={(event) =>
                 setContributionDate(
@@ -2234,7 +2263,6 @@ function SavingGoalCard({
               }
               className={inputClass}
             />
-
 
           </div>
 
@@ -2833,28 +2861,40 @@ function SavingGoalCard({
                       </div>
 
 
-                      {/* AMOUNT */}
+                      {/* AMOUNT & ACTIONS */}
 
-                      <p
-                        className={
-                          isWithdrawal
+                      <div className="flex items-center gap-2 shrink-0">
 
-                            ? "shrink-0 text-xs font-bold text-slate-600"
+                        <p
+                          className={
+                            isWithdrawal
+                              ? "text-xs font-bold text-slate-600"
+                              : "text-xs font-bold text-[#315c46]"
+                          }
+                        >
 
-                            : "shrink-0 text-xs font-bold text-[#315c46]"
-                        }
-                      >
+                          {isWithdrawal
+                            ? "-"
+                            : "+"}
 
-                        {isWithdrawal
-                          ? "-"
-                          : "+"}
+                          ₹{formatMoney(
+                            transaction?.amount
+                          )}
 
-                        ₹{formatMoney(
-                          transaction?.amount
+                        </p>
+
+                        {!isWithdrawal && (transaction?._id || transaction?.id) && (
+                          <button
+                            type="button"
+                            title="Remove contribution"
+                            onClick={() => handleDeleteContribution(transaction?._id || transaction?.id)}
+                            className="p-1 text-slate-400 hover:text-red-500 transition rounded"
+                          >
+                            <FiTrash2 className="text-xs" />
+                          </button>
                         )}
 
-                      </p>
-
+                      </div>
 
                     </div>
 

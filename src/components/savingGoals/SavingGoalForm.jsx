@@ -903,34 +903,21 @@ function SavingGoalForm({
 
 
     // ========================================================
-    // AFFORDABILITY
+    // AFFORDABILITY (ONLY FOR ACTUAL INITIAL CONTRIBUTION)
     // ========================================================
 
     if (
-      requiredPerMonth >
-      availableToAllocate
+      alreadySaved > 0 &&
+      alreadySaved > availableToAllocate
     ) {
 
-      if (
-        minimumDuration
-      ) {
-
-        setError(
-          `This goal requires ₹${formatMoney(
-            requiredPerMonth
-          )} per month, but only ₹${formatMoney(
-            availableToAllocate
-          )} is currently available. Try at least ${minimumDuration} months.`
-        );
-
-      } else {
-
-        setError(
-          "There is currently no available amount for a new saving goal."
-        );
-
-      }
-
+      setError(
+        `Initial contribution of ₹${formatMoney(
+          alreadySaved
+        )} exceeds your available to allocate of ₹${formatMoney(
+          availableToAllocate
+        )}.`
+      );
 
       return;
 
@@ -1038,6 +1025,11 @@ function SavingGoalForm({
           currentAmount: alreadySaved,
 
           monthlyContribution: requiredPerMonth,
+
+          // Recurring contribution schedule configured once at creation
+          contributionDay: Number(contributionDay) || 5,
+
+          contributionFrequency: "Monthly",
 
           startDate,
 

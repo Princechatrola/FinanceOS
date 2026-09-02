@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import useFinance from "../context/useFinance.js";
 
@@ -22,7 +22,11 @@ function SignIn() {
 
   const [otpMode, setOtpMode] = useState(false);
 
-  const [otp, setOtp] = useState("");
+  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
+
+  const otpRefs = useRef([]);
+
+  const otp = otpDigits.join("");
 
   const [otpTimer, setOtpTimer] = useState(0);
 
@@ -34,6 +38,118 @@ function SignIn() {
     email: "",
     rememberMe: false,
   });
+
+  // ==========================================================
+  // AUTO FOCUS FIRST OTP BOX WHEN OTP MODE OPENS
+  // ==========================================================
+
+  useEffect(() => {
+    if (otpMode) {
+      const timer = setTimeout(() => {
+        const firstEmpty = otpDigits.findIndex((d) => !d);
+        const targetIdx = firstEmpty !== -1 ? firstEmpty : 0;
+        otpRefs.current[targetIdx]?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [otpMode]);
+
+  // ==========================================================
+  // OTP INPUT HANDLERS (6 INDIVIDUAL BOXES)
+  // ==========================================================
+
+  const handleOtpChange = (index, e) => {
+    const rawValue = e.target.value;
+    const digitsOnly = rawValue.replace(/\D/g, "");
+
+    // If empty / cleared
+    if (!digitsOnly) {
+      const updated = [...otpDigits];
+      updated[index] = "";
+      setOtpDigits(updated);
+      setLoginError("");
+      return;
+    }
+
+    // If multiple digits were pasted/autofilled into a single box
+    if (digitsOnly.length > 1) {
+      const updated = [...otpDigits];
+      let pasteIdx = index;
+      for (let i = 0; i < digitsOnly.length && pasteIdx < 6; i++) {
+        updated[pasteIdx] = digitsOnly[i];
+        pasteIdx++;
+      }
+      setOtpDigits(updated);
+      setLoginError("");
+
+      const nextFocus = Math.min(pasteIdx, 5);
+      otpRefs.current[nextFocus]?.focus();
+      return;
+    }
+
+    // Exactly 1 digit entered
+    const updated = [...otpDigits];
+    updated[index] = digitsOnly.slice(-1);
+    setOtpDigits(updated);
+    setLoginError("");
+
+    // Automatically move focus to next box
+    if (index < 5) {
+      setTimeout(() => {
+        otpRefs.current[index + 1]?.focus();
+      }, 10);
+    }
+  };
+
+  const handleOtpKeyDown = (index, e) => {
+    if (e.key === "Backspace") {
+      if (otpDigits[index]) {
+        // Clear current box digit
+        const updated = [...otpDigits];
+        updated[index] = "";
+        setOtpDigits(updated);
+        setLoginError("");
+      } else if (index > 0) {
+        // Move to previous box and clear its digit
+        const updated = [...otpDigits];
+        updated[index - 1] = "";
+        setOtpDigits(updated);
+        setLoginError("");
+        setTimeout(() => {
+          otpRefs.current[index - 1]?.focus();
+        }, 10);
+      }
+    } else if (e.key === "ArrowLeft" && index > 0) {
+      e.preventDefault();
+      setTimeout(() => {
+        otpRefs.current[index - 1]?.focus();
+      }, 10);
+    } else if (e.key === "ArrowRight" && index < 5) {
+      e.preventDefault();
+      setTimeout(() => {
+        otpRefs.current[index + 1]?.focus();
+      }, 10);
+    }
+  };
+
+  const handleOtpPaste = (e) => {
+    e.preventDefault();
+    const pasteData = e.clipboardData ? e.clipboardData.getData("text") : "";
+    const cleanDigits = pasteData.replace(/\D/g, "").slice(0, 6);
+    if (!cleanDigits) return;
+
+    const updated = ["", "", "", "", "", ""];
+    for (let i = 0; i < cleanDigits.length; i++) {
+      updated[i] = cleanDigits[i];
+    }
+    setOtpDigits(updated);
+    setLoginError("");
+
+    const nextFocus = Math.min(cleanDigits.length, 5);
+    setTimeout(() => {
+      otpRefs.current[nextFocus]?.focus();
+    }, 10);
+  };
 
   // ==========================================================
   // OTP TIMER
@@ -187,7 +303,7 @@ function SignIn() {
 
       setOtpMode(true);
 
-      setOtp("");
+      setOtpDigits(["", "", "", "", "", ""]);
 
       startOtpTimer();
 
@@ -434,7 +550,7 @@ function SignIn() {
   const handleChangeEmail = () => {
     setOtpMode(false);
 
-    setOtp("");
+    setOtpDigits(["", "", "", "", "", ""]);
 
     setOtpTimer(0);
 
@@ -816,53 +932,39 @@ function SignIn() {
 
                     </div>
 
-                    {/* OTP INPUT */}
+                    {/* 6 INDIVIDUAL OTP INPUT BOXES */}
 
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      value={otp}
-                      onChange={(e) => {
-
-                        const value =
-                          e.target.value
-                            .replace(
-                              /\D/g,
-                              ""
-                            )
-                            .slice(
-                              0,
-                              6
-                            );
-
-                        setOtp(value);
-
-                        setLoginError("");
-
-                      }}
-                      placeholder="Enter 6-digit OTP"
-                      autoFocus
-                      className="
-                        mt-5
-                        w-full
-                        rounded-xl
-                        border
-                        border-[#dce3d8]
-                        bg-white
-                        px-4
-                        py-4
-                        text-center
-                        text-2xl
-                        font-bold
-                        tracking-[0.5em]
-                        text-[#173b2b]
-                        outline-none
-                        focus:border-[#9fbd82]
-                        focus:ring-2
-                        focus:ring-[#eaf4df]
-                      "
-                    />
+                    <div className="mt-5 flex items-center justify-center gap-2 sm:gap-3">
+                      {otpDigits.map((digit, idx) => (
+                        <input
+                          key={idx}
+                          ref={(el) => (otpRefs.current[idx] = el)}
+                          id={`otp-box-${idx}`}
+                          name={`otp-box-${idx}`}
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={1}
+                          autoComplete={idx === 0 ? "one-time-code" : "off"}
+                          value={digit}
+                          onChange={(e) => handleOtpChange(idx, e)}
+                          onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                          onPaste={handleOtpPaste}
+                          onFocus={(e) => e.target.select()}
+                          disabled={isSubmitting}
+                          aria-label={`Digit ${idx + 1} of 6-digit OTP`}
+                          className="
+                            h-12 w-11 sm:h-14 sm:w-13 md:h-14 md:w-14
+                            rounded-xl border border-[#dce3d8] bg-white
+                            text-center text-xl sm:text-2xl font-bold text-[#173b2b]
+                            outline-none transition-all duration-150
+                            focus:border-[#57923d] focus:ring-2 focus:ring-[#eaf4df]
+                            disabled:cursor-not-allowed disabled:bg-[#f5f7f3] disabled:text-[#8d9b92]
+                            shadow-sm
+                          "
+                        />
+                      ))}
+                    </div>
 
                     {/* TIMER */}
 

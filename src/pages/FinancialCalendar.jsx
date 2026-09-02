@@ -23,9 +23,14 @@
 // ============================================================
 
 import {
+  useEffect,
   useMemo,
   useState,
 } from "react";
+
+import {
+  useSearchParams,
+} from "react-router-dom";
 
 
 // ============================================================
@@ -267,7 +272,12 @@ function FinancialCalendar() {
     liabilities,
     userReminders,
     loadUserReminders,
+    selectedMonth,
+    setSelectedMonth,
+    sidebarCollapsed,
   } = useFinance();
+
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
   const [reminderForm, setReminderForm] = useState({ title: "", date: "", description: "" });
@@ -382,7 +392,6 @@ function FinancialCalendar() {
   const today =
     new Date();
 
-
   const todayKey =
     formatDateKey(
       today.getFullYear(),
@@ -390,6 +399,21 @@ function FinancialCalendar() {
       today.getDate()
     );
 
+  // ==========================================================
+  // RESOLVE SELECTED MONTH CONTEXT
+  // ==========================================================
+
+  const monthParam = searchParams.get("month") || selectedMonth;
+
+  const initialCalendarDate = useMemo(() => {
+    if (monthParam && /^\d{4}-\d{1,2}$/.test(monthParam)) {
+      const [y, m] = monthParam.split("-").map(Number);
+      if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12) {
+        return new Date(y, m - 1, 1);
+      }
+    }
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  }, [monthParam]);
 
   // ==========================================================
   // DISPLAYED MONTH
@@ -399,14 +423,17 @@ function FinancialCalendar() {
     currentDate,
     setCurrentDate,
   ] = useState(
-    () =>
-      new Date(
-        today.getFullYear(),
-        today.getMonth(),
-        1
-      )
+    initialCalendarDate
   );
 
+  useEffect(() => {
+    if (monthParam && /^\d{4}-\d{1,2}$/.test(monthParam)) {
+      const [y, m] = monthParam.split("-").map(Number);
+      if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12) {
+        setCurrentDate(new Date(y, m - 1, 1));
+      }
+    }
+  }, [monthParam]);
 
   // ==========================================================
   // SELECTED DATE
@@ -548,11 +575,9 @@ function FinancialCalendar() {
         1
       );
 
-
     setCurrentDate(
       previousMonth
     );
-
 
     setSelectedDate(
       formatDateKey(
@@ -561,6 +586,10 @@ function FinancialCalendar() {
         1
       )
     );
+
+    const formatted = `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, "0")}`;
+    setSelectedMonth(formatted);
+    setSearchParams({ month: formatted });
   }
 
 
@@ -576,11 +605,9 @@ function FinancialCalendar() {
         1
       );
 
-
     setCurrentDate(
       nextMonth
     );
-
 
     setSelectedDate(
       formatDateKey(
@@ -589,6 +616,10 @@ function FinancialCalendar() {
         1
       )
     );
+
+    const formatted = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}`;
+    setSelectedMonth(formatted);
+    setSearchParams({ month: formatted });
   }
 
 
@@ -600,7 +631,6 @@ function FinancialCalendar() {
     const now =
       new Date();
 
-
     setCurrentDate(
       new Date(
         now.getFullYear(),
@@ -609,7 +639,6 @@ function FinancialCalendar() {
       )
     );
 
-
     setSelectedDate(
       formatDateKey(
         now.getFullYear(),
@@ -617,6 +646,12 @@ function FinancialCalendar() {
         now.getDate()
       )
     );
+
+    setSelectedMonth("");
+    try {
+      sessionStorage.removeItem("financeos_selected_month");
+    } catch (e) {}
+    setSearchParams({});
   }
 
 
@@ -845,7 +880,7 @@ function FinancialCalendar() {
           MAIN
          ====================================================== */}
 
-      <main className="ml-64 min-h-screen">
+      <main className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? "ml-20" : "ml-64"}`}>
 
 
         {/* TOPBAR */}

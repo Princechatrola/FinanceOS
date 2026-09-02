@@ -39,6 +39,8 @@ import {
   FiInfo,
   FiArchive,
   FiSliders,
+  FiZap,
+  FiX,
 } from "react-icons/fi";
 
 
@@ -108,6 +110,17 @@ function FinancialSuggestions() {
   const finance =
     useFinance();
 
+  const latestAISuggestion =
+    finance?.latestAISuggestion;
+
+  // ==========================================================
+  // AI SUGGESTION MODAL STATE
+  // ==========================================================
+
+  const [
+    isAISuggestionModalOpen,
+    setIsAISuggestionModalOpen,
+  ] = useState(false);
 
   // ==========================================================
   // MATURITY MODAL STATE
@@ -758,6 +771,17 @@ function FinancialSuggestions() {
     action
   ) {
 
+    // ========================================================
+    // AI SUGGESTION MODAL
+    // ========================================================
+
+    if (
+      suggestion?.isAI ||
+      action === "view-ai-suggestion"
+    ) {
+      setIsAISuggestionModalOpen(true);
+      return;
+    }
 
     // ========================================================
     // COMPLETED SAVING GOAL - KEEP SAVED
@@ -1065,6 +1089,31 @@ function FinancialSuggestions() {
   // ==========================================================
 
   const suggestions = [];
+
+  // ==========================================================
+  // 0. PERSISTED AI SUGGESTION (FROM MONGODB)
+  // ==========================================================
+
+  if (latestAISuggestion) {
+    suggestions.push({
+      id: `ai-suggestion-${latestAISuggestion._id || latestAISuggestion.id || "latest"}`,
+      isAI: true,
+      type: "success",
+      icon: FiZap,
+      title: latestAISuggestion.title || "AI Financial Recommendation",
+      description: latestAISuggestion.summary || "",
+      category: "ai",
+      priority: 200,
+      actions: [
+        {
+          id: "view-ai-suggestion",
+          label: "View Suggestion",
+          primary: true,
+        },
+      ],
+      rawAI: latestAISuggestion,
+    });
+  }
 
 
   // ==========================================================
@@ -1902,6 +1951,11 @@ function FinancialSuggestions() {
   //
   // ==========================================================
 
+  const aiSuggestions =
+    suggestions.filter(
+      (s) => s.isAI
+    );
+
   const lifecycleSuggestions =
     suggestions.filter(
       (suggestion) =>
@@ -1915,16 +1969,14 @@ function FinancialSuggestions() {
   const generalSuggestions =
     suggestions.filter(
       (suggestion) =>
-        !suggestion.category
+        !suggestion.category && !suggestion.isAI
     );
 
 
   const visibleSuggestions = [
-
+    ...aiSuggestions,
     ...lifecycleSuggestions,
-
     ...generalSuggestions,
-
   ].slice(
     0,
     6
@@ -2243,6 +2295,16 @@ function FinancialSuggestions() {
 
       />
 
+      {/* ======================================================
+          AI SUGGESTION DETAILS MODAL
+         ====================================================== */}
+
+      <AISuggestionDetailsModal
+        isOpen={isAISuggestionModalOpen}
+        suggestion={latestAISuggestion}
+        onClose={() => setIsAISuggestionModalOpen(false)}
+      />
+
     </>
 
   );
@@ -2412,21 +2474,27 @@ function SuggestionCard({
           "
         >
 
+          <div className="flex flex-wrap items-center gap-2">
+            <p
+              className="
+                text-sm
+                font-semibold
+                text-[#18392c]
+              "
+            >
+              {
+                suggestion?.title ||
+                "Financial suggestion"
+              }
+            </p>
 
-          <p
-            className="
-              text-sm
-              font-semibold
-              text-[#18392c]
-            "
-          >
-
-            {
-              suggestion?.title ||
-              "Financial suggestion"
-            }
-
-          </p>
+            {suggestion?.isAI && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#315c46] px-2 py-0.5 text-[9px] font-bold text-white uppercase tracking-wider">
+                <FiZap size={10} />
+                AI Suggestion
+              </span>
+            )}
+          </div>
 
 
           <p
@@ -2546,7 +2614,355 @@ function SuggestionCard({
 
 
 // ============================================================
+// AI SUGGESTION DETAILS MODAL
+// ============================================================
+
+export function AISuggestionDetailsModal({ isOpen, suggestion, onClose }) {
+  if (!isOpen || !suggestion) return null;
+
+  const snapshot = suggestion.financialSnapshot || {};
+  const external = suggestion.externalContext || {};
+  const recommendations = Array.isArray(suggestion.recommendations) ? suggestion.recommendations : [];
+
+  const getDecisionBadge = (decision = "CONSIDER") => {
+    const d = String(decision).toUpperCase();
+    if (d === "INVEST") {
+      return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    }
+    if (d === "DEBT_FIRST" || d === "AVOID_FOR_NOW") {
+      return "bg-rose-100 text-rose-800 border-rose-200";
+    }
+    if (d === "SAVE_FIRST" || d === "HOLD_LIQUIDITY") {
+      return "bg-amber-100 text-amber-800 border-amber-200";
+    }
+    if (d === "DIVERSIFY" || d === "INCREASE_EXISTING") {
+      return "bg-teal-100 text-teal-800 border-teal-200";
+    }
+    return "bg-sky-100 text-sky-800 border-sky-200";
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#10251d]/60 p-4 sm:p-6 backdrop-blur-xs"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-[#dfe8dc] bg-[#f8faf7] shadow-[0_25px_70px_rgba(24,57,44,0.25)]"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-[#dfe8dc] bg-gradient-to-r from-[#18392c] via-[#315c46] to-[#426d55] px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-white ring-1 ring-white/20">
+              <FiZap size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#dceadd]">
+                  {suggestion.category || "AI Strategy"}
+                </span>
+                {suggestion.overallHealth && (
+                  <span className="rounded-full bg-white/20 px-2 py-0.5 text-[9px] font-semibold text-white">
+                    Health: {suggestion.overallHealth}
+                  </span>
+                )}
+                {suggestion.selectedMonth && (
+                  <span className="rounded-full bg-emerald-500/30 px-2 py-0.5 text-[9px] font-semibold text-[#e2f4de]">
+                    {suggestion.selectedMonth} Context
+                  </span>
+                )}
+              </div>
+              <h2 className="mt-0.5 text-lg font-bold text-white leading-snug">
+                {suggestion.title}
+              </h2>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close modal"
+            className="flex h-8 w-8 items-center justify-center rounded-xl text-white/80 transition hover:bg-white/10 hover:text-white cursor-pointer"
+          >
+            <FiX size={18} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Executive Summary */}
+          <div className="rounded-2xl border border-[#dcebd4] bg-[#f4faef] p-4.5">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[#6c8b72] mb-1">
+              Executive Summary
+            </p>
+            <p className="text-xs sm:text-sm leading-6 font-medium text-[#18392c]">
+              {suggestion.summary}
+            </p>
+          </div>
+
+          {/* Structured Recommendations */}
+          {recommendations.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-[#18392c]">
+                  Personalized Allocation Decisions & Advice
+                </p>
+                <span className="text-[11px] text-slate-500">
+                  {recommendations.length} strategy item{recommendations.length > 1 ? "s" : ""}
+                </span>
+              </div>
+
+              <div className="space-y-3.5">
+                {recommendations.map((rec, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-2xl border border-[#e2e8dc] bg-white p-4 shadow-xs space-y-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[#18392c]">
+                          {rec.title}
+                        </span>
+                        <span className="rounded-full bg-[#f0f4ee] px-2 py-0.5 text-[10px] font-semibold text-[#426150]">
+                          {rec.category}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide ${getDecisionBadge(
+                            rec.decision
+                          )}`}
+                        >
+                          {rec.decision || "CONSIDER"}
+                        </span>
+                        {rec.priority && (
+                          <span className="text-[10px] font-medium text-slate-400">
+                            • {rec.priority} Priority
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {rec.message && (
+                      <p className="text-xs leading-5 text-slate-700 font-medium">
+                        {rec.message}
+                      </p>
+                    )}
+
+                    <div className="rounded-xl bg-[#f8faf7] p-3 text-xs leading-5 text-slate-600 border border-[#edf1ea]">
+                      <span className="font-bold text-[#18392c]">Why: </span>
+                      {rec.reason}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#f0f4ed] text-xs">
+                      {rec.suggestedAction && (
+                        <div className="text-[11px] text-slate-500">
+                          <span className="font-semibold text-[#315c46]">Action:</span> {rec.suggestedAction}
+                        </div>
+                      )}
+                      {rec.suggestedAmount > 0 && (
+                        <div className="text-[11px] font-bold text-[#18392c] bg-[#edf6e8] px-2.5 py-1 rounded-lg">
+                          Suggested Allocation: ₹{rec.suggestedAmount.toLocaleString("en-IN")}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Numeric Facts with Verified Sources & Timestamps */}
+                    {Array.isArray(rec.numericFacts) && rec.numericFacts.length > 0 && (
+                      <div className="pt-2">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                          Verified External Benchmarks & Facts
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {rec.numericFacts.map((fact, fIdx) => (
+                            <div
+                              key={fIdx}
+                              className="rounded-xl border border-[#e5ebe2] bg-[#fbfdfa] p-2.5 text-[11px]"
+                            >
+                              <div className="flex items-center justify-between text-slate-500">
+                                <span>{fact.label}</span>
+                                <span className="font-bold text-[#18392c]">
+                                  {typeof fact.value === "number" ? `₹${fact.value.toLocaleString("en-IN")}` : fact.value} {fact.unit || ""}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex items-center justify-between text-[9px] text-slate-400">
+                                <span>Source: {fact.source || "Official"}</span>
+                                <span>As of: {fact.asOf || "Live"}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Key Observations */}
+          {Array.isArray(suggestion.keyObservations) && suggestion.keyObservations.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-[#18392c] mb-2 uppercase tracking-wider">
+                Key Observations Analyzed
+              </p>
+              <div className="space-y-2">
+                {suggestion.keyObservations.map((obs, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-start gap-2.5 rounded-xl border border-[#e2e8dc] bg-white p-3 text-xs text-[#2e473a]"
+                  >
+                    <FiCheckCircle size={15} className="shrink-0 text-[#315c46] mt-0.5" />
+                    <span>{obs}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recommended Action Steps */}
+          {Array.isArray(suggestion.actionSteps) && suggestion.actionSteps.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-[#18392c] mb-2 uppercase tracking-wider">
+                Recommended Execution Steps
+              </p>
+              <div className="space-y-2">
+                {suggestion.actionSteps.map((action, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-start gap-3 rounded-xl border border-[#dfe6da] bg-white p-3.5 shadow-xs"
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#edf6e8] text-xs font-bold text-[#315c46]">
+                      {action.step || idx + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-bold text-[#18392c]">
+                          {action.title}
+                        </p>
+                        {action.priority && (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                              String(action.priority).toLowerCase() === "high"
+                                ? "bg-red-50 text-red-600 border border-red-100"
+                                : String(action.priority).toLowerCase() === "medium"
+                                ? "bg-amber-50 text-amber-700 border border-amber-100"
+                                : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                            }`}
+                          >
+                            {action.priority}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        {action.description}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Detailed Advice */}
+          {suggestion.detailedAdvice && (
+            <div className="rounded-2xl border border-[#e2e8dc] bg-white p-4.5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[#6c8b72] mb-1.5">
+                Comprehensive Strategic Guidance
+              </p>
+              <p className="text-xs sm:text-sm leading-6 text-slate-600">
+                {suggestion.detailedAdvice}
+              </p>
+            </div>
+          )}
+
+          {/* Financial Snapshot Summary */}
+          {snapshot.income !== undefined && (
+            <div className="rounded-2xl border border-[#dfe8dc] bg-[#f8faf7] p-4.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#6c8b72] mb-3">
+                Analyzed User Financial Snapshot ({snapshot.targetPeriod || "Current"})
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="rounded-xl border border-[#e8ece5] bg-white p-2.5 text-center">
+                  <p className="text-[10px] text-slate-400">Monthly Income</p>
+                  <p className="mt-0.5 text-xs font-bold text-[#18392c]">
+                    ₹{(snapshot.income || 0).toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-[#e8ece5] bg-white p-2.5 text-center">
+                  <p className="text-[10px] text-slate-400">Savings Rate</p>
+                  <p className="mt-0.5 text-xs font-bold text-[#315c46]">
+                    {snapshot.savingsRate || 0}%
+                  </p>
+                </div>
+                <div className="rounded-xl border border-[#e8ece5] bg-white p-2.5 text-center">
+                  <p className="text-[10px] text-slate-400">Available to Allocate</p>
+                  <p className="mt-0.5 text-xs font-bold text-[#18392c]">
+                    ₹{(snapshot.availableToAllocate || 0).toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-[#e8ece5] bg-white p-2.5 text-center">
+                  <p className="text-[10px] text-slate-400">Current Net Worth</p>
+                  <p className="mt-0.5 text-xs font-bold text-[#18392c]">
+                    ₹{(snapshot.netWorth || 0).toLocaleString("en-IN")}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* External Verified Benchmarks Info */}
+          {external.rbiRepoRate && (
+            <div className="rounded-2xl border border-[#e2ebd8] bg-[#fafcf9] p-4 text-[11px] text-slate-500 space-y-1.5">
+              <p className="font-bold text-[#18392c] text-xs">Verified Reference Benchmarks</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-600">
+                <div>24K Gold: <strong className="text-[#18392c]">₹{external.goldPricePerGram24K || 7450}/g</strong></div>
+                <div>RBI Repo Rate: <strong className="text-[#18392c]">{external.rbiRepoRate}</strong></div>
+                <div>Bank FD Range: <strong className="text-[#18392c]">{external.benchmarkFDRate}</strong></div>
+                <div>CPI Inflation: <strong className="text-[#18392c]">{external.inflationRate}</strong></div>
+              </div>
+              <p className="text-[9px] text-slate-400 pt-1">
+                Source: {external.source || "Official Reserve Bank of India & Bullion Market Feeds"}
+              </p>
+            </div>
+          )}
+
+          {/* Metadata Footer */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e6ebe5] pt-3 text-[10px] text-slate-400">
+            <span>
+              Generated on: {new Date(suggestion.createdAt || Date.now()).toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+            <span>
+              Engine: {suggestion.modelUsed ? `Gemini (${suggestion.modelUsed})` : "FinanceOS AI Adviser"}
+            </span>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex shrink-0 justify-end border-t border-[#dfe8dc] bg-white px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[#d7e1d5] bg-white px-5 py-2.5 text-xs font-semibold text-[#52665b] transition hover:bg-[#f4f7f1] cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // EXPORT
 // ============================================================
 
-export default FinancialSuggestions;
+export default FinancialSuggestions;

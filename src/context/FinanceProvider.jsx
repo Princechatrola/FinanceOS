@@ -1,5 +1,7 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import FinanceContext from "./FinanceContext.js";
+import { isItemActiveInMonth, parseSelectedMonth, isDateInMonth } from "../utils/monthLifecycle.js";
+import { deriveCashFlowBreakdown, isDateInPeriod } from "../utils/cashFlowBreakdown.js";
 
 // ============================================================
 // DEFAULT MONTHLY FINANCE
@@ -214,48 +216,239 @@ function FinanceProvider({ children }) {
   const [investments, setInvestments] = useState([]);
   const [insurancePolicies, setInsurancePolicies] = useState([]);
   const [liabilities, setLiabilities] = useState([]);
-  const [netWorthSnapshots, setNetWorthSnapshots] = useState([]);
+  const [netWorthSnapshots, setNetWorthSnapshots] = useState(() => {
+    try {
+      const saved = localStorage.getItem("financeos_networth_snapshots");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [notifications, setNotifications] = useState([]);
   const [userReminders, setUserReminders] = useState([]);
+
+  // AI Suggestion State
+  const [latestAISuggestion, setLatestAISuggestion] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
+
+  // Selected Dashboard View Month State (?month=YYYY-MM)
+  const [selectedMonth, setSelectedMonthState] = useState(() => {
+    try {
+      if (typeof window !== "undefined") {
+        if (window.location?.search) {
+          const params = new URLSearchParams(window.location.search);
+          const mParam = params.get("month") || params.get("returnMonth");
+          if (mParam && /^\d{4}-\d{1,2}$/.test(mParam)) {
+            const [y, m] = mParam.split("-");
+            return `${y}-${String(m).padStart(2, "0")}`;
+          }
+        }
+        const saved = sessionStorage.getItem("financeos_selected_month");
+        if (saved && /^\d{4}-\d{1,2}$/.test(saved)) {
+          const [y, m] = saved.split("-");
+          return `${y}-${String(m).padStart(2, "0")}`;
+        }
+      }
+    } catch (e) {}
+    return "";
+  });
+
+  // Sidebar Collapsed State (User-Side)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      if (typeof window !== "undefined") {
+        return localStorage.getItem("financeos_sidebar_collapsed") === "true";
+      }
+    } catch (e) {}
+    return false;
+  });
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("financeos_sidebar_collapsed", String(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const setSelectedMonth = (monthStr) => {
+    try {
+      if (monthStr && /^\d{4}-\d{1,2}$/.test(monthStr)) {
+        const [y, m] = monthStr.split("-");
+        const formatted = `${y}-${String(m).padStart(2, "0")}`;
+        setSelectedMonthState(formatted);
+        sessionStorage.setItem("financeos_selected_month", formatted);
+      } else {
+        setSelectedMonthState("");
+        sessionStorage.removeItem("financeos_selected_month");
+      }
+    } catch (e) {}
+  };
 
   // ==========================================================
   // DATA LOADERS
   // ==========================================================
 
-  const loadCurrentMonthFinance = async () => {
+  const getInitialPeriod = () => {
+    try {
+      if (typeof window !== "undefined") {
+        if (window.location?.search) {
+          const params = new URLSearchParams(window.location.search);
+          const mParam = params.get("month") || params.get("returnMonth");
+          if (mParam && /^\d{4}-\d{1,2}$/.test(mParam)) {
+            const [y, m] = mParam.split("-");
+            return { year: Number(y), month: Number(m) };
+          }
+        }
+        const saved = sessionStorage.getItem("financeos_selected_month");
+        if (saved && /^\d{4}-\d{1,2}$/.test(saved)) {
+          const [y, m] = saved.split("-");
+          return { year: Number(y), month: Number(m) };
+        }
+      }
+    } catch (e) {}
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  };
+
+  const loadMonthFinance = useCallback(async (targetYear, targetMonth) => {
     try {
       const token =
         localStorage.getItem("financeos_token") ||
         sessionStorage.getItem("financeos_token");
       if (!token) return;
 
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = today.getMonth() + 1;
+      const init = getInitialPeriod();
+      const year = Number(targetYear) || init.year;
+      const month = Number(targetMonth) || init.month;
+
+      if (year && month) {
+        const formatted = `${year}-${String(month).padStart(2, "0")}`;
+        setSelectedMonthState(formatted);
+        try {
+          sessionStorage.setItem("financeos_selected_month", formatted);
+        } catch (e) {}
+      }
 
       const response = await fetch(
         `http://localhost:5000/api/monthly-finance/${year}/${month}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const data = await response.json();
-      if (!data.success || !data.finance) return;
+      if (!data.success) return;
 
-      const finance = data.finance;
-      setMonthlyFinance({
-        year: finance.year,
-        month: finance.month,
-        income: finance.income,
-        expenses: finance.expenses,
-        cashBalance: finance.cashBalance,
-        monthlySavings: finance.monthlySavings,
-        updateDate: finance.updateDate,
-        reminderEnabled: finance.reminderEnabled,
-        emailNotification: finance.emailNotification,
-        backendGoalAllocations: finance.goalAllocations || 0,
-      });
-      setCashBalance(finance.cashBalance);
+      if (data.finance) {
+        const finance = data.finance;
+        const opening =
+          finance.openingBalance !== undefined
+            ? finance.openingBalance
+            : (finance.cashBalance || 0);
+
+        setMonthlyFinance({
+          year: finance.year,
+          month: finance.month,
+          income: finance.income,
+          expenses: finance.expenses,
+          cashBalance: opening,
+          openingBalance: opening,
+          closingBalance: finance.closingBalance,
+          commitments: finance.commitments || 0,
+          monthlySavings: finance.monthlySavings,
+          updateDate: finance.updateDate,
+          reminderEnabled: finance.reminderEnabled,
+          emailNotification: finance.emailNotification,
+          backendGoalAllocations: finance.goalAllocations || 0,
+          calculationBreakdown: data.breakdown || data.calculationBreakdown || null,
+          hasRecord: true,
+        });
+        setCashBalance(opening);
+      } else {
+        const opening = Number(data.carriedOpeningBalance || 0);
+        setMonthlyFinance({
+          year,
+          month,
+          income: 0,
+          expenses: 0,
+          cashBalance: opening,
+          openingBalance: opening,
+          closingBalance: opening,
+          commitments: 0,
+          monthlySavings: 0,
+          updateDate: new Date(year, month - 1, 1).toISOString().split('T')[0],
+          backendGoalAllocations: 0,
+          calculationBreakdown: data.breakdown || data.calculationBreakdown || null,
+          hasRecord: false,
+        });
+        setCashBalance(opening);
+      }
     } catch (error) {
-      console.error("Load Monthly Finance:", error);
+      console.error("Load Month Finance:", error);
+    }
+  }, []);
+
+  const loadCurrentMonthFinance = (y, m) => {
+    let year = Number(y);
+    let month = Number(m);
+    if (!year || !month) {
+      const init = getInitialPeriod();
+      year = init.year;
+      month = init.month;
+    }
+    return loadMonthFinance(year, month);
+  };
+
+  const loadMonthlyHistory = async () => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+      if (!token) return;
+
+      const response = await fetch("http://localhost:5000/api/monthly-finance", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success && Array.isArray(data.history)) {
+        setMonthlyHistory(
+          data.history.map((r) => {
+            const opening =
+              r.openingBalance !== undefined
+                ? r.openingBalance
+                : (r.cashBalance || 0);
+            const savings =
+              r.monthlySavings !== undefined
+                ? r.monthlySavings
+                : r.income - r.expenses;
+            const comm = Number(r.commitments || 0);
+            const closing =
+              r.closingBalance !== undefined
+                ? r.closingBalance
+                : opening + savings - comm;
+
+            return {
+              month: r.month,
+              year: r.year,
+              baseIncome: r.income,
+              income: r.income,
+              expenses: r.expenses,
+              savings,
+              openingBalance: opening,
+              cashBalance: opening,
+              closingBalance: closing,
+              commitments: comm,
+              totalCommitments: comm,
+              availableToAllocate: opening + savings - comm,
+              updateDate: r.updateDate,
+              updatedAt: r.updatedAt,
+            };
+          })
+        );
+      }
+    } catch (error) {
+      console.error("Load Monthly History:", error);
     }
   };
 
@@ -467,12 +660,14 @@ function FinanceProvider({ children }) {
       if (!userData) return;
       try {
         await loadCurrentMonthFinance();
+        await loadMonthlyHistory();
         await loadSavingGoals();
         await loadInvestments();
         await loadInsurances();
         await loadLiabilities();
         await loadUserReminders();
         await loadUserMessages();
+        await fetchLatestAISuggestion();
       } catch (error) {
         console.error("FinanceProvider: Failed to load finance data:", error);
       }
@@ -824,10 +1019,49 @@ function FinanceProvider({ children }) {
   // ==========================================================
   // ACTIVE COMPUTATIONS
   // ==========================================================
+  // ACTIVE WORKING PERIOD & MONTH-AWARE ITEM LISTS
+  // ==========================================================
+
+  const activeWorkingPeriod = useMemo(() => {
+    return parseSelectedMonth(selectedMonth);
+  }, [selectedMonth]);
+
+  // Visible items filtered strictly by creation/start & closure lifecycle
+  const visibleSavingGoals = useMemo(
+    () =>
+      savingGoals.filter((g) =>
+        isItemActiveInMonth(g, activeWorkingPeriod.year, activeWorkingPeriod.month)
+      ),
+    [savingGoals, activeWorkingPeriod.year, activeWorkingPeriod.month]
+  );
+
+  const visibleInvestments = useMemo(
+    () =>
+      investments.filter((i) =>
+        isItemActiveInMonth(i, activeWorkingPeriod.year, activeWorkingPeriod.month)
+      ),
+    [investments, activeWorkingPeriod.year, activeWorkingPeriod.month]
+  );
+
+  const visibleInsurancePolicies = useMemo(
+    () =>
+      insurancePolicies.filter((p) =>
+        isItemActiveInMonth(p, activeWorkingPeriod.year, activeWorkingPeriod.month)
+      ),
+    [insurancePolicies, activeWorkingPeriod.year, activeWorkingPeriod.month]
+  );
+
+  const visibleLiabilities = useMemo(
+    () =>
+      liabilities.filter((l) =>
+        isItemActiveInMonth(l, activeWorkingPeriod.year, activeWorkingPeriod.month)
+      ),
+    [liabilities, activeWorkingPeriod.year, activeWorkingPeriod.month]
+  );
 
   const activeSavingGoals = useMemo(
-    () => savingGoals.filter((g) => normalizeStatus(g.status) === "active"),
-    [savingGoals]
+    () => visibleSavingGoals.filter((g) => normalizeStatus(g.status) === "active"),
+    [visibleSavingGoals]
   );
 
   const activeInvestments = useMemo(
@@ -854,52 +1088,166 @@ function FinanceProvider({ children }) {
   // MONTHLY COMMITMENTS & BUDGETING
   // ==========================================================
 
-  const goalMonthlyCommitment = useMemo(
-    () => {
-      const computed = activeSavingGoals.reduce(
-        (total, g) =>
-          total +
-          nonNegative(
-            firstDefined(g.monthlyContribution, g.monthlyAllocation, g.requiredMonthly)
-          ),
-        0
-      );
-      const backend = monthlyFinance.backendGoalAllocations || 0;
-      return Math.max(computed, backend);
-    },
-    [activeSavingGoals, monthlyFinance.backendGoalAllocations]
-  );
+  const goalMonthlyCommitment = useMemo(() => {
+    const currentYear = activeWorkingPeriod.year;
+    const currentMonth = activeWorkingPeriod.month;
+
+    let actualContributionsThisMonth = 0;
+    visibleSavingGoals.forEach((goal) => {
+      const txs = Array.isArray(goal.contributions)
+        ? goal.contributions
+        : Array.isArray(goal.transactions)
+        ? goal.transactions
+        : [];
+
+      if (txs.length > 0) {
+        txs.forEach((tx) => {
+          if (tx.type === "contribution" || !tx.type) {
+            const txDate = tx.date ? new Date(tx.date) : (tx.createdAt ? new Date(tx.createdAt) : null);
+            if (txDate && !isNaN(txDate.getTime())) {
+              if (txDate.getFullYear() === currentYear && (txDate.getMonth() + 1) === currentMonth) {
+                actualContributionsThisMonth += safeNumber(tx.amount);
+              }
+            }
+          }
+        });
+      }
+    });
+
+    const backendAllocations = safeNumber(monthlyFinance.goalAllocations);
+    return Math.max(actualContributionsThisMonth, backendAllocations);
+  }, [visibleSavingGoals, activeWorkingPeriod.year, activeWorkingPeriod.month, monthlyFinance.goalAllocations]);
 
   const investmentMonthlyCommitment = useMemo(
     () =>
-      activeInvestments.reduce(
-        (total, i) =>
-          total + nonNegative(firstDefined(i.monthlyContribution, i.monthlyAmount)),
-        0
-      ),
-    [activeInvestments]
+      visibleInvestments
+        .filter((i) => normalizeStatus(i.status) === "active")
+        .reduce(
+          (total, i) =>
+            total + nonNegative(firstDefined(i.monthlyContribution, i.monthlyAmount)),
+          0
+        ),
+    [visibleInvestments]
   );
 
   const insuranceMonthlyCommitment = useMemo(
     () =>
-      activeInsurancePolicies.reduce(
-        (total, p) =>
-          total + nonNegative(firstDefined(p.monthlyEquivalent, p.monthlyPremium)),
-        0
-      ),
-    [activeInsurancePolicies]
+      visibleInsurancePolicies
+        .filter((p) => normalizeStatus(p.status) === "active")
+        .reduce(
+          (total, p) =>
+            total + nonNegative(firstDefined(p.monthlyEquivalent, p.monthlyPremium)),
+          0
+        ),
+    [visibleInsurancePolicies]
   );
 
   const liabilityMonthlyCommitment = useMemo(
     () =>
-      activeLiabilities.reduce(
-        (total, l) => total + getLiabilityMonthlyPayment(l),
-        0
-      ),
-    [activeLiabilities]
+      visibleLiabilities
+        .filter((l) => {
+          const status = normalizeStatus(l.status);
+          const balance = getLiabilityBalance(l);
+          return balance > 0 && !["closed", "completed", "paid", "settled"].includes(status);
+        })
+        .reduce(
+          (total, l) => total + getLiabilityMonthlyPayment(l),
+          0
+        ),
+    [visibleLiabilities]
   );
 
-  const totalMonthlyCommitments = useMemo(
+  // ==========================================================
+  // ACTUAL OUTFLOWS THIS MONTH (ONLY ACTUAL CASH DEDUCTED)
+  // ==========================================================
+
+  const actualInvestmentOutflow = useMemo(() => {
+    const currentYear = activeWorkingPeriod.year;
+    const currentMonth = activeWorkingPeriod.month;
+    let sum = 0;
+    visibleInvestments.forEach((inv) => {
+      if (Array.isArray(inv.sipContributions)) {
+        inv.sipContributions.forEach((sc) => {
+          const scDate = sc.paidDate || sc.dueDate;
+          if (isDateInPeriod(scDate, currentYear, currentMonth) && sc.status === "Paid") {
+            sum += safeNumber(sc.amount);
+          }
+        });
+      }
+    });
+    return sum;
+  }, [visibleInvestments, activeWorkingPeriod.year, activeWorkingPeriod.month]);
+
+  const actualGoalOutflow = useMemo(() => {
+    const currentYear = activeWorkingPeriod.year;
+    const currentMonth = activeWorkingPeriod.month;
+    let sum = 0;
+    visibleSavingGoals.forEach((goal) => {
+      const txs = Array.isArray(goal.contributions)
+        ? goal.contributions
+        : Array.isArray(goal.transactions)
+        ? goal.transactions
+        : [];
+      txs.forEach((tx) => {
+        const txDate = tx.date || tx.createdAt;
+        if (isDateInPeriod(txDate, currentYear, currentMonth)) {
+          sum += safeNumber(tx.amount);
+        }
+      });
+    });
+    const backendAllocations = safeNumber(monthlyFinance.goalAllocations);
+    return Math.max(sum, backendAllocations);
+  }, [visibleSavingGoals, activeWorkingPeriod.year, activeWorkingPeriod.month, monthlyFinance.goalAllocations]);
+
+  const actualInsuranceOutflow = useMemo(() => {
+    const currentYear = activeWorkingPeriod.year;
+    const currentMonth = activeWorkingPeriod.month;
+    let sum = 0;
+    visibleInsurancePolicies.forEach((ins) => {
+      if (Array.isArray(ins.payments)) {
+        ins.payments.forEach((p) => {
+          const pDate = p.paidDate || p.dueDate || p.date;
+          if (isDateInPeriod(pDate, currentYear, currentMonth) && (p.status === "Paid" || p.paid)) {
+            sum += safeNumber(p.amount);
+          }
+        });
+      }
+    });
+    return sum;
+  }, [visibleInsurancePolicies, activeWorkingPeriod.year, activeWorkingPeriod.month]);
+
+  const actualLiabilityOutflow = useMemo(() => {
+    const currentYear = activeWorkingPeriod.year;
+    const currentMonth = activeWorkingPeriod.month;
+    let sum = 0;
+    visibleLiabilities.forEach((liab) => {
+      if (Array.isArray(liab.payments)) {
+        liab.payments.forEach((p) => {
+          const pDate = p.paidDate || p.dueDate || p.date;
+          if (isDateInPeriod(pDate, currentYear, currentMonth) && (p.status === "Paid" || p.paid)) {
+            sum += safeNumber(p.amount);
+          }
+        });
+      }
+    });
+    return sum;
+  }, [visibleLiabilities, activeWorkingPeriod.year, activeWorkingPeriod.month]);
+
+  const totalActualOutflowCommitments = useMemo(() => {
+    return (
+      actualInvestmentOutflow +
+      actualGoalOutflow +
+      actualInsuranceOutflow +
+      actualLiabilityOutflow
+    );
+  }, [
+    actualInvestmentOutflow,
+    actualGoalOutflow,
+    actualInsuranceOutflow,
+    actualLiabilityOutflow,
+  ]);
+
+  const totalPlannedMonthlyCommitments = useMemo(
     () =>
       goalMonthlyCommitment +
       investmentMonthlyCommitment +
@@ -912,6 +1260,8 @@ function FinanceProvider({ children }) {
       liabilityMonthlyCommitment,
     ]
   );
+
+  const totalMonthlyCommitments = totalActualOutflowCommitments;
 
   const updateMonthlyFinance = (financeData = {}) => {
     setMonthlyFinance((current) => {
@@ -932,6 +1282,11 @@ function FinanceProvider({ children }) {
       const year = Number(updated.year || new Date().getFullYear());
       const baseIncome = nonNegative(updated.income);
       const expenses = nonNegative(updated.expenses);
+      const opening = nonNegative(
+        updated.openingBalance !== undefined
+          ? updated.openingBalance
+          : updated.cashBalance
+      );
 
       const monthAdditionalIncome = additionalIncomeTransactions
         .filter((t) => Number(t.month) === month && Number(t.year) === year)
@@ -944,6 +1299,8 @@ function FinanceProvider({ children }) {
         investmentMonthlyCommitment +
         insuranceMonthlyCommitment +
         liabilityMonthlyCommitment;
+
+      const computedClosing = opening + savings - currentTotalCommitments;
 
       setMonthlyHistory((history) => {
         const existingIndex = history.findIndex(
@@ -959,12 +1316,15 @@ function FinanceProvider({ children }) {
           income: totalIncome,
           expenses,
           savings,
+          openingBalance: opening,
+          cashBalance: opening,
+          closingBalance: computedClosing,
           goalCommitment: goalMonthlyCommitment,
           investmentCommitment: investmentMonthlyCommitment,
           insuranceCommitment: insuranceMonthlyCommitment,
           liabilityCommitment: liabilityMonthlyCommitment,
           totalCommitments: currentTotalCommitments,
-          availableToAllocate: cashBalance + savings - currentTotalCommitments,
+          availableToAllocate: opening + savings - currentTotalCommitments,
           updatedAt: new Date().toISOString(),
         };
 
@@ -974,9 +1334,28 @@ function FinanceProvider({ children }) {
         return [...history, monthlyRecord];
       });
 
-      return { ...updated, month, year, income: baseIncome, expenses };
+      return {
+        ...updated,
+        month,
+        year,
+        income: baseIncome,
+        expenses,
+        openingBalance: opening,
+        cashBalance: opening,
+        closingBalance: computedClosing,
+      };
     });
   };
+
+  const openingBalance = useMemo(
+    () =>
+      nonNegative(
+        monthlyFinance.openingBalance !== undefined
+          ? monthlyFinance.openingBalance
+          : monthlyFinance.cashBalance
+      ),
+    [monthlyFinance.openingBalance, monthlyFinance.cashBalance]
+  );
 
   const monthlySavings = useMemo(
     () => totalMonthlyIncome - nonNegative(monthlyFinance.expenses),
@@ -984,13 +1363,51 @@ function FinanceProvider({ children }) {
   );
 
   const availableToAllocate = useMemo(
-    () => Math.max(monthlySavings - totalMonthlyCommitments, 0),
-    [monthlySavings, totalMonthlyCommitments]
+    () => openingBalance + monthlySavings - totalActualOutflowCommitments,
+    [openingBalance, monthlySavings, totalActualOutflowCommitments]
   );
+
+  const closingBalance = useMemo(
+    () => openingBalance + monthlySavings - totalActualOutflowCommitments,
+    [openingBalance, monthlySavings, totalActualOutflowCommitments]
+  );
+
+  // ==========================================================
+  // REAL-TIME CASH FLOW BREAKDOWN (SINGLE CALCULATION ENGINE)
+  // ==========================================================
+
+  const cashFlowBreakdown = useMemo(() => {
+    return deriveCashFlowBreakdown({
+      monthlyFinance,
+      previousMonthRecord: null,
+      investments: visibleInvestments,
+      savingGoals: visibleSavingGoals,
+      insurancePolicies: visibleInsurancePolicies,
+      liabilities: visibleLiabilities,
+      additionalIncomes: additionalIncomeTransactions,
+      selectedYear: activeWorkingPeriod.year,
+      selectedMonth: activeWorkingPeriod.month,
+      backendBreakdown: monthlyFinance.calculationBreakdown || null,
+    });
+  }, [
+    monthlyFinance,
+    visibleInvestments,
+    visibleSavingGoals,
+    visibleInsurancePolicies,
+    visibleLiabilities,
+    additionalIncomeTransactions,
+    activeWorkingPeriod.year,
+    activeWorkingPeriod.month,
+  ]);
 
   const updateCashBalance = (amount) => {
     const value = safeNumber(amount);
     setCashBalance(value);
+    setMonthlyFinance((curr) => ({
+      ...curr,
+      cashBalance: value,
+      openingBalance: value,
+    }));
     return true;
   };
 
@@ -1000,10 +1417,7 @@ function FinanceProvider({ children }) {
 
   const addSavingGoal = async (goal = {}) => {
     const targetAmount = nonNegative(firstDefined(goal.targetAmount, goal.amount));
-    const initialSaved = nonNegative(firstDefined(goal.savedAmount, goal.alreadySaved));
-    const initialWithdrawn = nonNegative(goal.totalWithdrawn);
-    const totalContributed = nonNegative(firstDefined(goal.totalContributed, initialSaved));
-    const availableGoalFund = Math.max(totalContributed - initialWithdrawn, 0);
+    const initialSaved = nonNegative(firstDefined(goal.initialContribution, goal.savedAmount, goal.alreadySaved));
     const monthlyContribution = nonNegative(
       firstDefined(goal.monthlyContribution, goal.monthlyAllocation, goal.requiredMonthly)
     );
@@ -1015,48 +1429,27 @@ function FinanceProvider({ children }) {
       lastFour: goal.fundLocation?.lastFour || goal.lastFour || "",
     };
 
-    const existingTransactions = Array.isArray(goal.transactions) ? goal.transactions : [];
-    const hasInitialTransaction = existingTransactions.some((t) => t.type === "contribution");
-
-    const transactions =
-      initialSaved > 0 && !hasInitialTransaction
-        ? [
-            ...existingTransactions,
-            {
-              id: createId("goal-transaction"),
-              type: "contribution",
-              amount: initialSaved,
-              date: goal.initialContributionDate || goal.createdAt || new Date().toISOString().slice(0, 10),
-              source: goal.initialContributionSource || "Existing Savings",
-              note: "Initial saved amount",
-              fundLocation: { ...fundLocation },
-              createdAt: new Date().toISOString(),
-            },
-          ]
-        : existingTransactions;
-
-    const goalReached = targetAmount > 0 && totalContributed >= targetAmount;
-
-    const newGoal = {
-      ...goal,
-      id: goal.id || createId("goal"),
-      targetAmount,
-      savedAmount: totalContributed,
-      totalContributed,
-      totalWithdrawn: initialWithdrawn,
-      availableGoalFund,
-      monthlyContribution,
-      monthlyAllocation: monthlyContribution,
-      fundLocation,
-      transactions,
-      status: goal.status || (goalReached ? "Completed" : "Active"),
-      achievedAt: goal.achievedAt || (goalReached ? new Date().toISOString() : null),
-      createdAt: goal.createdAt || new Date().toISOString(),
-    };
-
     const token =
       localStorage.getItem("financeos_token") ||
       sessionStorage.getItem("financeos_token");
+
+    const payload = {
+      goalName: goal.goalName || goal.name,
+      category: goal.category || "Other",
+      targetAmount,
+      initialContribution: initialSaved,
+      alreadySaved: initialSaved,
+      currentAmount: initialSaved,
+      monthlyContribution,
+      startDate: goal.startDate || new Date().toISOString().slice(0, 10),
+      targetDate: goal.targetDate,
+      status: goal.status || "Active",
+      notes: goal.notes || "",
+      fundLocation,
+      initialContributionDate: goal.initialContributionDate || goal.startDate,
+      initialContributionSource: goal.initialContributionSource || "Existing Savings",
+      reminder: goal.reminder,
+    };
 
     const response = await fetch("http://localhost:5000/api/saving-goals", {
       method: "POST",
@@ -1064,22 +1457,7 @@ function FinanceProvider({ children }) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        goalName: newGoal.goalName,
-        category: newGoal.category,
-        targetAmount: newGoal.targetAmount,
-        alreadySaved: newGoal.alreadySaved ?? newGoal.savedAmount ?? 0,
-        currentAmount: newGoal.currentAmount ?? newGoal.savedAmount ?? 0,
-        monthlyContribution: newGoal.monthlyContribution,
-        startDate: newGoal.startDate,
-        targetDate: newGoal.targetDate,
-        status: newGoal.status,
-        notes: newGoal.notes,
-        fundLocation: newGoal.fundLocation,
-        initialContributionDate: newGoal.initialContributionDate,
-        initialContributionSource: newGoal.initialContributionSource,
-        reminder: newGoal.reminder,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
@@ -1087,75 +1465,51 @@ function FinanceProvider({ children }) {
       throw new Error(data.message || "Failed to save saving goal.");
     }
 
-    setSavingGoals((current) => [
-      ...current,
-      {
-        ...newGoal,
-        ...data.goal,
-        id: data.goal?._id || data.goal?.id,
-        savedAmount: data.goal?.currentAmount ?? newGoal.alreadySaved ?? 0,
-        totalContributed: data.goal?.currentAmount ?? newGoal.alreadySaved ?? 0,
-        alreadySaved: data.goal?.currentAmount ?? newGoal.alreadySaved ?? 0,
-      },
-    ]);
+    const createdGoal = {
+      ...data.goal,
+      id: data.goal._id,
+      savedAmount: data.goal.currentAmount || 0,
+      totalContributed: data.goal.currentAmount || 0,
+      alreadySaved: data.goal.alreadySaved || 0,
+    };
 
-    return data.goal;
+    setSavingGoals((current) => [createdGoal, ...current]);
+    await loadCurrentMonthFinance();
+
+    return createdGoal;
   };
 
-  const updateSavingGoal = (id, updates = {}) => {
+  const updateSavingGoal = async (id, updates = {}) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(`http://localhost:5000/api/saving-goals/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(updates),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to update saving goal.");
+    }
+
+    const updatedGoal = {
+      ...data.goal,
+      id: data.goal._id,
+      savedAmount: data.goal.currentAmount || 0,
+      totalContributed: data.goal.currentAmount || 0,
+    };
+
     setSavingGoals((current) =>
-      current.map((goal) => {
-        if (goal.id !== id) return goal;
-
-        const targetAmount =
-          updates.targetAmount !== undefined
-            ? nonNegative(updates.targetAmount)
-            : nonNegative(goal.targetAmount);
-
-        const totalContributed =
-          updates.totalContributed !== undefined
-            ? nonNegative(updates.totalContributed)
-            : updates.savedAmount !== undefined
-            ? nonNegative(updates.savedAmount)
-            : nonNegative(firstDefined(goal.totalContributed, goal.savedAmount));
-
-        const totalWithdrawn =
-          updates.totalWithdrawn !== undefined
-            ? nonNegative(updates.totalWithdrawn)
-            : nonNegative(goal.totalWithdrawn);
-
-        const availableGoalFund = Math.max(totalContributed - totalWithdrawn, 0);
-
-        const monthlyContribution =
-          updates.monthlyContribution !== undefined
-            ? nonNegative(updates.monthlyContribution)
-            : updates.monthlyAllocation !== undefined
-            ? nonNegative(updates.monthlyAllocation)
-            : nonNegative(firstDefined(goal.monthlyContribution, goal.monthlyAllocation));
-
-        const goalReached = targetAmount > 0 && totalContributed >= targetAmount;
-
-        let status = updates.status || goal.status || "Active";
-        const normalizedStatus = normalizeStatus(status);
-        if (goalReached && !["closed", "settled"].includes(normalizedStatus)) {
-          status = "Completed";
-        }
-
-        return {
-          ...goal,
-          ...updates,
-          targetAmount,
-          savedAmount: totalContributed,
-          totalContributed,
-          totalWithdrawn,
-          availableGoalFund,
-          monthlyContribution,
-          monthlyAllocation: monthlyContribution,
-          status,
-          achievedAt: goal.achievedAt || (goalReached ? new Date().toISOString() : null),
-        };
-      })
+      current.map((g) => (g.id === id || g._id === id ? updatedGoal : g))
     );
+
+    return updatedGoal;
   };
 
   const deleteSavingGoal = async (id) => {
@@ -1170,20 +1524,49 @@ function FinanceProvider({ children }) {
 
     const data = await response.json();
     if (!response.ok || !data.success) {
-      throw new Error(data.message);
+      throw new Error(data.message || "Failed to delete saving goal.");
     }
 
     setSavingGoals((current) =>
       current.filter((goal) => goal.id !== id && goal._id !== id)
     );
+
+    await loadCurrentMonthFinance();
   };
 
-  const updateGoalFundLocation = (id, location = {}) => {
+  const updateGoalFundLocation = async (id, location = {}) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(`http://localhost:5000/api/saving-goals/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ fundLocation: location }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to update fund location.");
+    }
+
+    const updatedGoal = {
+      ...data.goal,
+      id: data.goal._id,
+      savedAmount: data.goal.currentAmount || 0,
+      totalContributed: data.goal.currentAmount || 0,
+    };
+
     setSavingGoals((current) =>
       current.map((goal) =>
-        goal.id === id ? { ...goal, fundLocation: { ...goal.fundLocation, ...location } } : goal
+        goal.id === id || goal._id === id ? updatedGoal : goal
       )
     );
+
+    return updatedGoal;
   };
 
   const addGoalContribution = async (id, contributionData) => {
@@ -1202,37 +1585,114 @@ function FinanceProvider({ children }) {
         body: JSON.stringify({
           amount: contributionData.amount,
           date: contributionData.date,
-          source: contributionData.source,
-          note: contributionData.note,
+          selectedMonth: contributionData.selectedMonth || selectedMonth || activeWorkingPeriod.iso,
+          source: contributionData.source || "Monthly Savings",
+          note: contributionData.note || "",
+          paymentDetails: contributionData.paymentDetails || {},
+          fundLocation: contributionData.fundLocation,
         }),
       }
     );
 
     const data = await response.json();
     if (!response.ok || !data.success) {
-      throw new Error(data.message);
+      throw new Error(data.message || "Failed to add contribution.");
     }
+
+    const updatedGoal = {
+      ...data.goal,
+      id: data.goal._id,
+      savedAmount: data.goal.currentAmount || 0,
+      totalContributed: data.goal.currentAmount || 0,
+    };
 
     setSavingGoals((current) =>
       current.map((goal) =>
         goal.id === id || goal._id === id
-          ? {
-              ...goal,
-              ...data.goal,
-              id: data.goal._id,
-              savedAmount: data.goal.currentAmount,
-            }
+          ? updatedGoal
           : goal
       )
     );
 
-    // Reload finance to properly calculate 'available to allocate'
-    await loadCurrentMonthFinance();
+    // Immediately reload working month finance to synchronize Available to Allocate in real time
+    await loadMonthFinance(activeWorkingPeriod.year, activeWorkingPeriod.month);
 
-    return data.goal;
+    return updatedGoal;
   };
 
-  const withdrawGoalFunds = (id, withdrawalData) => {
+  const updateGoalContribution = async (goalId, contributionId, updateData) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(
+      `http://localhost:5000/api/saving-goals/${goalId}/contribution/${contributionId}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(updateData),
+      }
+    );
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to update contribution.");
+    }
+
+    const updatedGoal = {
+      ...data.goal,
+      id: data.goal._id,
+      savedAmount: data.goal.currentAmount || 0,
+      totalContributed: data.goal.currentAmount || 0,
+    };
+
+    setSavingGoals((current) =>
+      current.map((g) => (g.id === goalId || g._id === goalId ? updatedGoal : g))
+    );
+
+    await loadCurrentMonthFinance();
+    return updatedGoal;
+  };
+
+  const deleteGoalContribution = async (goalId, contributionId) => {
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(
+      `http://localhost:5000/api/saving-goals/${goalId}/contribution/${contributionId}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to delete contribution.");
+    }
+
+    const updatedGoal = {
+      ...data.goal,
+      id: data.goal._id,
+      savedAmount: data.goal.currentAmount || 0,
+      totalContributed: data.goal.currentAmount || 0,
+    };
+
+    setSavingGoals((current) =>
+      current.map((g) => (g.id === goalId || g._id === goalId ? updatedGoal : g))
+    );
+
+    await loadCurrentMonthFinance();
+    return updatedGoal;
+  };
+
+  const withdrawGoalFunds = async (id, withdrawalData) => {
     const data = typeof withdrawalData === "object" ? withdrawalData : { amount: withdrawalData };
     const withdrawal = safeNumber(data?.amount);
 
@@ -1240,74 +1700,41 @@ function FinanceProvider({ children }) {
       return { success: false, message: "Enter a valid withdrawal amount." };
     }
 
-    let result = { success: false, message: "Saving goal not found." };
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
+    const response = await fetch(`http://localhost:5000/api/saving-goals/${id}/withdraw`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        amount: withdrawal,
+        date: data.date || new Date().toISOString().slice(0, 10),
+        purpose: data.purpose || "Goal fund used",
+        note: data.note || "",
+      }),
+    });
+
+    const resData = await response.json();
+    if (!response.ok || !resData.success) {
+      throw new Error(resData.message || "Failed to withdraw funds.");
+    }
+
+    const updatedGoal = {
+      ...resData.goal,
+      id: resData.goal._id,
+      savedAmount: resData.goal.currentAmount || 0,
+      totalContributed: resData.goal.currentAmount || 0,
+    };
 
     setSavingGoals((current) =>
-      current.map((goal) => {
-        if (goal.id !== id) return goal;
-
-        const status = normalizeStatus(goal.status);
-        if (status === "closed" || status === "settled") {
-          result = { success: false, message: "This goal has already been settled or closed." };
-          return goal;
-        }
-
-        const totalContributed = nonNegative(firstDefined(goal.totalContributed, goal.savedAmount));
-        const totalWithdrawn = nonNegative(goal.totalWithdrawn);
-        const availableFund = Math.max(totalContributed - totalWithdrawn, 0);
-
-        if (withdrawal > availableFund) {
-          result = {
-            success: false,
-            message: `Only ₹${availableFund.toLocaleString("en-US")} is available in this goal.`,
-          };
-          return goal;
-        }
-
-        const newTotalWithdrawn = totalWithdrawn + withdrawal;
-        const newAvailableFund = Math.max(totalContributed - newTotalWithdrawn, 0);
-
-        const transaction = {
-          id: createId("goal-transaction"),
-          type: "withdrawal",
-          amount: withdrawal,
-          date: data.date || new Date().toISOString().slice(0, 10),
-          purpose: data.purpose || goal.name || "Goal fund used",
-          note: data.note || "",
-          createdAt: new Date().toISOString(),
-        };
-
-        const goalReached =
-          nonNegative(goal.targetAmount) > 0 && totalContributed >= nonNegative(goal.targetAmount);
-
-        const newStatus =
-          goalReached && newAvailableFund <= 0
-            ? "Closed"
-            : goalReached
-            ? "Completed"
-            : goal.status || "Active";
-
-        result = {
-          success: true,
-          remainingFund: newAvailableFund,
-          message: "Goal fund usage recorded successfully.",
-        };
-
-        return {
-          ...goal,
-          totalWithdrawn: newTotalWithdrawn,
-          availableGoalFund: newAvailableFund,
-          transactions: [
-            ...(Array.isArray(goal.transactions) ? goal.transactions : []),
-            transaction,
-          ],
-          status: newStatus,
-          closedAt: newStatus === "Closed" ? new Date().toISOString() : goal.closedAt || null,
-        };
-      })
+      current.map((g) => (g.id === id || g._id === id ? updatedGoal : g))
     );
 
-    return result;
+    return { success: true, goal: updatedGoal };
   };
 
   const settleSavingGoal = (id) => {
@@ -1503,6 +1930,11 @@ function FinanceProvider({ children }) {
         };
       }
 
+      const payload = {
+        ...contributionData,
+        selectedMonth: contributionData.selectedMonth || selectedMonth || activeWorkingPeriod.iso,
+      };
+
       const response = await fetch(
         `http://localhost:5000/api/investments/${investmentId}/contributions`,
         {
@@ -1511,7 +1943,7 @@ function FinanceProvider({ children }) {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify(contributionData),
+          body: JSON.stringify(payload),
         }
       );
 
@@ -1522,6 +1954,7 @@ function FinanceProvider({ children }) {
       }
 
       await loadInvestments();
+      await loadMonthFinance(activeWorkingPeriod.year, activeWorkingPeriod.month);
 
       return {
         success: true,
@@ -2025,13 +2458,18 @@ function FinanceProvider({ children }) {
       localStorage.getItem("financeos_token") ||
       sessionStorage.getItem("financeos_token");
 
+    const payload = {
+      ...(typeof paymentData === "object" ? paymentData : { amount: paymentData }),
+      selectedMonth: (typeof paymentData === "object" && paymentData.selectedMonth) || selectedMonth || activeWorkingPeriod.iso,
+    };
+
     const response = await fetch(`http://localhost:5000/api/insurances/${id}/payment`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify(paymentData),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
@@ -2052,6 +2490,8 @@ function FinanceProvider({ children }) {
         };
       })
     );
+
+    await loadMonthFinance(activeWorkingPeriod.year, activeWorkingPeriod.month);
 
     return data.payment;
   };
@@ -2245,7 +2685,11 @@ function FinanceProvider({ children }) {
       localStorage.getItem("financeos_token") ||
       sessionStorage.getItem("financeos_token");
 
-    const dataPayload = typeof paymentData === "object" ? paymentData : { amount: paymentData };
+    const baseData = typeof paymentData === "object" ? paymentData : { amount: paymentData };
+    const dataPayload = {
+      ...baseData,
+      selectedMonth: baseData.selectedMonth || selectedMonth || activeWorkingPeriod.iso,
+    };
 
     const response = await fetch(`http://localhost:5000/api/liabilities/${id}/payment`, {
       method: "POST",
@@ -2272,11 +2716,86 @@ function FinanceProvider({ children }) {
       current.map((l) => (l.id === id || l._id === id ? mapped : l))
     );
 
+    await loadMonthFinance(activeWorkingPeriod.year, activeWorkingPeriod.month);
+
     return { success: true, liability: mapped, payment: data.payment };
   };
 
   const updateLiabilityStatus = async (id, status) => {
     return updateLiability(id, { status });
+  };
+
+  // ==========================================================
+  // AI ADVISER ACTIONS (GEMINI + MONGODB)
+  // ==========================================================
+
+  // Fetch latest stored AI recommendation from MongoDB without calling Gemini
+  const fetchLatestAISuggestion = async () => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+      if (!token) return null;
+
+      const response = await fetch("http://localhost:5000/api/ai/latest", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success && data.data) {
+        setLatestAISuggestion(data.data);
+        return data.data;
+      }
+      return null;
+    } catch (error) {
+      console.error("Fetch Latest AI Suggestion Error:", error);
+      return null;
+    }
+  };
+
+  // Generate new AI recommendation (Gemini + latest MongoDB financial data)
+  const generateAISuggestion = async (options = {}) => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+      if (!token) {
+        throw new Error("You must be logged in to get AI suggestions.");
+      }
+
+      const payload = {
+        context: options.context || "plans_commitments",
+        targetItem: options.targetItem || null,
+        selectedMonth: options.selectedMonth || selectedMonth || undefined,
+        ...options,
+      };
+
+      const response = await fetch("http://localhost:5000/api/ai/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to generate AI suggestion.");
+      }
+
+      setLatestAISuggestion(data.data);
+      return data.data;
+    } catch (error) {
+      console.error("Generate AI Suggestion Error:", error);
+      setAiError(error.message || "Failed to generate AI suggestion.");
+      throw error;
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   // ==========================================================
@@ -2423,12 +2942,20 @@ function FinanceProvider({ children }) {
       const existingIndex = current.findIndex(
         (item) => Number(item.month) === month && Number(item.year) === year
       );
+      let updated;
       if (existingIndex !== -1) {
-        return current.map((item, index) =>
+        updated = current.map((item, index) =>
           index === existingIndex ? { ...item, ...snapshot, id: item.id || snapshot.id } : item
         );
+      } else {
+        updated = [...current, snapshot];
       }
-      return [...current, snapshot];
+      try {
+        localStorage.setItem("financeos_networth_snapshots", JSON.stringify(updated));
+      } catch (e) {
+        console.warn("Unable to persist net worth snapshots:", e);
+      }
+      return updated;
     });
 
     return snapshot;
@@ -2527,7 +3054,97 @@ function FinanceProvider({ children }) {
     return [...new Set(years.filter((y) => Number.isFinite(y) && y > 0))].sort((a, b) => b - a);
   }, [monthlyFinance.year, monthlyHistory, netWorthSnapshots]);
 
-  const netWorthHistory = netWorthSnapshots;
+  // ==========================================================
+  // UNIFIED NET WORTH HISTORY (FROM MONGODB HISTORY + SNAPSHOTS)
+  // ==========================================================
+  const netWorthHistory = useMemo(() => {
+    const combinedMap = new Map();
+
+    // 1. Synthesize historical net worth from MongoDB monthly finance records
+    (monthlyHistory || []).forEach((record) => {
+      const m = Number(record.month);
+      const y = Number(record.year);
+      if (!m || !y) return;
+      const key = `${y}-${String(m).padStart(2, "0")}`;
+
+      const cash = nonNegative(
+        record.closingBalance !== undefined
+          ? record.closingBalance
+          : (record.cashBalance || 0)
+      );
+      const assets = cash + totalInvestmentValue + totalGoalFundValue;
+      const nw = assets - totalLiabilities;
+
+      combinedMap.set(key, {
+        id: `derived-${key}`,
+        month: m,
+        year: y,
+        income: record.income || 0,
+        expenses: record.expenses || 0,
+        savings: record.savings || 0,
+        cashBalance: cash,
+        totalAssets: assets,
+        totalLiabilities,
+        netWorth: nw,
+        createdAt: record.createdAt || new Date(y, m - 1, 1).toISOString(),
+      });
+    });
+
+    // 2. Overlay explicit snapshots (higher fidelity if present)
+    (netWorthSnapshots || []).forEach((s) => {
+      const m = Number(s.month);
+      const y = Number(s.year);
+      if (!m || !y) return;
+      const key = `${y}-${String(m).padStart(2, "0")}`;
+      combinedMap.set(key, s);
+    });
+
+    // 3. If current month has recorded data, ensure it appears
+    if (
+      monthlyFinance?.year &&
+      monthlyFinance?.month &&
+      (monthlyFinance.income > 0 ||
+        monthlyFinance.expenses > 0 ||
+        monthlyFinance.cashBalance > 0 ||
+        monthlyFinance.hasRecord)
+    ) {
+      const m = Number(monthlyFinance.month);
+      const y = Number(monthlyFinance.year);
+      const key = `${y}-${String(m).padStart(2, "0")}`;
+      if (!combinedMap.has(key)) {
+        combinedMap.set(key, {
+          id: `current-${key}`,
+          month: m,
+          year: y,
+          income: monthlyFinance.income || 0,
+          expenses: monthlyFinance.expenses || 0,
+          savings: monthlySavings || 0,
+          cashBalance: currentCashBalance,
+          totalAssets,
+          totalLiabilities,
+          netWorth,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    return Array.from(combinedMap.values()).sort((a, b) => {
+      const keyA = Number(a.year) * 12 + Number(a.month);
+      const keyB = Number(b.year) * 12 + Number(b.month);
+      return keyA - keyB;
+    });
+  }, [
+    netWorthSnapshots,
+    monthlyHistory,
+    monthlyFinance,
+    monthlySavings,
+    currentCashBalance,
+    totalAssets,
+    totalLiabilities,
+    netWorth,
+    totalInvestmentValue,
+    totalGoalFundValue,
+  ]);
 
   // ==========================================================
   // NOTIFICATIONS
@@ -2620,10 +3237,19 @@ function FinanceProvider({ children }) {
     userData,
     setUserData,
 
+    // Selected Dashboard View Month
+    selectedMonth,
+    setSelectedMonth,
+
     // Monthly Finance
     monthlyFinance,
     updateMonthlyFinance,
+    loadMonthFinance,
+    loadCurrentMonthFinance,
+    loadMonthlyHistory,
     monthlyHistory,
+    openingBalance,
+    closingBalance,
     baseMonthlyIncome,
     additionalIncome,
     totalMonthlyIncome,
@@ -2650,11 +3276,14 @@ function FinanceProvider({ children }) {
 
     // Saving Goals
     savingGoals,
+    visibleSavingGoals,
     activeSavingGoals,
     addSavingGoal,
     updateSavingGoal,
     deleteSavingGoal,
     addGoalContribution,
+    updateGoalContribution,
+    deleteGoalContribution,
     withdrawGoalFunds,
     settleSavingGoal,
     updateGoalFundLocation,
@@ -2662,6 +3291,7 @@ function FinanceProvider({ children }) {
 
     // Investments
     investments,
+    visibleInvestments,
     activeInvestments,
     addInvestment,
     updateInvestment,
@@ -2684,6 +3314,7 @@ function FinanceProvider({ children }) {
 
     // Insurance
     insurancePolicies,
+    visibleInsurancePolicies,
     activeInsurancePolicies,
     addInsurancePolicy,
     updateInsurancePolicy,
@@ -2696,6 +3327,7 @@ function FinanceProvider({ children }) {
 
     // Liabilities
     liabilities,
+    visibleLiabilities,
     activeLiabilities,
     addLiability,
     updateLiability,
@@ -2704,13 +3336,22 @@ function FinanceProvider({ children }) {
     liabilityMonthlyCommitment,
     updateLiabilityStatus,
 
-    // Commitments
+    // Commitments & Outflows
     totalMonthlyCommitments,
+    totalActualOutflowCommitments,
+    totalPlannedMonthlyCommitments,
+    actualInvestmentOutflow,
+    actualGoalOutflow,
+    actualInsuranceOutflow,
+    actualLiabilityOutflow,
+    cashFlowBreakdown,
 
     // Assets / Liabilities / Net Worth
     totalGoalFundValue,
     totalAssets,
     totalLiabilities,
+    totalOutstandingLiabilities: totalLiabilities,
+    totalCashSavings: currentCashBalance,
     netWorth,
 
     // Reports
@@ -2740,6 +3381,18 @@ function FinanceProvider({ children }) {
     loadUserMessages,
     userReminders,
     loadUserReminders,
+
+    // Sidebar UI State
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    toggleSidebar,
+
+    // AI Adviser
+    latestAISuggestion,
+    aiLoading,
+    aiError,
+    fetchLatestAISuggestion,
+    generateAISuggestion,
   };
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;

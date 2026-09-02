@@ -12,10 +12,15 @@ const User = require("../models/User");
 const { logActivity } = require("../utils/activityLogger");
 
 // ============================================================
-// ADMIN EMAIL
+// ADMIN EMAILS
 // ============================================================
 
-const ADMIN_EMAIL = "financeos.system@gmail.com";
+const ADMIN_EMAILS = [
+  "financeos.system@gmail.com",
+  "princepatel0570@gmail.com",
+  "admin@financeos.com",
+  ...(process.env.ADMIN_EMAIL ? [process.env.ADMIN_EMAIL.toLowerCase()] : []),
+];
 
 
 // ============================================================
@@ -77,25 +82,22 @@ function generateOTP() {
 
 // ============================================================
 // GET USER ROLE
-//
-// ONLY THIS EMAIL IS ADMIN:
-// princepatel0570@gmail.com
-//
-// EVERY OTHER USER = user
 // ============================================================
 
-function getUserRole(email) {
+function getUserRole(email, existingUser = null) {
+  if (existingUser?.role === "admin") {
+    return "admin";
+  }
+
   const normalizedEmail = String(email)
     .trim()
     .toLowerCase();
 
-  if (
-    normalizedEmail === ADMIN_EMAIL.toLowerCase()
-  ) {
+  if (ADMIN_EMAILS.includes(normalizedEmail)) {
     return "admin";
   }
 
-  return "user";
+  return existingUser?.role || "user";
 }
 
 
@@ -214,7 +216,7 @@ const sendLoginOTP = async (req, res) => {
     // ========================================================
 
     const role =
-      getUserRole(normalizedEmail);
+      getUserRole(normalizedEmail, user);
 
 
     console.log(
@@ -296,14 +298,13 @@ const sendLoginOTP = async (req, res) => {
     // SAVE OTP IN DATABASE
     // ========================================================
 
-    user.otp =
-      otp;
-
-    user.otpExpiresAt =
-      otpExpiresAt;
-
-
-    await user.save();
+    await User.findByIdAndUpdate(user._id, {
+      $set: {
+        otp,
+        otpExpiresAt,
+        role,
+      },
+    });
 
 
     // ========================================================
@@ -692,7 +693,7 @@ const verifyLoginOTP = async (req, res) => {
     // ========================================================
 
     const role =
-      getUserRole(normalizedEmail);
+      getUserRole(normalizedEmail, user);
 
 
     console.log(
@@ -715,23 +716,16 @@ const verifyLoginOTP = async (req, res) => {
 
 
     // ========================================================
-    // UPDATE USER ROLE
+    // CLEAR OTP AFTER SUCCESSFUL VERIFICATION & SYNC ROLE
     // ========================================================
 
-    user.role =
-      role;
-
-
-    // ========================================================
-    // CLEAR OTP AFTER SUCCESSFUL VERIFICATION
-    // ========================================================
-
-    user.otp = null;
-
-    user.otpExpiresAt = null;
-
-
-    await user.save();
+    await User.findByIdAndUpdate(user._id, {
+      $set: {
+        otp: null,
+        otpExpiresAt: null,
+        role,
+      },
+    });
 
 
     // ========================================================

@@ -58,6 +58,9 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
   const [provider, setProvider] = useState(editingPolicy?.provider || "");
   const [premiumAmount, setPremiumAmount] = useState(editingPolicy?.premiumAmount || "");
   const [premiumFrequency, setPremiumFrequency] = useState(editingPolicy?.premiumFrequency || "Yearly");
+  const [premiumDueDay, setPremiumDueDay] = useState(
+    editingPolicy?.premiumDueDay ? String(editingPolicy.premiumDueDay) : (editingPolicy?.startDate ? String(new Date(editingPolicy.startDate).getDate()) : "1")
+  );
   const [startDate, setStartDate] = useState(editingPolicy?.startDate ? formatDateInput(editingPolicy.startDate) : today);
   const [endDate, setEndDate] = useState(editingPolicy?.endDate ? formatDateInput(editingPolicy.endDate) : "");
   const [status, setStatus] = useState(editingPolicy?.status || "Active");
@@ -258,6 +261,8 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
         provider,
         premiumAmount: Number(premiumAmount),
         premiumFrequency,
+        // Recurring due day configured at creation
+        premiumDueDay: premiumFrequency !== "One Time" ? (Number(premiumDueDay) || 1) : null,
         coverageAmount: Number(sumAssured) || Number(idv) || Number(homePropertyValue) || 0,
         startDate,
         endDate: endDate || null,
@@ -408,6 +413,22 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
                     <option value="One Time">One Time</option>
                   </select>
                 </div>
+                {premiumFrequency !== "One Time" && (
+                  <div>
+                    <FieldLabel>Premium Due Day (1 - 31)</FieldLabel>
+                    <select
+                      value={premiumDueDay}
+                      onChange={(e) => setPremiumDueDay(e.target.value)}
+                      className={inputClass}
+                    >
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                        <option key={day} value={day}>
+                          Day {day} of the month
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <FieldLabel>Start Date *</FieldLabel>
                   <input

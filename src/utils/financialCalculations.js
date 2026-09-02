@@ -135,7 +135,8 @@ export function calculateMonthlySavings(
 
 export function calculateAvailableToAllocate(
   monthlySavings,
-  totalCommitments
+  totalCommitments,
+  openingBalance = 0
 ) {
   const safeSavings =
     toNumber(monthlySavings);
@@ -143,7 +144,29 @@ export function calculateAvailableToAllocate(
   const safeCommitments =
     toNumber(totalCommitments);
 
-  return safeSavings - safeCommitments;
+  const safeOpening =
+    toNumber(openingBalance);
+
+  return safeOpening + safeSavings - safeCommitments;
+}
+
+
+// ============================================================
+// 2B. CALCULATE CLOSING BALANCE
+// ============================================================
+
+export function calculateClosingBalance(
+  openingBalance = 0,
+  income = 0,
+  expenses = 0,
+  commitments = 0
+) {
+  const safeOpening = toNumber(openingBalance);
+  const safeIncome = toNumber(income);
+  const safeExpenses = toNumber(expenses);
+  const safeCommitments = toNumber(commitments);
+
+  return safeOpening + safeIncome - safeExpenses - safeCommitments;
 }
 
 

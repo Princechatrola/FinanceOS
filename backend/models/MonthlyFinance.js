@@ -60,13 +60,33 @@ const monthlyFinanceSchema = new mongoose.Schema(
     },
 
     // ========================================================
-    // EXISTING CASH & SAVINGS
+    // EXISTING CASH & SAVINGS / OPENING BALANCE
     // ========================================================
     cashBalance: {
       type: Number,
       required: true,
       min: 0,
       default: 0,
+    },
+
+    openingBalance: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    // ========================================================
+    // CLOSING BALANCE & COMMITMENTS
+    // ========================================================
+    closingBalance: {
+      type: Number,
+      default: 0,
+    },
+
+    commitments: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
 
     // ========================================================
@@ -119,16 +139,29 @@ monthlyFinanceSchema.index(
 // Income - Expenses
 // ============================================================
 monthlyFinanceSchema.virtual("monthlySavings").get(function () {
-  return Math.max(0, this.income - this.expenses);
+  return this.income - this.expenses;
 });
 
 // ============================================================
 // AVAILABLE TO ALLOCATE
 //
-// Monthly Savings - Goal Allocations
+// Opening Balance + Income - Expenses - Commitments
 // ============================================================
 monthlyFinanceSchema.virtual("availableToAllocate").get(function () {
-  return Math.max(0, this.monthlySavings - this.goalAllocations);
+  const opening = this.openingBalance !== undefined ? this.openingBalance : (this.cashBalance || 0);
+  const savings = this.income - this.expenses;
+  const commit = (this.commitments || 0) + (this.goalAllocations || 0);
+  return opening + savings - commit;
+});
+
+// ============================================================
+// CALCULATED CLOSING BALANCE
+// ============================================================
+monthlyFinanceSchema.virtual("calculatedClosingBalance").get(function () {
+  const opening = this.openingBalance !== undefined ? this.openingBalance : (this.cashBalance || 0);
+  const savings = this.income - this.expenses;
+  const commit = (this.commitments || 0) + (this.goalAllocations || 0);
+  return opening + savings - commit;
 });
 
 // ============================================================

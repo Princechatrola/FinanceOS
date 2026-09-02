@@ -16,7 +16,20 @@ const { sendAdminMessageEmail } = require("./emailService");
 function parseScheduledDateTime(dateStr, timeStr) {
   if (!dateStr) return null;
 
-  let rawTime = (timeStr || "09:00").trim().toLowerCase();
+  let isoDateStr = "";
+  if (dateStr instanceof Date) {
+    isoDateStr = dateStr.toISOString();
+  } else if (typeof dateStr === "string") {
+    isoDateStr = dateStr;
+  } else {
+    try {
+      isoDateStr = new Date(dateStr).toISOString();
+    } catch {
+      return null;
+    }
+  }
+
+  let rawTime = (timeStr || "09:00").toString().trim().toLowerCase();
   let hours = 9;
   let minutes = 0;
 
@@ -38,7 +51,7 @@ function parseScheduledDateTime(dateStr, timeStr) {
     hours = 0;
   }
 
-  const dateClean = dateStr.split("T")[0];
+  const dateClean = isoDateStr.split("T")[0];
   const dateParts = dateClean.split("-").map(Number);
   if (dateParts.length === 3) {
     return new Date(dateParts[0], dateParts[1] - 1, dateParts[2], hours, minutes, 0, 0);

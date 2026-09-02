@@ -28,6 +28,7 @@
 
 import {
   useState,
+  useMemo,
 } from "react";
 
 
@@ -37,6 +38,7 @@ import {
   FiActivity,
   FiCheckCircle,
   FiArchive,
+  FiCalendar,
 } from "react-icons/fi";
 
 
@@ -58,6 +60,7 @@ import SavingGoalCard
 
 import useFinance
   from "../context/useFinance.js";
+import { isItemActiveInMonth, parseSelectedMonth } from "../utils/monthLifecycle.js";
 
 
 // ============================================================
@@ -73,8 +76,15 @@ function SavingGoals() {
 
   const {
     savingGoals,
+    selectedMonth,
+    sidebarCollapsed,
   } = useFinance();
 
+  const activeWorkingPeriod = useMemo(() => {
+    return parseSelectedMonth(selectedMonth);
+  }, [selectedMonth]);
+
+  const formattedPeriod = activeWorkingPeriod.formatted;
 
   // ==========================================================
   // CREATE GOAL MODAL STATE
@@ -87,7 +97,7 @@ function SavingGoals() {
 
 
   // ==========================================================
-  // SAFE GOALS ARRAY
+  // SAFE & LIFECYCLE FILTERED GOALS ARRAY
   // ==========================================================
 
   const goals =
@@ -97,13 +107,19 @@ function SavingGoals() {
       ? savingGoals
       : [];
 
+  const visibleGoals = useMemo(() => {
+    return goals.filter((goal) =>
+      isItemActiveInMonth(goal, activeWorkingPeriod.year, activeWorkingPeriod.month)
+    );
+  }, [goals, activeWorkingPeriod.year, activeWorkingPeriod.month]);
+
 
   // ==========================================================
   // ACTIVE GOALS
   // ==========================================================
 
   const activeGoals =
-    goals.filter(
+    visibleGoals.filter(
       (goal) =>
         goal?.status ===
         "Active"
@@ -115,7 +131,7 @@ function SavingGoals() {
   // ==========================================================
 
   const pausedGoals =
-    goals.filter(
+    visibleGoals.filter(
       (goal) =>
         goal?.status ===
         "Paused"
@@ -125,29 +141,9 @@ function SavingGoals() {
   // ==========================================================
   // COMPLETED / ACHIEVED GOALS
   // ==========================================================
-  //
-  // Completed means:
-  //
-  // User reached the target amount,
-  // but the saved money is still available.
-  //
-  // Example:
-  //
-  // Phone Goal
-  //
-  // Target:
-  // ₹100,000
-  //
-  // Available Goal Fund:
-  // ₹100,000
-  //
-  // Status:
-  // Completed
-  //
-  // ==========================================================
 
   const completedGoals =
-    goals.filter(
+    visibleGoals.filter(
       (goal) =>
         goal?.status ===
         "Completed"
@@ -157,16 +153,9 @@ function SavingGoals() {
   // ==========================================================
   // CLOSED GOALS
   // ==========================================================
-  //
-  // Closed means:
-  //
-  // Goal was achieved and all available
-  // goal funds were used / withdrawn.
-  //
-  // ==========================================================
 
   const closedGoals =
-    goals.filter(
+    visibleGoals.filter(
       (goal) =>
         goal?.status ===
         "Closed"
@@ -176,14 +165,9 @@ function SavingGoals() {
   // ==========================================================
   // OTHER / LEGACY GOALS
   // ==========================================================
-  //
-  // Protects the UI if older records contain
-  // an unknown status.
-  //
-  // ==========================================================
 
   const otherGoals =
-    goals.filter(
+    visibleGoals.filter(
       (goal) =>
         ![
           "Active",
@@ -369,7 +353,7 @@ function SavingGoals() {
           MAIN PAGE
          ====================================================== */}
 
-      <main className="ml-64 min-h-screen">
+      <main className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? "ml-20" : "ml-64"}`}>
 
 
         {/* ====================================================
@@ -402,18 +386,20 @@ function SavingGoals() {
                 FinanceOS
               </p>
 
-
-              <h1 className="mt-1 text-2xl font-bold text-[#18392c]">
-                Saving Goals
-              </h1>
-
+              <div className="mt-1 flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-[#18392c]">
+                  Saving Goals
+                </h1>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#edf6e8] border border-[#d6e8ce] px-3 py-1 text-xs font-bold text-[#315c46]">
+                  <FiCalendar size={13} />
+                  {formattedPeriod}
+                </span>
+              </div>
 
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-
                 Create financial targets, allocate savings,
                 record where your goal money is held and
-                track each goal from creation to completion.
-
+                track each goal for {formattedPeriod}.
               </p>
 
 

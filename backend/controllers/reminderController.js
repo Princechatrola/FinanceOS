@@ -138,7 +138,7 @@ const getAdminReminders = async (req, res) => {
       if (!isEnabled) continue;
 
       const user = resolveUser(goal.user);
-      const day = Number(goal.reminder?.contributionDay || 5);
+      const day = Number(goal.contributionDay || goal.reminder?.contributionDay || 5);
       const dueDate = getNextDateForDay(day);
       const notifyBefore = Array.isArray(goal.reminder?.notifyBefore)
         ? goal.reminder.notifyBefore
@@ -224,7 +224,7 @@ const getAdminReminders = async (req, res) => {
     for (const inv of investments) {
       const user = resolveUser(inv.user);
       if (inv.reminder?.enabled) {
-        const day = Number(inv.reminder.contributionDay || 5);
+        const day = Number(inv.dueDay || inv.reminder.contributionDay || 5);
         const dueDate = getNextDateForDay(day);
         const notifyBefore = Array.isArray(inv.reminder.notifyBefore)
           ? inv.reminder.notifyBefore
@@ -352,9 +352,10 @@ const getAdminReminders = async (req, res) => {
         if (prem.channels?.sms) channels.push("SMS");
         if (channels.length === 0) channels.push("In-App");
 
+        const insDay = Number(ins.premiumDueDay || (ins.startDate ? new Date(ins.startDate).getDate() : 1));
         const dueDate = ins.nextPremiumDate
           ? formatDateToIso(ins.nextPremiumDate)
-          : getNextDateForDay(1);
+          : getNextDateForDay(insDay);
 
         const rules = [];
         const dispatchSchedule = [];
@@ -416,11 +417,12 @@ const getAdminReminders = async (req, res) => {
       if (liab.reminder?.channels?.sms) channels.push("SMS");
       if (channels.length === 0) channels.push("In-App");
 
+      const liabDay = Number(liab.dueDay || (liab.nextDueDate ? new Date(liab.nextDueDate).getDate() : 5));
       const dueDate = liab.dueDate
         ? formatDateToIso(liab.dueDate)
         : liab.nextDueDate
         ? formatDateToIso(liab.nextDueDate)
-        : getNextDateForDay(5);
+        : getNextDateForDay(liabDay);
       const daysBefore = Number(liab.reminder?.daysBefore || 3);
       const scheduledDate = offsetDate(dueDate, -daysBefore);
 

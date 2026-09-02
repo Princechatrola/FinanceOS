@@ -1,2746 +1,535 @@
 // ============================================================
-// FINANCEOS - PDF FINANCIAL REPORT GENERATOR
+// FINANCEOS - DURATION-SPECIFIC PDF FINANCIAL REPORT GENERATOR
 // ============================================================
-//
-// UPDATED DATA FLOW:
-//
-// Reports.jsx
-//     ↓
-// reportRecords
-// reportData
-// commitmentSummary
-// financialPosition
-//     ↓
-// generateFinancialReport()
-//     ↓
-// PDF
-//
-// IMPORTANT:
-//
-// Commitment values shown in the PDF now come from the SAME
-// calculated values used by Reports.jsx.
-//
-// Financial Position also uses the corrected:
-// Assets - Liabilities = Net Worth
-//
-// ============================================================
-
 
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
-
-// ============================================================
-// MONTHS
-// ============================================================
-
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
 ];
 
-
-// ============================================================
-// SAFE NUMBER
-// ============================================================
-
-function safeNumber(value) {
-
-  const number =
-    Number(value);
-
-  return Number.isFinite(number)
-    ? number
-    : 0;
-
+function safeNum(val, defaultVal = 0) {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : defaultVal;
 }
 
-
-// ============================================================
-// FORMAT MONEY
-// ============================================================
-
-function formatMoney(value) {
-
-  const number =
-    safeNumber(value);
-
-  if (number === 0) return "-";
-
-  const sign =
-    number < 0
-      ? "-"
-      : "";
-
-
-  return `${sign}Rs. ${Math.abs(number).toLocaleString(
-    "en-IN",
-    {
-      maximumFractionDigits: 0,
-    }
-  )}`;
-
+function fmtINR(val) {
+  if (val === null || val === undefined || val === "") return "—";
+  const n = Number(val);
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return "Rs. 0";
+  const sign = n < 0 ? "-" : "";
+  return `${sign}Rs. ${Math.abs(n).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
 
-
-// ============================================================
-// FORMAT PERCENTAGE
-// ============================================================
-
-function formatPercentage(value) {
-
-  const number =
-    safeNumber(value);
-
-  return `${number.toFixed(1)}%`;
-
+function fmtPct(val) {
+  if (val === null || val === undefined || val === "") return "N/A";
+  const n = Number(val);
+  if (!Number.isFinite(n)) return "N/A";
+  return `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
 }
 
-
-// ============================================================
-// SAFE TEXT
-// ============================================================
-
-function safeText(
-  value,
-  fallback = "-"
-) {
-
-  const text =
-    String(
-      value ?? ""
-    ).trim();
-
-  return text || fallback;
-
-}
-
-
-// ============================================================
-// ENSURE SPACE
-// ============================================================
-
-function ensureSpace(
-  doc,
-  currentY,
-  requiredHeight = 50
-) {
-
-  if (
-    currentY +
-      requiredHeight >
-    275
-  ) {
-
+function ensureSpace(doc, currentY, requiredHeight = 40) {
+  if (currentY + requiredHeight > 275) {
     doc.addPage();
-
     return 20;
-
   }
-
   return currentY;
-
 }
 
-
 // ============================================================
-// ADD TABLE
+// MAIN PDF GENERATOR EXPORT
 // ============================================================
+export function generateFinancialReport(reportData) {
+  if (!reportData) return;
 
-function addTable(
-  doc,
-  {
-    headers,
-    rows,
-    startY,
-  }
-) {
+  const {
+    header = {},
+    financialSummary = {},
+    netWorthSummary = {},
+    financialHealth = {},
+    monthDetails = [],
+    plansLifecycle = {},
+    plans = {},
+    transactionsLedger = [],
+    insights = [],
+    suggestions = [],
+  } = reportData;
 
-  // Filter out rows where all value columns (index > 0) are 0 or empty
-  const filteredRows = rows.filter(row => {
-    if (!Array.isArray(row) || row.length <= 1) return true;
-    
-    // Check if there is at least one non-zero, non-blank value
-    const hasData = row.slice(1).some(val => {
-      const v = String(val).trim().toLowerCase();
-      // Values that are considered "zero" or "blank"
-      const isZeroOrBlank = v === "" || v === "-" || v === "0" || v === "rs. 0" || v === "rs. 0.00" || v === "0.0%" || v === "0%";
-      return !isZeroOrBlank;
-    });
-    
-    return hasData;
+  const duration = header.duration || "monthly";
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
   });
 
-  // If no rows are left after filtering, don't render the table
-  if (filteredRows.length === 0) {
-    return startY;
-  }
-
-  autoTable(
-    doc,
-    {
-
-      startY,
-
-      head: [
-        headers,
-      ],
-
-      body: filteredRows,
-
-      theme: "grid",
-
-      margin: {
-        left: 14,
-        right: 14,
-        bottom: 18,
-      },
-
-      styles: {
-        fontSize: 8,
-        cellPadding: 2.5,
-        overflow: "linebreak",
-      },
-
-      headStyles: {
-
-        fillColor: [
-          49,
-          92,
-          70,
-        ],
-
-        textColor: [
-          255,
-          255,
-          255,
-        ],
-
-        fontStyle:
-          "bold",
-
-      },
-
-    }
-  );
-
-
-  return (
-    doc.lastAutoTable
-      ?.finalY ||
-    startY
-  );
-
-}
-
-
-// ============================================================
-// CASH FLOW CHART
-// ============================================================
-
-function addCashFlowChart(
-  doc,
-  {
-    income,
-    expenses,
-    savings,
-    commitments,
-    remainingBalance,
-    startY,
-  }
-) {
-
-  let currentY =
-    ensureSpace(
-      doc,
-      startY,
-      75
-    );
-
-
-  // ==========================================================
-  // TITLE
-  // ==========================================================
-
-  doc.setFont(
-    "helvetica",
-    "bold"
-  );
-
-  doc.setFontSize(11);
-
-  doc.text(
-    "Cash Flow Overview",
-    14,
-    currentY
-  );
-
-
-  currentY += 8;
-
-
-  // ==========================================================
-  // CHART DATA
-  // ==========================================================
-
-  const items = [
-
-    {
-      label: "Income",
-      value:
-        safeNumber(
-          income
-        ),
-    },
-
-    {
-      label: "Expenses",
-      value:
-        safeNumber(
-          expenses
-        ),
-    },
-
-    {
-      label: "Savings",
-      value:
-        safeNumber(
-          savings
-        ),
-    },
-
-    {
-      label: "Commitments",
-      value:
-        safeNumber(
-          commitments
-        ),
-    },
-
-    {
-      label: "Remaining",
-      value:
-        safeNumber(
-          remainingBalance
-        ),
-    },
-
-  ];
-
-
-  const maxValue =
-    Math.max(
-      ...items.map(
-        (item) =>
-          Math.abs(
-            item.value
-          )
-      ),
-      1
-    );
-
-
-  const labelX = 14;
-
-  const barX = 48;
-
-  const maxBarWidth = 90;
-
-  const valueX = 143;
-
-  const barHeight = 6;
-
-  const rowHeight = 11;
-
-
-  // ==========================================================
-  // DRAW BARS
-  // ==========================================================
-
-  items.forEach(
-    (
-      item,
-      index
-    ) => {
-
-      const y =
-        currentY +
-        index *
-          rowHeight;
-
-
-      const width =
-        (
-          Math.abs(
-            item.value
-          ) /
-          maxValue
-        ) *
-        maxBarWidth;
-
-
-      // ======================================================
-      // LABEL
-      // ======================================================
-
-      doc.setFont(
-        "helvetica",
-        "normal"
-      );
-
-      doc.setFontSize(8);
-
-      doc.text(
-        item.label,
-        labelX,
-        y + 5
-      );
-
-
-      // ======================================================
-      // BACKGROUND BAR
-      // ======================================================
-
-      doc.setFillColor(
-        238,
-        242,
-        235
-      );
-
-      doc.roundedRect(
-        barX,
-        y,
-        maxBarWidth,
-        barHeight,
-        1,
-        1,
-        "F"
-      );
-
-
-      // ======================================================
-      // VALUE BAR
-      // ======================================================
-
-      if (
-        item.value >= 0
-      ) {
-
-        doc.setFillColor(
-          49,
-          92,
-          70
-        );
-
-      } else {
-
-        doc.setFillColor(
-          190,
-          60,
-          60
-        );
-
-      }
-
-
-      if (
-        Math.abs(
-          item.value
-        ) > 0
-      ) {
-
-        doc.roundedRect(
-          barX,
-          y,
-          Math.max(
-            width,
-            0.5
-          ),
-          barHeight,
-          1,
-          1,
-          "F"
-        );
-
-      }
-
-
-      // ======================================================
-      // VALUE
-      // ======================================================
-
-      doc.text(
-        formatMoney(
-          item.value
-        ),
-        valueX,
-        y + 5
-      );
-
-    }
-  );
-
-
-  return (
-    currentY +
-    items.length *
-      rowHeight +
-    4
-  );
-
-}
-
-
-// ============================================================
-// MONTHLY REMAINING BALANCE TREND
-// ============================================================
-
-function addMonthlyTrendChart(
-  doc,
-  records,
-  startY
-) {
-
-  if (
-    !Array.isArray(records) ||
-    records.length < 2
-  ) {
-
-    return startY;
-
-  }
-
-
-  let currentY =
-    ensureSpace(
-      doc,
-      startY,
-      75
-    );
-
-
-  // ==========================================================
-  // TITLE
-  // ==========================================================
-
-  doc.setFont(
-    "helvetica",
-    "bold"
-  );
-
-  doc.setFontSize(11);
-
-  doc.text(
-    "Monthly Remaining Balance Trend",
-    14,
-    currentY
-  );
-
-
-  currentY += 10;
-
-
-  // ==========================================================
-  // CHART DIMENSIONS
-  // ==========================================================
-
-  const chartX = 20;
-
-  const chartY =
-    currentY;
-
-  const chartWidth = 170;
-
-  const chartHeight = 45;
-
-
-  // ==========================================================
-  // VALUES
-  // ==========================================================
-
-  const values =
-    records.map(
-      (record) =>
-        safeNumber(
-          record
-            ?.availableToAllocate ??
-          record
-            ?.remainingBalance
-        )
-    );
-
-
-  const maxValue =
-    Math.max(
-      ...values,
-      0
-    );
-
-
-  const minValue =
-    Math.min(
-      ...values,
-      0
-    );
-
-
-  const range =
-    maxValue -
-      minValue ||
-    1;
-
-
-  // ==========================================================
-  // BORDER
-  // ==========================================================
-
-  doc.setDrawColor(
-    210,
-    218,
-    207
-  );
-
-  doc.rect(
-    chartX,
-    chartY,
-    chartWidth,
-    chartHeight
-  );
-
-
-  // ==========================================================
-  // ZERO LINE
-  // ==========================================================
-
-  const zeroY =
-    chartY +
-    chartHeight -
-    (
-      (
-        0 -
-        minValue
-      ) /
-      range
-    ) *
-      chartHeight;
-
-
-  doc.setDrawColor(
-    225,
-    230,
-    222
-  );
-
-  doc.line(
-    chartX,
-    zeroY,
-    chartX +
-      chartWidth,
-    zeroY
-  );
-
-
-  // ==========================================================
-  // POINTS
-  // ==========================================================
-
-  const points =
-    records.map(
-      (
-        record,
-        index
-      ) => {
-
-        const value =
-          safeNumber(
-            record
-              ?.availableToAllocate ??
-            record
-              ?.remainingBalance
-          );
-
-
-        const x =
-          chartX +
-          (
-            index /
-            (
-              records.length -
-              1
-            )
-          ) *
-            chartWidth;
-
-
-        const y =
-          chartY +
-          chartHeight -
-          (
-            (
-              value -
-              minValue
-            ) /
-            range
-          ) *
-            chartHeight;
-
-
-        return {
-          x,
-          y,
-          value,
-          record,
-        };
-
-      }
-    );
-
-
-  // ==========================================================
-  // DRAW TREND LINE
-  // ==========================================================
-
-  doc.setDrawColor(
-    49,
-    92,
-    70
-  );
-
-
-  for (
-    let index = 1;
-    index < points.length;
-    index += 1
-  ) {
-
-    doc.line(
-      points[index - 1].x,
-      points[index - 1].y,
-      points[index].x,
-      points[index].y
-    );
-
-  }
-
-
-  // ==========================================================
-  // POINTS + LABELS
-  // ==========================================================
-
-  points.forEach(
-    (point) => {
-
-      doc.setFillColor(
-        49,
-        92,
-        70
-      );
-
-
-      doc.circle(
-        point.x,
-        point.y,
-        1.4,
-        "F"
-      );
-
-
-      doc.setFont(
-        "helvetica",
-        "normal"
-      );
-
-      doc.setFontSize(6);
-
-
-      const month =
-        MONTHS[
-          safeNumber(
-            point.record
-              ?.month
-          ) - 1
-        ];
-
-
-      const label =
-        month
-          ? month.slice(
-              0,
-              3
-            )
-          : String(
-              point.record
-                ?.month ??
-              ""
-            );
-
-
-      doc.text(
-        label,
-        point.x,
-        chartY +
-          chartHeight +
-          5,
-        {
-          align:
-            "center",
-        }
-      );
-
-    }
-  );
-
-
-  return (
-    chartY +
-    chartHeight +
-    12
-  );
-
-}
-
-
-// ============================================================
-// NET WORTH TREND CHART
-// ============================================================
-
-function addNetWorthTrendChart(doc, records, startY) {
-  if (!Array.isArray(records) || records.length < 2) return startY;
-
-  let currentY = ensureSpace(doc, startY, 75);
+  const pageWidth = doc.internal.pageSize.getWidth();
+  let currentY = 18;
+
+  // ------------------------------------------------------------
+  // BRAND HEADER
+  // ------------------------------------------------------------
+  doc.setFillColor(24, 57, 44); // Brand Dark Green #18392c
+  doc.rect(0, 0, pageWidth, 24, "F");
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("Net Worth Trend", 14, currentY);
-
-  currentY += 10;
-
-  const chartX = 20;
-  const chartY = currentY;
-  const chartWidth = 170;
-  const chartHeight = 45;
-
-  const values = records.map((record) => {
-    const assets = safeNumber(record?.totalAssets);
-    const liabilities = safeNumber(record?.totalLiabilities ?? record?.liabilities);
-    return assets - liabilities;
-  });
-
-  const maxValue = Math.max(...values, 0);
-  const minValue = Math.min(...values, 0);
-  const range = maxValue - minValue || 1;
-
-  doc.setDrawColor(210, 218, 207);
-  doc.rect(chartX, chartY, chartWidth, chartHeight);
-
-  const zeroY = chartY + chartHeight - ((0 - minValue) / range) * chartHeight;
-  doc.setDrawColor(225, 230, 222);
-  doc.line(chartX, zeroY, chartX + chartWidth, zeroY);
-
-  const points = records.map((record, index) => {
-    const assets = safeNumber(record?.totalAssets);
-    const liabilities = safeNumber(record?.totalLiabilities ?? record?.liabilities);
-    const value = assets - liabilities;
-    const x = chartX + (index / (records.length - 1)) * chartWidth;
-    const y = chartY + chartHeight - ((value - minValue) / range) * chartHeight;
-    return { x, y, value, record };
-  });
-
-  doc.setDrawColor(49, 92, 70);
-  for (let index = 1; index < points.length; index += 1) {
-    doc.line(points[index - 1].x, points[index - 1].y, points[index].x, points[index].y);
-  }
-
-  points.forEach((point) => {
-    doc.setFillColor(49, 92, 70);
-    doc.circle(point.x, point.y, 1.4, "F");
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6);
-    const month = MONTHS[safeNumber(point.record?.month) - 1];
-    const label = month ? month.slice(0, 3) : String(point.record?.month ?? "");
-    doc.text(label, point.x, chartY + chartHeight + 5, { align: "center" });
-  });
-
-  return chartY + chartHeight + 12;
-}
-
-// ============================================================
-// SUGGESTIONS
-// ============================================================
-
-function addSuggestions(doc, data, startY) {
-  let currentY = ensureSpace(doc, startY, 50);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("Financial Insights & Suggestions", 14, currentY);
-
-  currentY += 8;
+  doc.setFontSize(16);
+  doc.setTextColor(255, 255, 255);
+  doc.text("FinanceOS", 14, 15);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor(60, 60, 60);
+  doc.setTextColor(207, 229, 197); // #cfe5c5
+  const durationTitleMap = {
+    monthly: "MONTHLY FINANCIAL STATEMENT",
+    quarterly: "QUARTERLY FINANCIAL PERFORMANCE REPORT",
+    halfYear: "HALF-YEARLY FINANCIAL AUDIT",
+    yearly: "ANNUAL FINANCIAL STATEMENT & REVIEW",
+  };
+  doc.text(durationTitleMap[duration] || "FINANCIAL REPORT", pageWidth - 14, 15, { align: "right" });
 
-  const income = safeNumber(data.reportData?.totalIncome);
-  const savings = safeNumber(data.reportData?.totalSavings);
-  const liabilities = safeNumber(data.financialPosition?.totalLiabilities);
-  const assets = safeNumber(data.financialPosition?.totalAssets);
-  const insuranceMonthly = safeNumber(data.commitmentSummary?.insurance);
+  currentY = 32;
 
-  const suggestions = [];
+  // ------------------------------------------------------------
+  // REPORT META INFO
+  // ------------------------------------------------------------
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(24, 57, 44);
+  doc.text(header.periodLabel || "Financial Report", 14, currentY);
 
-  // Savings Rule: Aim for 20% savings
-  if (income > 0) {
-    const savingsRate = savings / income;
-    if (savingsRate < 0.2) {
-      suggestions.push(`• Your savings rate is ${(savingsRate * 100).toFixed(1)}%. Consider aiming for at least 20% of your income.`);
-    } else {
-      suggestions.push(`• Great job! Your savings rate is ${(savingsRate * 100).toFixed(1)}%, which is healthy.`);
-    }
+  currentY += 5;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(100, 116, 139); // Slate-500
+  doc.text(`Period: ${header.periodRangeLabel || "—"}  |  Client: ${header.userName || "User"} (${header.userEmail || ""})`, 14, currentY);
+  doc.text(`Generated: ${new Date().toLocaleDateString("en-IN", { dateStyle: "medium" })}`, pageWidth - 14, currentY, { align: "right" });
+
+  currentY += 7;
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.5);
+  doc.line(14, currentY, pageWidth - 14, currentY);
+  currentY += 6;
+
+  // ------------------------------------------------------------
+  // SECTION 1: EXECUTIVE FINANCIAL SUMMARY & HEALTH
+  // ------------------------------------------------------------
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(24, 57, 44);
+  doc.text("1. Executive Financial Summary & Score", 14, currentY);
+  currentY += 4;
+
+  const totalIn = safeNum(financialSummary.totalIncome);
+  const totalExp = safeNum(financialSummary.totalExpenses);
+  const totalSav = totalIn - totalExp;
+  const savRate = totalIn > 0 ? (totalSav / totalIn) * 100 : 0;
+
+  const summaryRows = [
+    [
+      "Opening Cash Balance", fmtINR(financialSummary.openingBalance),
+      "Total Income (Inflow)", fmtINR(financialSummary.totalIncome),
+    ],
+    [
+      "Total Living Expenses", fmtINR(financialSummary.totalExpenses),
+      "Net Period Savings", fmtINR(totalSav),
+    ],
+    [
+      "Savings Rate (%)", fmtPct(savRate),
+      "Investment Contributions", fmtINR(financialSummary.totalInvestmentContributionsPeriod),
+    ],
+    [
+      "Insurance Premiums Paid", fmtINR(financialSummary.totalInsurancePremiumsPeriod),
+      "Liability / Debt Payments", fmtINR(financialSummary.totalLiabilityPaymentsPeriod),
+    ],
+    [
+      "Saving Goal Deposits", fmtINR(financialSummary.totalGoalContributionsPeriod),
+      "Available to Allocate", fmtINR(financialSummary.availableToAllocate),
+    ],
+    [
+      "Ending Liquid Balance", fmtINR(financialSummary.closingBalance),
+      "Period Net Worth", fmtINR(netWorthSummary.closingNetWorth),
+    ],
+    [
+      "Financial Health Score",
+      financialHealth.score !== null && financialHealth.score !== undefined
+        ? `${financialHealth.score} / 100 (${financialHealth.status || "Fair"})`
+        : "—",
+      "Net Worth Movement",
+      fmtPct(netWorthSummary.netWorthChangePct),
+    ],
+  ];
+
+  if (duration !== "monthly") {
+    summaryRows.push([
+      "Monthly Average Income", fmtINR(financialSummary.avgMonthlyIncome),
+      "Monthly Average Expenses", fmtINR(financialSummary.avgMonthlyExpenses),
+    ]);
   }
 
-  // Debt Rule: Liabilities should ideally be less than 40% of income/assets
-  if (assets > 0) {
-    const debtRatio = liabilities / assets;
-    if (debtRatio > 1) {
-      suggestions.push(`• Your liabilities exceed your assets. Prioritize paying down high-interest debt to improve your net worth.`);
-    } else if (debtRatio > 0.4) {
-      suggestions.push(`• Your debt-to-asset ratio is ${(debtRatio * 100).toFixed(1)}%. You might want to prioritize paying down high-interest liabilities.`);
-    }
-  }
-
-  if (insuranceMonthly === 0) {
-    suggestions.push(`• You have no active insurance commitments. Consider getting health and life insurance to protect your net worth.`);
-  }
-
-  if (suggestions.length === 0) {
-    suggestions.push(`• Your finances look well balanced based on the current data.`);
-  }
-
-  suggestions.forEach(suggestion => {
-    const lines = doc.splitTextToSize(suggestion, 180);
-    currentY = ensureSpace(doc, currentY, lines.length * 5);
-    doc.text(lines, 14, currentY);
-    currentY += (lines.length * 5) + 2;
+  autoTable(doc, {
+    startY: currentY,
+    body: summaryRows,
+    theme: "plain",
+    styles: {
+      fontSize: 8,
+      cellPadding: 1.8,
+      textColor: [30, 41, 59],
+    },
+    columnStyles: {
+      0: { fontStyle: "bold", textColor: [100, 116, 139], width: 45 },
+      1: { fontStyle: "bold", textColor: [24, 57, 44], width: 45 },
+      2: { fontStyle: "bold", textColor: [100, 116, 139], width: 45 },
+      3: { fontStyle: "bold", textColor: [24, 57, 44], width: 45 },
+    },
+    margin: { left: 14, right: 14 },
   });
 
-  doc.setTextColor(0, 0, 0); // reset
-  return currentY;
-}
+  currentY = doc.lastAutoTable.finalY + 7;
 
+  // ------------------------------------------------------------
+  // SECTION 2: DURATION CASH FLOW MATRIX
+  // ------------------------------------------------------------
+  currentY = ensureSpace(doc, currentY, 45);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(24, 57, 44);
 
-// ============================================================
-// GENERATE FINANCIAL REPORT
-// ============================================================
+  if (duration === "monthly") {
+    doc.text("2. How Available to Allocate Was Calculated", 14, currentY);
+    currentY += 4;
 
-export function generateFinancialReport({
+    const cb = reportData.calculationBreakdown || {};
+    const ob = cb.openingBalance || {};
+    const infl = cb.inflow || {};
+    const outf = cb.outflows || {};
+    const fundsBefore = cb.fundsBeforeOutflows !== undefined ? cb.fundsBeforeOutflows : (safeNum(financialSummary.openingBalance) + safeNum(financialSummary.totalIncome));
+    const invAmt = outf.investments !== undefined ? outf.investments : financialSummary.totalInvestmentContributionsPeriod;
+    const goalAmt = outf.goalContributions !== undefined ? outf.goalContributions : financialSummary.totalGoalContributionsPeriod;
+    const insAmt = outf.insurancePayments !== undefined ? outf.insurancePayments : financialSummary.totalInsurancePremiumsPeriod;
+    const liabAmt = outf.liabilityPayments !== undefined ? outf.liabilityPayments : financialSummary.totalLiabilityPaymentsPeriod;
+    const expAmt = outf.expenses !== undefined ? outf.expenses : financialSummary.totalExpenses;
+    const availAmt = cb.availableToAllocate !== undefined ? cb.availableToAllocate : financialSummary.availableToAllocate;
 
-  // ==========================================================
-  // USER
-  // ==========================================================
+    const sourceDesc = ob.sourceDescription || (ob.previousMonthLabel ? `Carried forward from ${ob.previousMonthLabel} closing` : "Initial starting balance");
 
-  userName =
-    "FinanceOS User",
+    const calculationRows = [
+      ["Opening / Existing Balance", fmtINR(ob.amount || financialSummary.openingBalance), `Source: ${sourceDesc}`],
+      ["+ Total Monthly Inflow", `+ ${fmtINR(infl.totalIncome || financialSummary.totalIncome)}`, "Base salary + additional earnings"],
+      ["= Total Funds Available Before Outflows", fmtINR(fundsBefore), "Opening Balance + Monthly Inflow"],
+      ["− Living Expenses", expAmt > 0 ? `− ${fmtINR(expAmt)}` : "—", "Essential monthly operating costs"],
+      ["− Investment Contributions", invAmt > 0 ? `− ${fmtINR(invAmt)}` : "— No contribution recorded", "Actual SIP / RD deposits recorded"],
+      ["− Saving Goal Contributions", goalAmt > 0 ? `− ${fmtINR(goalAmt)}` : "— No contribution recorded", "Actual goal allocations deposited"],
+      ["− Insurance Premiums Paid", insAmt > 0 ? `− ${fmtINR(insAmt)}` : "— No payment recorded", "Actual premiums paid this month"],
+      ["− Liability / EMI Payments", liabAmt > 0 ? `− ${fmtINR(liabAmt)}` : "— No payment recorded", "Actual loan EMI & debt servicing paid"],
+      ["= Available to Allocate (Ending Liquid Balance)", fmtINR(availAmt), "Funds Before Outflows − Total Actual Outflows"],
+    ];
 
-  userEmail = "",
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Calculation Step", "Amount", "Details & Provenance"]],
+      body: calculationRows,
+      theme: "striped",
+      headStyles: { fillColor: [49, 92, 70], textColor: [255, 255, 255], fontStyle: "bold" },
+      styles: { fontSize: 8, cellPadding: 1.8 },
+      columnStyles: {
+        0: { fontStyle: "bold", width: 60 },
+        1: { fontStyle: "bold", textColor: [24, 57, 44], width: 35 },
+        2: { textColor: [100, 116, 139], width: 85 },
+      },
+      margin: { left: 14, right: 14 },
+    });
+    currentY = doc.lastAutoTable.finalY + 4;
 
-  userId = "",
+    // Natural language explanation
+    if (cb.explanation) {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(7.5);
+      doc.setTextColor(50, 75, 60);
+      const splitText = doc.splitTextToSize(`Summary: ${cb.explanation}`, 180);
+      doc.text(splitText, 14, currentY);
+      currentY += splitText.length * 3.5 + 4;
+    }
 
+  } else {
+    const titleText = duration === "quarterly"
+      ? "2. Quarterly Month-by-Month Performance Grid"
+      : duration === "halfYear"
+      ? "2. Half-Yearly Financial Trajectory Matrix"
+      : "2. Annual 12-Month Historical Financial Matrix";
 
-  // ==========================================================
-  // REPORT
-  // ==========================================================
+    doc.text(titleText, 14, currentY);
+    currentY += 4;
 
-  reportTitle =
-    "Financial Report",
+    const gridHeaders = ["Month", "Income", "Expenses", "Savings", "Investments", "Goals", "Liabilities", "Closing"];
+    const gridRows = monthDetails.map((m) => [
+      m.monthName,
+      m.totalIncome > 0 ? fmtINR(m.totalIncome) : "—",
+      m.expenses > 0 ? fmtINR(m.expenses) : "—",
+      m.hasRecord || m.totalIncome > 0 ? fmtINR(m.savings) : "—",
+      m.investmentCommitments > 0 ? fmtINR(m.investmentCommitments) : "—",
+      m.goalAllocations > 0 ? fmtINR(m.goalAllocations) : "—",
+      m.liabilityCommitments > 0 ? fmtINR(m.liabilityCommitments) : "—",
+      m.hasRecord || m.closingBalance > 0 ? fmtINR(m.closingBalance) : "—",
+    ]);
 
-  reportType =
-    "monthly",
+    gridRows.push([
+      "Total Period",
+      fmtINR(financialSummary.totalIncome),
+      fmtINR(financialSummary.totalExpenses),
+      fmtINR(totalSav),
+      fmtINR(financialSummary.totalInvestmentContributionsPeriod),
+      fmtINR(financialSummary.totalGoalContributionsPeriod),
+      fmtINR(financialSummary.totalLiabilityPaymentsPeriod),
+      fmtINR(financialSummary.closingBalance),
+    ]);
 
-  selectedYear,
+    autoTable(doc, {
+      startY: currentY,
+      head: [gridHeaders],
+      body: gridRows,
+      theme: "grid",
+      headStyles: { fillColor: [49, 92, 70], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7.5 },
+      styles: { fontSize: 7.5, cellPadding: 1.5 },
+      columnStyles: {
+        0: { fontStyle: "bold" },
+      },
+      margin: { left: 14, right: 14 },
+    });
+    currentY = doc.lastAutoTable.finalY + 7;
+  }
 
-  expectedMonths = 1,
+  // ------------------------------------------------------------
+  // SECTION 3: NET WORTH TIMELINE & BREAKDOWN
+  // ------------------------------------------------------------
+  currentY = ensureSpace(doc, currentY, 40);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(24, 57, 44);
+  doc.text("3. Net Worth Progression", 14, currentY);
+  currentY += 4;
 
+  const nwPoints = netWorthSummary.history || [];
+  if (nwPoints.length > 0) {
+    const nwHeaders = ["Period / Month", "Cash Balance", "Total Assets", "Total Liabilities", "Net Worth"];
+    const nwRows = nwPoints.map((pt) => [
+      pt.monthName || pt.shortLabel,
+      fmtINR(pt.cashBalance),
+      fmtINR(pt.assets),
+      fmtINR(pt.liabilities),
+      fmtINR(pt.netWorth),
+    ]);
 
-  // ==========================================================
-  // HISTORY
-  // ==========================================================
+    autoTable(doc, {
+      startY: currentY,
+      head: [nwHeaders],
+      body: nwRows,
+      theme: "striped",
+      headStyles: { fillColor: [24, 57, 44], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7.5 },
+      styles: { fontSize: 7.5, cellPadding: 1.5 },
+      margin: { left: 14, right: 14 },
+    });
+    currentY = doc.lastAutoTable.finalY + 7;
+  }
 
-  reportRecords = [],
+  // ------------------------------------------------------------
+  // SECTION 4: PLANS CREATED / STARTED & MATURITIES
+  // ------------------------------------------------------------
+  currentY = ensureSpace(doc, currentY, 40);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(24, 57, 44);
+  doc.text("4. Plan Lifecycles & Scheduled Events", 14, currentY);
+  currentY += 4;
 
+  const createdList = plansLifecycle.plansCreatedThisPeriod || [];
+  const startedList = plansLifecycle.plansStartedThisPeriod || [];
+  const matList = plansLifecycle.maturitiesInPeriod || [];
+  const upcomingList = plansLifecycle.upcomingFutureEvents || [];
 
-  // ==========================================================
-  // CALCULATED REPORT DATA
-  // ==========================================================
+  const lifecycleRows = [];
+  createdList.forEach((c) => {
+    lifecycleRows.push([c.name, c.type, "Created in Period", new Date(c.createdDate).toLocaleDateString("en-IN"), "Activated"]);
+  });
+  startedList.forEach((s) => {
+    lifecycleRows.push([s.name, s.type, "Started in Period", new Date(s.startDate).toLocaleDateString("en-IN"), "Ongoing"]);
+  });
+  matList.forEach((m) => {
+    lifecycleRows.push([m.name, m.type, m.event, new Date(m.eventDate).toLocaleDateString("en-IN"), fmtINR(m.actualAmount || m.expectedAmount)]);
+  });
+  upcomingList.slice(0, 4).forEach((u) => {
+    lifecycleRows.push([u.name, u.type, u.event, new Date(u.eventDate).toLocaleDateString("en-IN"), fmtINR(u.expectedAmount)]);
+  });
 
-  reportData = {},
+  if (lifecycleRows.length === 0) {
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("No new plan creation, inception, or maturity events recorded in this period.", 14, currentY);
+    currentY += 6;
+  } else {
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Item Name", "Category / Type", "Lifecycle Event", "Date", "Details / Value"]],
+      body: lifecycleRows,
+      theme: "plain",
+      headStyles: { fillColor: [240, 245, 238], textColor: [24, 57, 44], fontStyle: "bold", fontSize: 7.5 },
+      styles: { fontSize: 7.5, cellPadding: 1.5 },
+      margin: { left: 14, right: 14 },
+    });
+    currentY = doc.lastAutoTable.finalY + 7;
+  }
 
+  // ------------------------------------------------------------
+  // SECTION 5: FINANCIAL ITEMS DETAIL TABLES
+  // ------------------------------------------------------------
+  // 5A. Investments
+  const invList = plans.investments || [];
+  if (invList.length > 0) {
+    currentY = ensureSpace(doc, currentY, 35);
+    doc.setFontSize(9.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(49, 92, 70);
+    doc.text("Investments & Systematic Plans (SIP, FD, RD, Gold, Stocks)", 14, currentY);
+    currentY += 3;
 
-  // ==========================================================
-  // CURRENT FINANCIAL RECORDS
-  // ==========================================================
+    const invRows = invList.map((inv) => [
+      inv.name,
+      inv.type,
+      inv.startDate ? new Date(inv.startDate).toLocaleDateString("en-IN") : "—",
+      inv.periodContributed > 0 ? fmtINR(inv.periodContributed) : "—",
+      fmtINR(inv.currentValue),
+      inv.status || "Active",
+    ]);
 
-  savingGoals = [],
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Asset Name", "Type", "Start Date", "Period Contribution", "Current Valuation", "Status"]],
+      body: invRows,
+      theme: "plain",
+      headStyles: { fillColor: [240, 245, 238], textColor: [24, 57, 44], fontStyle: "bold", fontSize: 7.5 },
+      styles: { fontSize: 7.5, cellPadding: 1.5 },
+      margin: { left: 14, right: 14 },
+    });
+    currentY = doc.lastAutoTable.finalY + 6;
+  }
 
-  investments = [],
+  // 5B. Saving Goals
+  const goalList = plans.savingGoals || [];
+  if (goalList.length > 0) {
+    currentY = ensureSpace(doc, currentY, 35);
+    doc.setFontSize(9.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(49, 92, 70);
+    doc.text("Dedicated Saving Goals", 14, currentY);
+    currentY += 3;
 
-  insurancePolicies = [],
+    const goalRows = goalList.map((g) => [
+      g.name,
+      fmtINR(g.targetAmount),
+      g.periodContributed > 0 ? fmtINR(g.periodContributed) : "—",
+      fmtINR(g.totalSaved),
+      `${g.progressPercentage}%`,
+      fmtINR(g.remainingAmount),
+      g.status || "Active",
+    ]);
 
-  liabilities = [],
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Goal Name", "Target", "Period Contribution", "Total Saved", "Progress", "Remaining", "Status"]],
+      body: goalRows,
+      theme: "plain",
+      headStyles: { fillColor: [240, 245, 238], textColor: [24, 57, 44], fontStyle: "bold", fontSize: 7.5 },
+      styles: { fontSize: 7.5, cellPadding: 1.5 },
+      margin: { left: 14, right: 14 },
+    });
+    currentY = doc.lastAutoTable.finalY + 6;
+  }
 
+  // 5C. Liabilities & Loans
+  const liabList = plans.liabilities || [];
+  if (liabList.length > 0) {
+    currentY = ensureSpace(doc, currentY, 35);
+    doc.setFontSize(9.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(49, 92, 70);
+    doc.text("Liabilities & Loan Servicing", 14, currentY);
+    currentY += 3;
 
-  // ==========================================================
-  // CORRECTED DATA FROM REPORTS.JSX
-  // ==========================================================
+    const liabRows = liabList.map((l) => [
+      l.name,
+      l.type,
+      fmtINR(l.principalAmount),
+      l.periodPaid > 0 ? fmtINR(l.periodPaid) : "—",
+      l.periodPrincipal > 0 ? fmtINR(l.periodPrincipal) : "—",
+      l.periodInterest > 0 ? fmtINR(l.periodInterest) : "—",
+      fmtINR(l.remainingAmount),
+      l.status || "Active",
+    ]);
 
-  commitmentSummary = {},
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Liability Name", "Type", "Principal", "Period Paid", "Principal Paid", "Interest Paid", "Outstanding", "Status"]],
+      body: liabRows,
+      theme: "plain",
+      headStyles: { fillColor: [240, 245, 238], textColor: [24, 57, 44], fontStyle: "bold", fontSize: 7.5 },
+      styles: { fontSize: 7.5, cellPadding: 1.5 },
+      margin: { left: 14, right: 14 },
+    });
+    currentY = doc.lastAutoTable.finalY + 6;
+  }
 
-  financialPosition = {},
+  // ------------------------------------------------------------
+  // SECTION 6: STRATEGIC INSIGHTS & SUGGESTIONS
+  // ------------------------------------------------------------
+  currentY = ensureSpace(doc, currentY, 35);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(24, 57, 44);
+  doc.text("5. Strategic Insights & Financial Guidance", 14, currentY);
+  currentY += 5;
 
-}) {
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(51, 65, 85);
 
-
-  // ==========================================================
-  // CREATE PDF
-  // ==========================================================
-
-  const doc =
-    new jsPDF({
-      orientation:
-        "portrait",
-      unit:
-        "mm",
-      format:
-        "a4",
+  if (insights.length === 0 && suggestions.length === 0) {
+    doc.text("No strategic advisories recorded for this period.", 14, currentY);
+    currentY += 6;
+  } else {
+    insights.forEach((ins) => {
+      currentY = ensureSpace(doc, currentY, 10);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(24, 57, 44);
+      doc.text(`* ${typeof ins === "string" ? ins : ins.title || ins.description}`, 14, currentY);
+      currentY += 5;
     });
 
-
-  // ==========================================================
-  // SAFE ARRAYS
-  // ==========================================================
-
-  const records =
-    Array.isArray(
-      reportRecords
-    )
-      ? reportRecords
-      : [];
-
-
-  const goals =
-    Array.isArray(
-      savingGoals
-    )
-      ? savingGoals
-      : [];
-
-
-  const investmentRecords =
-    Array.isArray(
-      investments
-    )
-      ? investments
-      : [];
-
-
-  const insuranceRecords =
-    Array.isArray(
-      insurancePolicies
-    )
-      ? insurancePolicies
-      : [];
-
-
-  const liabilityRecords =
-    Array.isArray(
-      liabilities
-    )
-      ? liabilities
-      : [];
-
-
-  // ==========================================================
-  // REPORT TOTALS
-  // ==========================================================
-
-  const totals =
-    reportData?.totals ||
-    {};
-
-
-  // ==========================================================
-  // CORRECT COMMITMENT VALUES
-  // ==========================================================
-  //
-  // First preference:
-  // commitmentSummary from Reports.jsx
-  //
-  // Fallback:
-  // reportData.totals
-  //
-  // ==========================================================
-
-  const goalCommitment =
-    safeNumber(
-      commitmentSummary
-        ?.savingGoals ??
-      totals
-        ?.goalCommitment
-    );
-
-
-  const investmentCommitment =
-    safeNumber(
-      commitmentSummary
-        ?.investments ??
-      totals
-        ?.investmentCommitment
-    );
-
-
-  const insuranceCommitment =
-    safeNumber(
-      commitmentSummary
-        ?.insurance ??
-      totals
-        ?.insuranceCommitment
-    );
-
-
-  const liabilityCommitment =
-    safeNumber(
-      commitmentSummary
-        ?.liabilities ??
-      totals
-        ?.liabilityCommitment
-    );
-
-
-  // ==========================================================
-  // TOTAL COMMITMENTS
-  // ==========================================================
-  //
-  // Recalculate instead of trusting a stale total.
-  //
-  // ==========================================================
-
-  const calculatedTotalCommitments =
-    goalCommitment +
-    investmentCommitment +
-    insuranceCommitment +
-    liabilityCommitment;
-
-
-  const totalCommitments =
-    calculatedTotalCommitments;
-
-
-  // ==========================================================
-  // TOTAL INCOME
-  // ==========================================================
-
-  const totalIncome =
-    safeNumber(
-      totals?.income
-    );
-
-
-  // ==========================================================
-  // TOTAL EXPENSES
-  // ==========================================================
-
-  const totalExpenses =
-    safeNumber(
-      totals?.expenses
-    );
-
-
-  // ==========================================================
-  // TOTAL SAVINGS
-  // ==========================================================
-
-  const totalSavings =
-    safeNumber(
-      totals?.savings
-    );
-
-
-  // ==========================================================
-  // REMAINING BALANCE
-  // ==========================================================
-  //
-  // Main rule:
-  //
-  // Savings - Commitments
-  //
-  // ==========================================================
-
-  const calculatedRemainingBalance =
-    totalSavings -
-    totalCommitments;
-
-
-  const remainingBalance =
-    Number.isFinite(
-      calculatedRemainingBalance
-    )
-      ? calculatedRemainingBalance
-      : safeNumber(
-          totals
-            ?.remainingBalance ??
-          totals
-            ?.available
-        );
-
-
-  // ==========================================================
-  // AVERAGE REMAINING BALANCE
-  // ==========================================================
-
-  const actualMonths =
-    safeNumber(
-      reportData?.count
-    ) ||
-    records.length;
-
-
-  const averageRemainingBalance =
-    actualMonths > 0
-      ? remainingBalance /
-        actualMonths
-      : 0;
-
-
-  // ==========================================================
-  // CORRECT FINANCIAL POSITION
-  // ==========================================================
-
-  const totalAssets =
-    safeNumber(
-      financialPosition
-        ?.totalAssets ??
-      reportData
-        ?.totalAssets
-    );
-
-
-  const totalLiabilities =
-    safeNumber(
-      financialPosition
-        ?.totalLiabilities ??
-      reportData
-        ?.totalLiabilities
-    );
-
-
-  // ==========================================================
-  // NET WORTH
-  // ==========================================================
-  //
-  // ALWAYS:
-  //
-  // Assets - Liabilities
-  //
-  // ==========================================================
-
-  const netWorth =
-    totalAssets -
-    totalLiabilities;
-
-
-  // ==========================================================
-  // RATIOS
-  // ==========================================================
-
-  const savingsRate =
-    totalIncome > 0
-
-      ? (
-          totalSavings /
-          totalIncome
-        ) * 100
-
-      : 0;
-
-
-  const expenseRatio =
-    totalIncome > 0
-
-      ? (
-          totalExpenses /
-          totalIncome
-        ) * 100
-
-      : 0;
-
-
-  const commitmentRatio =
-    totalIncome > 0
-
-      ? (
-          totalCommitments /
-          totalIncome
-        ) * 100
-
-      : 0;
-
-
-  const remainingBalanceRatio =
-    totalIncome > 0
-
-      ? (
-          remainingBalance /
-          totalIncome
-        ) * 100
-
-      : 0;
-
-
-  // ==========================================================
-  // AVERAGES
-  // ==========================================================
-
-  const averageIncome =
-    actualMonths > 0
-      ? totalIncome /
-        actualMonths
-      : 0;
-
-
-  const averageExpenses =
-    actualMonths > 0
-      ? totalExpenses /
-        actualMonths
-      : 0;
-
-
-  const averageSavings =
-    actualMonths > 0
-      ? totalSavings /
-        actualMonths
-      : 0;
-
-
-  const averageCommitments =
-    actualMonths > 0
-      ? totalCommitments /
-        actualMonths
-      : 0;
-
-
-  // ==========================================================
-  // REPORT TYPE LABEL
-  // ==========================================================
-
-  let reportTypeLabel =
-    "Monthly Report";
-
-
-  if (
-    reportType ===
-    "quarterly"
-  ) {
-
-    reportTypeLabel =
-      "Quarterly Report";
-
+    suggestions.forEach((sug) => {
+      currentY = ensureSpace(doc, currentY, 10);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(49, 92, 70);
+      const splitSug = doc.splitTextToSize(`Recommendation: ${sug}`, pageWidth - 32);
+      doc.text(splitSug, 14, currentY);
+      currentY += splitSug.length * 4;
+    });
   }
 
-
-  if (
-    reportType ===
-    "halfYear"
-  ) {
-
-    reportTypeLabel =
-      "6-Month Report";
-
-  }
-
-
-  if (
-    reportType ===
-    "yearly"
-  ) {
-
-    reportTypeLabel =
-      "Yearly Report";
-
-  }
-
-
-  // ==========================================================
-  // HEADER
-  // ==========================================================
-
-  doc.setFont(
-    "helvetica",
-    "bold"
-  );
-
-  doc.setFontSize(20);
-
-  doc.text(
-    "FinanceOS",
-    14,
-    18
-  );
-
-
-  doc.setFontSize(14);
-
-  doc.text(
-    "Financial Report",
-    14,
-    28
-  );
-
-
-  doc.setFont(
-    "helvetica",
-    "normal"
-  );
-
-  doc.setFontSize(10);
-
-  doc.text(
-    safeText(
-      reportTitle
-    ),
-    14,
-    36
-  );
-
-
-  doc.setFontSize(8);
-
-  doc.text(
-    reportTypeLabel,
-    14,
-    42
-  );
-
-
-  // ==========================================================
-  // USER DETAILS
-  // ==========================================================
-
-  doc.text(
-    `User: ${safeText(
-      userName,
-      "FinanceOS User"
-    )}`,
-    14,
-    48
-  );
-
-
-  let headerY = 53;
-
-
-  if (
-    String(
-      userEmail || ""
-    ).trim()
-  ) {
-
-    doc.text(
-      `Email: ${userEmail}`,
-      14,
-      headerY
-    );
-
-    headerY += 5;
-
-  }
-
-  if (
-    String(
-      userId || ""
-    ).trim()
-  ) {
-
-    doc.text(
-      `User ID: ${userId}`,
-      14,
-      headerY
-    );
-
-    headerY += 5;
-
-  }
-
-
-  // ==========================================================
-  // GENERATED DATE
-  // ==========================================================
-
-  doc.text(
-    `Generated: ${new Date().toLocaleDateString(
-      "en-IN"
-    )}`,
-    14,
-    headerY
-  );
-
-
-  headerY += 5;
-
-
-  // ==========================================================
-  // DATA COUNT
-  // ==========================================================
-
-  doc.text(
-    `Data available: ${actualMonths} of ${expectedMonths} month${
-      Number(
-        expectedMonths
-      ) === 1
-        ? ""
-        : "s"
-    }`,
-    14,
-    headerY
-  );
-
-
-  let currentY =
-    headerY + 8;
-
-
-  // ==========================================================
-  // FINANCIAL SUMMARY
-  // ==========================================================
-
-  currentY =
-    addTable(
-      doc,
-      {
-
-        startY:
-          currentY,
-
-        headers: [
-          "Financial Summary",
-          "Amount",
-        ],
-
-        rows: [
-
-          [
-            "Total Income",
-            formatMoney(
-              totalIncome
-            ),
-          ],
-
-          [
-            "Total Expenses",
-            formatMoney(
-              totalExpenses
-            ),
-          ],
-
-          [
-            "Total Savings",
-            formatMoney(
-              totalSavings
-            ),
-          ],
-
-          [
-            "Total Commitments",
-            formatMoney(
-              totalCommitments
-            ),
-          ],
-
-          [
-            "Remaining Balance",
-            formatMoney(
-              remainingBalance
-            ),
-          ],
-
-        ],
-
-      }
-    );
-
-
-  // ==========================================================
-  // CASH FLOW CHART
-  // ==========================================================
-
-  currentY =
-    addCashFlowChart(
-      doc,
-      {
-
-        startY:
-          currentY + 10,
-
-        income:
-          totalIncome,
-
-        expenses:
-          totalExpenses,
-
-        savings:
-          totalSavings,
-
-        commitments:
-          totalCommitments,
-
-        remainingBalance,
-
-      }
-    );
-
-
-  // ==========================================================
-  // MONTHLY AVERAGES
-  // ==========================================================
-
-  if (
-    actualMonths > 1
-  ) {
-
-    currentY =
-      addTable(
-        doc,
-        {
-
-          startY:
-            currentY + 8,
-
-          headers: [
-            "Monthly Average",
-            "Amount",
-          ],
-
-          rows: [
-
-            [
-              "Average Income",
-              formatMoney(
-                averageIncome
-              ),
-            ],
-
-            [
-              "Average Expenses",
-              formatMoney(
-                averageExpenses
-              ),
-            ],
-
-            [
-              "Average Savings",
-              formatMoney(
-                averageSavings
-              ),
-            ],
-
-            [
-              "Average Commitments",
-              formatMoney(
-                averageCommitments
-              ),
-            ],
-
-            [
-              "Average Remaining Balance",
-              formatMoney(
-                averageRemainingBalance
-              ),
-            ],
-
-          ],
-
-        }
-      );
-
-  }
-
-
-  // ==========================================================
-  // FINANCIAL RATIOS
-  // ==========================================================
-
-  currentY =
-    addTable(
-      doc,
-      {
-
-        startY:
-          currentY + 8,
-
-        headers: [
-          "Financial Ratio",
-          "Value",
-        ],
-
-        rows: [
-
-          [
-            "Savings Rate",
-            formatPercentage(
-              savingsRate
-            ),
-          ],
-
-          [
-            "Expense Ratio",
-            formatPercentage(
-              expenseRatio
-            ),
-          ],
-
-          [
-            "Commitment Ratio",
-            formatPercentage(
-              commitmentRatio
-            ),
-          ],
-
-          [
-            "Remaining Balance Ratio",
-            formatPercentage(
-              remainingBalanceRatio
-            ),
-          ],
-
-        ],
-
-      }
-    );
-
-
-  // ==========================================================
-  // COMMITMENT BREAKDOWN
-  // ==========================================================
-
-  currentY =
-    addTable(
-      doc,
-      {
-
-        startY:
-          currentY + 8,
-
-        headers: [
-          "Commitment",
-          "Amount",
-        ],
-
-        rows: [
-
-          [
-            "Saving Goals",
-            formatMoney(
-              goalCommitment
-            ),
-          ],
-
-          [
-            "Investments",
-            formatMoney(
-              investmentCommitment
-            ),
-          ],
-
-          [
-            "Insurance",
-            formatMoney(
-              insuranceCommitment
-            ),
-          ],
-
-          [
-            "Loan / EMI",
-            formatMoney(
-              liabilityCommitment
-            ),
-          ],
-
-          [
-            "Total Commitments",
-            formatMoney(
-              totalCommitments
-            ),
-          ],
-
-        ],
-
-      }
-    );
-
-
-  // ==========================================================
-  // FINANCIAL POSITION
-  // ==========================================================
-
-  currentY =
-    addTable(
-      doc,
-      {
-
-        startY:
-          currentY + 8,
-
-        headers: [
-          "Financial Position",
-          "Amount",
-        ],
-
-        rows: [
-
-          [
-            "Total Assets",
-            formatMoney(
-              totalAssets
-            ),
-          ],
-
-          [
-            "Outstanding Liabilities",
-            formatMoney(
-              totalLiabilities
-            ),
-          ],
-
-          [
-            "Net Worth",
-            formatMoney(
-              netWorth
-            ),
-          ],
-
-        ],
-
-      }
-    );
-      // ==========================================================
-  // NET WORTH MOVEMENT
-  // ==========================================================
-
-  if (
-    actualMonths > 1
-  ) {
-
-    const startingNetWorth =
-      safeNumber(
-        reportData
-          ?.startingNetWorth
-      );
-
-
-    const endingNetWorth =
-      safeNumber(
-        reportData
-          ?.endingNetWorth
-      );
-
-
-    const netWorthChange =
-      endingNetWorth -
-      startingNetWorth;
-
-
-    const netWorthChangePercent =
-      startingNetWorth !== 0
-
-        ? (
-            netWorthChange /
-            Math.abs(
-              startingNetWorth
-            )
-          ) * 100
-
-        : 0;
-
-
-    currentY =
-      addTable(
-        doc,
-        {
-
-          startY:
-            currentY + 8,
-
-          headers: [
-            "Net Worth Movement",
-            "Value",
-          ],
-
-          rows: [
-
-            [
-              "Starting Net Worth",
-              formatMoney(
-                startingNetWorth
-              ),
-            ],
-
-            [
-              "Ending Net Worth",
-              formatMoney(
-                endingNetWorth
-              ),
-            ],
-
-            [
-              "Change",
-              formatMoney(
-                netWorthChange
-              ),
-            ],
-
-            [
-              "Change Percentage",
-              formatPercentage(
-                netWorthChangePercent
-              ),
-            ],
-
-          ],
-
-        }
-      );
-
-  }
-
-
-  // ==========================================================
-  // MONTHLY REMAINING BALANCE TREND
-  // ==========================================================
-
-  if (
-    records.length > 1
-  ) {
-
-    currentY =
-      addMonthlyTrendChart(
-        doc,
-        records,
-        currentY + 10
-      );
-
-  }
-
-
-  // ==========================================================
-  // NET WORTH TREND CHART
-  // ==========================================================
-
-  if (
-    records.length > 1
-  ) {
-
-    currentY =
-      addNetWorthTrendChart(
-        doc,
-        records,
-        currentY + 10
-      );
-
-  }
-
-
-  // ==========================================================
-  // MONTHLY BREAKDOWN
-  // ==========================================================
-
-  if (
-    records.length > 0
-  ) {
-
-    currentY =
-      addTable(
-        doc,
-        {
-
-          startY:
-            currentY + 8,
-
-          headers: [
-            "Month",
-            "Income",
-            "Expenses",
-            "Savings",
-            "Commitments",
-            "Remaining",
-            "Net Worth",
-          ],
-
-          rows:
-            records.map(
-              (record) => {
-
-                const monthName =
-                  MONTHS[
-                    safeNumber(
-                      record
-                        ?.month
-                    ) - 1
-                  ] ||
-                  `Month ${
-                    record?.month ??
-                    ""
-                  }`;
-
-
-                // ============================================
-                // MONTH VALUES
-                // ============================================
-
-                const recordIncome =
-                  safeNumber(
-                    record
-                      ?.income
-                  );
-
-
-                const recordExpenses =
-                  safeNumber(
-                    record
-                      ?.expenses
-                  );
-
-
-                const recordSavings =
-                  safeNumber(
-                    record
-                      ?.monthlySavings ??
-                    (
-                      recordIncome -
-                      recordExpenses
-                    )
-                  );
-
-
-                const recordGoalCommitment =
-                  safeNumber(
-                    record
-                      ?.goalCommitment
-                  );
-
-
-                const recordInvestmentCommitment =
-                  safeNumber(
-                    record
-                      ?.investmentCommitment
-                  );
-
-
-                const recordInsuranceCommitment =
-                  safeNumber(
-                    record
-                      ?.insuranceCommitment
-                  );
-
-
-                const recordLiabilityCommitment =
-                  safeNumber(
-                    record
-                      ?.liabilityCommitment
-                  );
-
-
-                // ============================================
-                // RECALCULATE MONTH COMMITMENTS
-                // ============================================
-
-                const recordTotalCommitments =
-                  recordGoalCommitment +
-                  recordInvestmentCommitment +
-                  recordInsuranceCommitment +
-                  recordLiabilityCommitment;
-
-
-                // ============================================
-                // REMAINING BALANCE
-                // ============================================
-
-                const recordRemaining =
-                  recordSavings -
-                  recordTotalCommitments;
-
-
-                // ============================================
-                // NET WORTH
-                // ============================================
-
-                const recordAssets =
-                  safeNumber(
-                    record
-                      ?.totalAssets
-                  );
-
-
-                const recordLiabilities =
-                  safeNumber(
-                    record
-                      ?.totalLiabilities ??
-                    record
-                      ?.liabilities
-                  );
-
-
-                const recordNetWorth =
-                  recordAssets -
-                  recordLiabilities;
-
-
-                return [
-
-                  `${monthName} ${
-                    record?.year ||
-                    ""
-                  }`,
-
-                  formatMoney(
-                    recordIncome
-                  ),
-
-                  formatMoney(
-                    recordExpenses
-                  ),
-
-                  formatMoney(
-                    recordSavings
-                  ),
-
-                  formatMoney(
-                    recordTotalCommitments
-                  ),
-
-                  formatMoney(
-                    recordRemaining
-                  ),
-
-                  formatMoney(
-                    recordNetWorth
-                  ),
-
-                ];
-
-              }
-            ),
-
-        }
-      );
-
-  }
-
-
-  // ==========================================================
-  // SAVING GOALS
-  // ==========================================================
-
-  if (
-    goals.length > 0
-  ) {
-
-    currentY =
-      addTable(
-        doc,
-        {
-
-          startY:
-            currentY + 8,
-
-          headers: [
-            "Saving Goal",
-            "Target",
-            "Contributed",
-            "Monthly",
-            "Status",
-          ],
-
-          rows:
-            goals.map(
-              (goal) => [
-
-                safeText(
-                  goal?.name,
-                  "Saving Goal"
-                ),
-
-
-                formatMoney(
-                  goal
-                    ?.targetAmount ??
-                  goal
-                    ?.amount
-                ),
-
-
-                formatMoney(
-                  goal
-                    ?.totalContributed ??
-                  goal
-                    ?.savedAmount ??
-                  goal
-                    ?.alreadySaved
-                ),
-
-
-                formatMoney(
-                  goal
-                    ?.monthlyContribution ??
-                  goal
-                    ?.monthlyAllocation ??
-                  goal
-                    ?.requiredMonthly
-                ),
-
-
-                safeText(
-                  goal?.status,
-                  "Active"
-                ),
-
-              ]
-            ),
-
-        }
-      );
-
-  }
-
-
-  // ==========================================================
-  // INVESTMENTS
-  // ==========================================================
-
-  if (
-    investmentRecords.length > 0
-  ) {
-
-    currentY =
-      addTable(
-        doc,
-        {
-
-          startY:
-            currentY + 8,
-
-          headers: [
-            "Investment",
-            "Current Value",
-            "Monthly",
-            "Status",
-          ],
-
-          rows:
-            investmentRecords.map(
-              (investment) => {
-
-                // ============================================
-                // INVESTMENT VALUE
-                // ============================================
-
-                const currentValue =
-                  safeNumber(
-
-                    investment
-                      ?.currentValue ??
-
-                    investment
-                      ?.maturityAmount ??
-
-                    investment
-                      ?.amount ??
-
-                    investment
-                      ?.investedAmount
-
-                  );
-
-
-                // ============================================
-                // MONTHLY INVESTMENT
-                // ============================================
-                //
-                // FD may correctly be 0 here when it is a
-                // one-time investment.
-                //
-                // ============================================
-
-                const monthlyContribution =
-                  safeNumber(
-
-                    investment
-                      ?.monthlyContribution ??
-
-                    investment
-                      ?.monthlyAmount ??
-
-                    investment
-                      ?.sipAmount ??
-
-                    investment
-                      ?.installmentAmount
-
-                  );
-
-
-                return [
-
-                  safeText(
-                    investment?.name ||
-                    investment?.type,
-                    "Investment"
-                  ),
-
-
-                  formatMoney(
-                    currentValue
-                  ),
-
-
-                  formatMoney(
-                    monthlyContribution
-                  ),
-
-
-                  safeText(
-                    investment?.status,
-                    "Active"
-                  ),
-
-                ];
-
-              }
-            ),
-
-        }
-      );
-
-  }
-
-
-  // ==========================================================
-  // INSURANCE
-  // ==========================================================
-
-  if (
-    insuranceRecords.length > 0
-  ) {
-
-    currentY =
-      addTable(
-        doc,
-        {
-
-          startY:
-            currentY + 8,
-
-          headers: [
-            "Insurance",
-            "Premium",
-            "Frequency",
-            "Monthly Equivalent",
-            "Status",
-          ],
-
-          rows:
-            insuranceRecords.map(
-              (policy) => {
-
-                const premium =
-                  safeNumber(
-
-                    policy
-                      ?.premiumAmount ??
-
-                    policy
-                      ?.premium ??
-
-                    policy
-                      ?.monthlyPremium ??
-
-                    policy
-                      ?.amount
-
-                  );
-
-
-                const frequency =
-                  safeText(
-
-                    policy
-                      ?.premiumFrequency ||
-
-                    policy
-                      ?.frequency,
-
-                    "Monthly"
-
-                  );
-
-
-                // ============================================
-                // MONTHLY EQUIVALENT
-                // ============================================
-
-                const normalizedFrequency =
-                  String(
-                    frequency
-                  )
-                    .trim()
-                    .toLowerCase();
-
-
-                let monthlyEquivalent =
-                  premium;
-
-
-                if (
-                  normalizedFrequency ===
-                    "yearly" ||
-                  normalizedFrequency ===
-                    "annual" ||
-                  normalizedFrequency ===
-                    "annually"
-                ) {
-
-                  monthlyEquivalent =
-                    premium / 12;
-
-                } else if (
-                  normalizedFrequency ===
-                    "half-yearly" ||
-                  normalizedFrequency ===
-                    "half yearly" ||
-                  normalizedFrequency ===
-                    "semiannual" ||
-                  normalizedFrequency ===
-                    "semi-annual"
-                ) {
-
-                  monthlyEquivalent =
-                    premium / 6;
-
-                } else if (
-                  normalizedFrequency ===
-                    "quarterly"
-                ) {
-
-                  monthlyEquivalent =
-                    premium / 3;
-
-                } else if (
-                  normalizedFrequency ===
-                    "weekly"
-                ) {
-
-                  monthlyEquivalent =
-                    (
-                      premium *
-                      52
-                    ) / 12;
-
-                }
-
-
-                return [
-
-                  safeText(
-                    policy?.name ||
-                    policy?.type,
-                    "Insurance"
-                  ),
-
-
-                  formatMoney(
-                    premium
-                  ),
-
-
-                  frequency,
-
-
-                  formatMoney(
-                    monthlyEquivalent
-                  ),
-
-
-                  safeText(
-                    policy?.status,
-                    "Active"
-                  ),
-
-                ];
-
-              }
-            ),
-
-        }
-      );
-
-  }
-
-
-  // ==========================================================
-  // LIABILITIES
-  // ==========================================================
-
-  if (
-    liabilityRecords.length > 0
-  ) {
-
-    currentY =
-      addTable(
-        doc,
-        {
-
-          startY:
-            currentY + 8,
-
-          headers: [
-            "Liability",
-            "Outstanding",
-            "Monthly EMI",
-            "Status",
-          ],
-
-          rows:
-            liabilityRecords.map(
-              (liability) => {
-
-                // ============================================
-                // OUTSTANDING AMOUNT
-                // ============================================
-
-                const outstanding =
-                  safeNumber(
-
-                    liability
-                      ?.remainingAmount ??
-
-                    liability
-                      ?.outstandingAmount ??
-
-                    liability
-                      ?.outstandingBalance ??
-
-                    liability
-                      ?.balance
-
-                  );
-
-
-                // ============================================
-                // MONTHLY EMI
-                // ============================================
-
-                const monthlyEmi =
-                  safeNumber(
-
-                    liability
-                      ?.monthlyPayment ??
-
-                    liability
-                      ?.monthlyEMI ??
-
-                    liability
-                      ?.monthlyEmi ??
-
-                    liability
-                      ?.emi
-
-                  );
-
-
-                return [
-
-                  safeText(
-                    liability?.name ||
-                    liability?.type,
-                    "Liability"
-                  ),
-
-
-                  formatMoney(
-                    outstanding
-                  ),
-
-
-                  formatMoney(
-                    monthlyEmi
-                  ),
-
-
-                  safeText(
-                    liability?.status,
-                    "Active"
-                  ),
-
-                ];
-
-              }
-            ),
-
-        }
-      );
-
-  }
-
-
-  // ==========================================================
-  // FINANCIAL SUGGESTIONS
-  // ==========================================================
-
-  currentY =
-    addSuggestions(
-      doc,
-      {
-        reportData,
-        financialPosition,
-        commitmentSummary,
-      },
-      currentY + 10
-    );
-
-
-  // ==========================================================
-  // REPORT INFORMATION
-  // ==========================================================
-
-  if (
-    actualMonths <
-    safeNumber(
-      expectedMonths
-    )
-  ) {
-
-    addTable(
-      doc,
-      {
-
-        startY:
-          currentY + 8,
-
-        headers: [
-          "Report Information",
-        ],
-
-        rows: [
-
-          [
-            `Partial report: ${actualMonths} of ${expectedMonths} months contain saved financial data. Calculations use only the available records.`,
-          ],
-
-        ],
-
-      }
-    );
-
-  }
-
-
-  // ==========================================================
-  // PAGE NUMBERS
-  // ==========================================================
-
-  const totalPages =
-    doc.getNumberOfPages();
-
-
-  for (
-    let page = 1;
-    page <= totalPages;
-    page += 1
-  ) {
-
-    doc.setPage(
-      page
-    );
-
-
-    doc.setFont(
-      "helvetica",
-      "normal"
-    );
-
-
+  // ------------------------------------------------------------
+  // FOOTER (ALL PAGES)
+  // ------------------------------------------------------------
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-
-
-    doc.text(
-      `FinanceOS Financial Report | Page ${page} of ${totalPages}`,
-      14,
-      290
-    );
-
+    doc.setTextColor(148, 163, 184); // Slate-400
+    doc.text("FinanceOS — Confidential Financial Intelligence Statement", 14, 288);
+    doc.text(`Page ${i} of ${pageCount}`, pageWidth - 14, 288, { align: "right" });
   }
 
-
-  // ==========================================================
-  // SAFE FILE TITLE
-  // ==========================================================
-
-  const safeTitle =
-    String(
-      reportTitle ||
-      "Financial-Report"
-    )
-
-      .replace(
-        /[^a-zA-Z0-9]+/g,
-        "-"
-      )
-
-      .replace(
-        /^-+|-+$/g,
-        ""
-      );
-
-
-  // ==========================================================
-  // YEAR
-  // ==========================================================
-
-  const year =
-    safeNumber(
-      selectedYear
-    );
-
-
-  // ==========================================================
-  // FILE NAME
-  // ==========================================================
-
-  const fileName =
-    `FinanceOS-${safeTitle}${
-      year > 0 &&
-      !safeTitle.includes(
-        String(year)
-      )
-        ? `-${year}`
-        : ""
-    }.pdf`;
-
-
-  // ==========================================================
-  // DOWNLOAD PDF
-  // ==========================================================
-
-  doc.save(
-    fileName
-  );
-
+  const filename = `FinanceOS_${duration.toUpperCase()}_Report_${header.year || new Date().getFullYear()}_${Date.now()}.pdf`;
+  doc.save(filename);
 }

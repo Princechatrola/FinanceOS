@@ -16,6 +16,8 @@ import {
   FiArrowUpRight
 } from "react-icons/fi";
 import useFinance from "../../context/useFinance.js";
+import { parseSelectedMonth } from "../../utils/monthLifecycle.js";
+import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../../utils/dueDateSchedule.js";
 
 const inputClass =
   "mt-2 w-full rounded-xl border border-[#dfe6da] bg-[#fafcf8] px-4 py-3 text-sm text-[#18392c] outline-none transition placeholder:text-slate-300 focus:border-[#9fbd8d] focus:bg-white";
@@ -57,10 +59,13 @@ function formatDateInput(dateStr) {
 
 export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
   const {
+    selectedMonth,
     deleteLiability,
     recordLiabilityPayment,
     updateLiability
   } = useFinance();
+
+  const monthBounds = parseSelectedMonth(selectedMonth);
 
   const [activeTab, setActiveTab] = useState("details"); // details, payments, actions
   const [error, setError] = useState("");
@@ -73,7 +78,15 @@ export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
   // Payment form states
   const [payAmount, setPayAmount] = useState(liability?.monthlyEMI || "");
   const [payType, setPayType] = useState("EMI"); // EMI, Prepayment
-  const [payPaidDate, setPayPaidDate] = useState(formatDateInput(new Date()));
+
+  // Stored due day from liability model
+  const storedDueDay = liability?.dueDay
+    || (liability?.nextDueDate ? new Date(liability.nextDueDate).getDate() : 5);
+  const derivedDueDateISO = formatDateISO(
+    calculateDueDateForMonth(storedDueDay, monthBounds.year, monthBounds.month)
+  );
+
+  const [payPaidDate, setPayPaidDate] = useState(monthBounds.defaultDate);
   const [payStatus, setPayStatus] = useState("Paid");
   const [payPrincipal, setPayPrincipal] = useState("");
   const [payInterest, setPayInterest] = useState("");
@@ -128,7 +141,8 @@ export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
         principalComponent: Number(payPrincipal) || 0,
         interestComponent: Number(payInterest) || 0,
         paymentSource,
-        note: payNote
+        note: payNote,
+        selectedMonth: monthBounds.iso,
       });
 
       setSuccess("Payment transaction recorded successfully.");
@@ -571,11 +585,32 @@ export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <div>
+                      <FieldLabel>
+                        <span className="inline-flex items-center gap-1">
+                          <FiLock size={10} className="text-amber-500" />
+                          Due Date (Auto)
+                        </span>
+                      </FieldLabel>
+                      <input
+                        type="text"
+                        readOnly
+                        value={formatDateDisplay(derivedDueDateISO)}
+                        title={`Automatically derived from EMI due day ${storedDueDay} for ${monthBounds.formatted}`}
+                        className={`${inputClass} bg-[#f9fbf6] cursor-not-allowed`}
+                      />
+                      <p className="mt-1 text-[10px] text-[#8fa895]">
+                        Day {storedDueDay} of {monthBounds.formatted}
+                      </p>
+                    </div>
+
                     <div>
                       <FieldLabel>Paid Date</FieldLabel>
                       <input
                         type="date"
+                        min={monthBounds.minDate}
+                        max={monthBounds.maxDate}
                         value={payPaidDate}
                         onChange={(e) => setPayPaidDate(e.target.value)}
                         className={inputClass}

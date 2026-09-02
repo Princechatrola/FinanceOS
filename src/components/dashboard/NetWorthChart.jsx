@@ -152,20 +152,19 @@ function NetWorthChart() {
   // ==========================================================
 
   const {
-
     netWorth,
-
     totalAssets,
-
     totalCashSavings,
-
+    currentCashBalance,
+    cashBalance,
     totalInvestmentValue,
-
     totalOutstandingLiabilities,
-
+    totalLiabilities,
     netWorthHistory,
-
   } = useFinance();
+
+  const resolvedCashSavings = totalCashSavings ?? currentCashBalance ?? cashBalance ?? 0;
+  const resolvedLiabilities = totalOutstandingLiabilities ?? totalLiabilities ?? 0;
 
 
   // ==========================================================
@@ -812,37 +811,25 @@ function NetWorthChart() {
 
 
         <SummaryItem
-
           label="Cash & Savings"
-
           value={
-            totalCashSavings
+            resolvedCashSavings
           }
-
         />
 
-
         <SummaryItem
-
           label="Investments"
-
           value={
             totalInvestmentValue
           }
-
         />
 
-
         <SummaryItem
-
           label="Liabilities"
-
           value={
-            totalOutstandingLiabilities
+            resolvedLiabilities
           }
-
           negative
-
         />
 
 
@@ -1195,6 +1182,21 @@ function NetWorthChart() {
 
                       />
 
+                    )
+                  }
+
+                  {
+                    points.length === 1 && (
+                      <line
+                        x1={paddingLeft}
+                        y1={points[0].y}
+                        x2={width - paddingRight}
+                        y2={points[0].y}
+                        stroke="#315c46"
+                        strokeWidth="2"
+                        strokeDasharray="4 4"
+                        opacity="0.4"
+                      />
                     )
                   }
 

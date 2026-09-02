@@ -26,6 +26,7 @@ import {
 } from "react-icons/fi";
 
 import Sidebar from "../components/layout/Sidebar.jsx";
+import useFinance from "../context/useFinance.js";
 
 
 // ============================================================
@@ -233,6 +234,7 @@ function FormField({
 function Profile() {
 
   const navigate = useNavigate();
+  const { sidebarCollapsed } = useFinance();
 
 
   // ==========================================================
@@ -747,7 +749,7 @@ function Profile() {
 
         <Sidebar />
 
-        <main className="ml-64 min-h-screen">
+        <main className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? "ml-20" : "ml-64"}`}>
 
           <div className="p-8">
 
@@ -798,7 +800,7 @@ function Profile() {
 
         <Sidebar />
 
-        <main className="ml-64 min-h-screen">
+        <main className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? "ml-20" : "ml-64"}`}>
 
           <div className="p-8">
 
@@ -857,7 +859,7 @@ function Profile() {
 
         <Sidebar />
 
-        <main className="ml-64 min-h-screen p-8">
+        <main className={`min-h-screen p-8 transition-all duration-300 ${sidebarCollapsed ? "ml-20" : "ml-64"}`}>
 
           <div className="mx-auto max-w-6xl">
 
@@ -899,7 +901,7 @@ function Profile() {
       <Sidebar />
 
 
-      <main className="ml-64 min-h-screen">
+      <main className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? "ml-20" : "ml-64"}`}>
 
         <div className="p-8">
 

@@ -274,58 +274,34 @@ function generateRecurringDates({
   startDate,
   intervalMonths = 1,
   endDate = null,
-  occurrenceLimit =
-    DEFAULT_OCCURRENCE_LIMIT,
+  occurrenceLimit = DEFAULT_OCCURRENCE_LIMIT,
+  dueDay = null,
 }) {
-  const start =
-    parseDate(
-      startDate
-    );
-
+  const start = parseDate(startDate);
   if (!start) {
     return [];
   }
 
-  const end =
-    endDate
-      ? parseDate(
-          endDate
-        )
-      : null;
-
+  const targetDay = Number(dueDay) || start.getDate();
+  const end = endDate ? parseDate(endDate) : null;
   const dates = [];
 
-  let current =
-    new Date(start);
-
+  let startYear = start.getFullYear();
+  let startMonth = start.getMonth(); // 0-based
   let count = 0;
 
-  while (
-    count <
-    occurrenceLimit
-  ) {
-    if (
-      end &&
-      isAfterDate(
-        current,
-        end
-      )
-    ) {
+  while (count < occurrenceLimit) {
+    const curYear = startYear + Math.floor((startMonth + count * intervalMonths) / 12);
+    const curMonth = (startMonth + count * intervalMonths) % 12;
+    const lastDayOfMonth = new Date(curYear, curMonth + 1, 0).getDate();
+    const clampedDay = Math.min(Math.max(targetDay, 1), lastDayOfMonth);
+    const current = new Date(curYear, curMonth, clampedDay);
+
+    if (end && isAfterDate(current, end)) {
       break;
     }
 
-    dates.push(
-      formatDate(
-        current
-      )
-    );
-
-    current =
-      addMonthsSafe(
-        current,
-        intervalMonths
-      );
-
+    dates.push(formatDate(current));
     count += 1;
   }
 
@@ -464,6 +440,11 @@ function createGoalEvents(
         contributionStartDate &&
         monthlyAllocation > 0
       ) {
+        const goalDueDay =
+          goal.contributionDay ||
+          (goal.reminder && goal.reminder.contributionDay) ||
+          null;
+
         const dates =
           generateRecurringDates({
             startDate:
@@ -475,6 +456,8 @@ function createGoalEvents(
               deadline,
 
             occurrenceLimit,
+
+            dueDay: goalDueDay,
           });
 
 
@@ -655,6 +638,11 @@ function createInvestmentEvents(
         contributionStart &&
         contributionAmount > 0
       ) {
+        const invDueDay =
+          investment.dueDay ||
+          (investment.reminder && investment.reminder.contributionDay) ||
+          null;
+
         const dates =
           generateRecurringDates({
             startDate:
@@ -667,6 +655,8 @@ function createInvestmentEvents(
 
             occurrenceLimit:
               DEFAULT_OCCURRENCE_LIMIT,
+
+            dueDay: invDueDay,
           });
 
 
@@ -829,6 +819,10 @@ function createInsuranceEvents(
             0
         ) > 0
       ) {
+        const insDueDay =
+          policy.premiumDueDay ||
+          null;
+
         const dates =
           generateRecurringDates({
             startDate:
@@ -841,6 +835,8 @@ function createInsuranceEvents(
 
             occurrenceLimit:
               DEFAULT_OCCURRENCE_LIMIT,
+
+            dueDay: insDueDay,
           });
 
 
@@ -964,8 +960,11 @@ function createLiabilityEvents(
           liability.nextDueDate
         )
           ? liability.nextDueDate
-          : null;
+          : (isValidDate(liability.startDate) ? liability.startDate : new Date());
 
+      const liabDueDay =
+        liability.dueDay ||
+        (liability.nextDueDate ? new Date(liability.nextDueDate).getDate() : 5);
 
       if (!paymentStart) {
         return;
@@ -1014,11 +1013,11 @@ function createLiabilityEvents(
       const remainingAmount =
         Number(
           liability.remainingAmount ||
+            liability.principalAmount ||
             0
         );
 
-
-      const calculatedPayments =
+      const maxPayments =
         remainingAmount > 0
           ? Math.ceil(
               remainingAmount /
@@ -1026,19 +1025,15 @@ function createLiabilityEvents(
             )
           : DEFAULT_OCCURRENCE_LIMIT;
 
-
       const occurrenceLimit =
         Math.min(
-          Math.max(
-            calculatedPayments,
-            1
-          ),
-          360
+          maxPayments,
+          DEFAULT_OCCURRENCE_LIMIT
         );
 
 
       // ------------------------------------------------------
-      // GENERATE MONTHLY PAYMENTS
+      // RECURRING PAYMENT DATES
       // ------------------------------------------------------
 
       const dates =
@@ -1051,6 +1046,8 @@ function createLiabilityEvents(
           endDate,
 
           occurrenceLimit,
+
+          dueDay: liabDueDay,
         });
 
 

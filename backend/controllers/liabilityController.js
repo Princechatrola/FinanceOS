@@ -108,6 +108,10 @@ const deleteLiability = async (req, res) => {
   }
 };
 
+const { isItemActiveInMonth, parseSelectedMonth, isDateInMonth, getMonthName } = require("../utils/monthLifecycle");
+const { calculateDueDateForMonth, formatDateISO } = require("../utils/dueDateSchedule");
+const MonthlyFinance = require("../models/MonthlyFinance");
+
 const addLiabilityPayment = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
@@ -119,7 +123,6 @@ const addLiabilityPayment = async (req, res) => {
 
     const {
       amount,
-      dueDate,
       paidDate,
       status,
       type, // EMI, Prepayment, Closure
@@ -128,17 +131,57 @@ const addLiabilityPayment = async (req, res) => {
       paymentSource,
       note,
       closureDetails,
+      selectedMonth: reqSelectedMonth
     } = req.body;
     
     if (!amount || amount <= 0) {
       return res.status(400).json({ success: false, message: "Valid payment amount is required." });
     }
 
+    // Determine target working month context
+    const monthCtx = parseSelectedMonth(reqSelectedMonth || (paidDate ? String(paidDate).slice(0, 7) : null));
+    const targetYear = monthCtx.year;
+    const targetMonth = monthCtx.month;
+    const formattedMonth = `${getMonthName(targetMonth)} ${targetYear}`;
+
+    // 1. Lifecycle check: Liability must have started on or before target month
+    if (!isItemActiveInMonth(liability, targetYear, targetMonth)) {
+      const liabStart = new Date(liability.startDate || liability.createdAt);
+      const startMonthName = getMonthName(liabStart.getMonth() + 1);
+      return res.status(400).json({
+        success: false,
+        message: `Cannot record payment in ${formattedMonth}. This liability started in ${startMonthName} ${liabStart.getFullYear()}.`,
+      });
+    }
+
+    // --------------------------------------------------------
+    // DERIVE DUE DATE FROM STORED SCHEDULE (server-side only)
+    // --------------------------------------------------------
+    const storedDueDay = liability.dueDay
+      || (liability.nextDueDate ? new Date(liability.nextDueDate).getDate() : null)
+      || 5; // fallback
+
+    const effectiveDueDate = calculateDueDateForMonth(storedDueDay, targetYear, targetMonth);
+
+    const effectivePaidDate = status === "Paid" || !status
+      ? (paidDate ? new Date(paidDate) : new Date())
+      : null;
+
+    // Validate paid date belongs to selected month
+    if (reqSelectedMonth && effectivePaidDate) {
+      if (!isDateInMonth(effectivePaidDate, targetYear, targetMonth)) {
+        return res.status(400).json({
+          success: false,
+          message: `Payment date must be within the selected month: ${formattedMonth}.`,
+        });
+      }
+    }
+
     const payment = {
-      amount,
-      dueDate: dueDate ? new Date(dueDate) : undefined,
-      paidDate: paidDate ? new Date(paidDate) : undefined,
-      date: paidDate ? new Date(paidDate) : new Date(),
+      amount: Number(amount),
+      dueDate: effectiveDueDate,
+      paidDate: effectivePaidDate,
+      date: effectivePaidDate || effectiveDueDate,
       status: status || "Paid",
       type: type || "EMI",
       principalComponent: principalComponent || 0,
@@ -146,6 +189,10 @@ const addLiabilityPayment = async (req, res) => {
       paymentSource: paymentSource || { method: "Cash" },
       note: note || "",
     };
+
+    if (!Array.isArray(liability.payments)) {
+      liability.payments = [];
+    }
 
     liability.payments.push(payment);
 

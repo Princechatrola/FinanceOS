@@ -138,6 +138,19 @@ const liabilitySchema = new mongoose.Schema(
       type: String,
       default: "Monthly"
     },
+    // --------------------------------------------------------
+    // RECURRING EMI/PAYMENT DUE DAY (1-31)
+    // The day of the month when EMI/payments are due.
+    // Configured once when the liability is created.
+    // The system derives the full due date automatically for
+    // each month: e.g., dueDay=5 + March 2026 → 5 Mar 2026.
+    // --------------------------------------------------------
+    dueDay: {
+      type: Number,
+      min: 1,
+      max: 31,
+      default: null,
+    },
     paymentSource: {
       type: paymentSourceSchema,
       default: () => ({ method: "Cash" })
