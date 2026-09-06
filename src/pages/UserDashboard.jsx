@@ -1323,6 +1323,7 @@ function UserDashboard() {
             insurancePolicies={insuranceRecords}
             liabilities={liabilityRecords}
             userReminders={userReminders}
+            selectedMonth={selectedMonth}
           />
         </div>
       </main>

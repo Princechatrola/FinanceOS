@@ -18,6 +18,7 @@ import {
 import useFinance from "../../context/useFinance.js";
 import { parseSelectedMonth } from "../../utils/monthLifecycle.js";
 import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../../utils/dueDateSchedule.js";
+import ReminderConfigModal from "../reminders/ReminderConfigModal.jsx";
 
 const inputClass =
   "mt-2 w-full rounded-xl border border-[#dfe6da] bg-[#fafcf8] px-4 py-3 text-sm text-[#18392c] outline-none transition placeholder:text-slate-300 focus:border-[#9fbd8d] focus:bg-white";
@@ -71,6 +72,7 @@ export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
 
   // Notes state
   const [liabilityNotes, setLiabilityNotes] = useState(liability?.notes || "");
@@ -487,14 +489,19 @@ export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
                   <p className="font-bold text-[#18392c]">Due Reminders Status</p>
                   <p className="text-slate-400 mt-0.5">
                     {liability.reminder?.enabled 
-                      ? `Notifying ${liability.reminder.daysBefore} days before via ${Object.keys(liability.reminder.channels || {}).filter(k => liability.reminder.channels[k]).join(", ")}`
+                      ? `Notifying ${liability.reminder.notifyBefore ? liability.reminder.notifyBefore.join(", ") : liability.reminder.daysBefore} days before via ${Object.keys(liability.reminder.channels || {}).filter(k => liability.reminder.channels[k]).join(", ")}`
                       : "Reminders are disabled"
                     }
                   </p>
                 </div>
-                <div className={`p-2 rounded-full ${liability.reminder?.enabled ? "bg-[#e2f0d9] text-[#385723]" : "bg-slate-100 text-slate-400"}`}>
-                  <FiBell size={18} />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowReminderModal(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#c3d9b8] bg-[#edf5e8] px-3 py-1.5 font-semibold text-[#244c3b] hover:bg-[#dfeecd] transition cursor-pointer"
+                >
+                  <FiBell className="text-xs" />
+                  {liability.reminder?.enabled ? "Manage Reminder" : "Set Reminder"}
+                </button>
               </div>
 
               {/* Notes management */}
@@ -868,6 +875,20 @@ export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
         </div>
 
       </div>
+
+      {/* REMINDER MODAL */}
+      {showReminderModal && (
+        <ReminderConfigModal
+          isOpen={showReminderModal}
+          onClose={() => setShowReminderModal(false)}
+          sourceType="Liability"
+          sourceId={liability._id || liability.id}
+          itemName={liability.name || liability.title || liability.lender || "Liability"}
+          amount={Number(liability.monthlyEMI || liability.monthlyPayment || liability.remainingAmount || 0)}
+          dueDate={derivedDueDateISO}
+          initialData={liability}
+        />
+      )}
     </div>
   );
 }

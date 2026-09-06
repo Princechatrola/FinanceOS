@@ -12,4 +12,22 @@ export default defineConfig({
     // Enables Tailwind CSS in the Vite project
     tailwindcss(),
   ],
+  server: {
+    port: 5173,
+    watch: {
+      ignored: [
+        "**/backend/**",
+        "**/data/**",
+        "**/*.log",
+        "**/.git/**",
+        "**/node_modules/**",
+      ],
+    },
+    proxy: {
+      "/api": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      },
+    },
+  },
 });

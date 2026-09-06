@@ -166,8 +166,12 @@ function getInvestmentCurrentValue(investment) {
   if (status === "closed" || status === "redeemed") return 0;
 
   if (status === "matured") {
+    if (investment.maturityRemainingAmount !== undefined && investment.maturityRemainingAmount !== null) {
+      return nonNegative(investment.maturityRemainingAmount);
+    }
     return nonNegative(
       firstDefined(
+        investment.actualMaturityValue,
         investment.maturityValue,
         investment.currentValue,
         investment.maturityAmount,
@@ -616,6 +620,230 @@ function FinanceProvider({ children }) {
     }
   };
 
+  // ============================================================
+  // REMINDER ACTIONS (Unified Live Sync)
+  // ============================================================
+
+  const updateLocalPlanReminderState = (sourceType, sourceId, enabled) => {
+    if (sourceType === "SavingGoal") {
+      setSavingGoals((prev) =>
+        prev.map((g) =>
+          g.id === sourceId || g._id === sourceId
+            ? { ...g, reminder: { ...(g.reminder || {}), enabled } }
+            : g
+        )
+      );
+    } else if (sourceType === "Investment") {
+      setInvestments((prev) =>
+        prev.map((inv) =>
+          inv.id === sourceId || inv._id === sourceId
+            ? { ...inv, reminder: { ...(inv.reminder || {}), enabled } }
+            : inv
+        )
+      );
+    } else if (sourceType === "Insurance") {
+      setInsurancePolicies((prev) =>
+        prev.map((ins) =>
+          ins.id === sourceId || ins._id === sourceId
+            ? { ...ins, reminder: { ...(ins.reminder || {}), enabled } }
+            : ins
+        )
+      );
+    } else if (sourceType === "Liability") {
+      setLiabilities((prev) =>
+        prev.map((l) =>
+          l.id === sourceId || l._id === sourceId
+            ? { ...l, reminder: { ...(l.reminder || {}), enabled } }
+            : l
+        )
+      );
+    }
+  };
+
+  const updateItemReminder = async (sourceType, sourceId, reminderConfig) => {
+    try {
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      if (!token) return { success: false, message: "Authentication required." };
+
+      const response = await fetch(`http://localhost:5000/api/reminders/source/${sourceType}/${sourceId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(reminderConfig),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to update reminder.");
+      }
+
+      const isEnabled = reminderConfig.enabled !== false;
+      updateLocalPlanReminderState(sourceType, sourceId, isEnabled);
+      await loadUserReminders();
+      return { success: true, data: data.data };
+    } catch (err) {
+      console.error("Update item reminder error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  const disableItemReminder = async (sourceType, sourceId) => {
+    try {
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      if (!token) return { success: false };
+
+      const response = await fetch(`http://localhost:5000/api/reminders/source/${sourceType}/${sourceId}/disable`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success) {
+        updateLocalPlanReminderState(sourceType, sourceId, false);
+        await loadUserReminders();
+      }
+      return data;
+    } catch (err) {
+      console.error("Disable reminder error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  const enableItemReminder = async (sourceType, sourceId) => {
+    try {
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      if (!token) return { success: false };
+
+      const response = await fetch(`http://localhost:5000/api/reminders/source/${sourceType}/${sourceId}/enable`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success) {
+        updateLocalPlanReminderState(sourceType, sourceId, true);
+        await loadUserReminders();
+      }
+      return data;
+    } catch (err) {
+      console.error("Enable reminder error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  const deleteItemReminder = async (sourceType, sourceId) => {
+    try {
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      if (!token) return { success: false };
+
+      const response = await fetch(`http://localhost:5000/api/reminders/source/${sourceType}/${sourceId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success) {
+        updateLocalPlanReminderState(sourceType, sourceId, false);
+        await loadUserReminders();
+      }
+      return data;
+    } catch (err) {
+      console.error("Delete reminder error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  const createCustomReminder = async (reminderData) => {
+    try {
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      if (!token) return { success: false };
+
+      const response = await fetch("http://localhost:5000/api/reminders", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(reminderData),
+      });
+      const data = await response.json();
+      if (data.success) {
+        await loadUserReminders();
+      }
+      return data;
+    } catch (err) {
+      console.error("Create custom reminder error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  const updateCustomReminder = async (reminderId, reminderData) => {
+    try {
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      if (!token) return { success: false };
+
+      const response = await fetch(`http://localhost:5000/api/reminders/${reminderId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(reminderData),
+      });
+      const data = await response.json();
+      if (data.success) {
+        await loadUserReminders();
+      }
+      return data;
+    } catch (err) {
+      console.error("Update custom reminder error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  const toggleCustomReminder = async (reminderId, enabled) => {
+    try {
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      if (!token) return { success: false };
+
+      const response = await fetch(`http://localhost:5000/api/reminders/${reminderId}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        await loadUserReminders();
+      }
+      return data;
+    } catch (err) {
+      console.error("Toggle reminder error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  const deleteCustomReminder = async (reminderId) => {
+    try {
+      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      if (!token) return { success: false };
+
+      const response = await fetch(`http://localhost:5000/api/reminders/${reminderId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success) {
+        await loadUserReminders();
+      }
+      return data;
+    } catch (err) {
+      console.error("Delete custom reminder error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
   const [userMessages, setUserMessages] = useState([]);
 
   const loadUserMessages = async () => {
@@ -656,6 +884,11 @@ function FinanceProvider({ children }) {
   };
 
   useEffect(() => {
+    // Reset user-specific items on user switch or logout
+    setNotifications([]);
+    setUserMessages([]);
+    setUserReminders([]);
+
     const fetchData = async () => {
       if (!userData) return;
       try {
@@ -1830,6 +2063,8 @@ function FinanceProvider({ children }) {
             : [],
         reminder: investment.reminder || undefined,
         maturityReminder: investment.maturityReminder || undefined,
+        afterMaturityAction: investment.afterMaturityAction || "MANUAL_DECIDE",
+        afterMaturityDetails: investment.afterMaturityDetails || {},
       };
 
       const response = await fetch("http://localhost:5000/api/investments", {
@@ -1855,6 +2090,8 @@ function FinanceProvider({ children }) {
         monthlyContribution: Number(data.investment.monthlyContribution || 0),
         totalInterestReceived: Number(data.investment.totalInterestReceived || 0),
         sipContributions: Array.isArray(data.investment.sipContributions) ? data.investment.sipContributions : [],
+        afterMaturityAction: data.investment.afterMaturityAction || investment.afterMaturityAction || "MANUAL_DECIDE",
+        afterMaturityDetails: data.investment.afterMaturityDetails || investment.afterMaturityDetails || {},
       };
 
       setInvestments((current) => [...current, savedInvestment]);
@@ -2248,6 +2485,77 @@ function FinanceProvider({ children }) {
     }
   };
 
+  const recordInvestmentMaturity = async (id, payload = {}) => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+
+      if (!token) return { success: false, message: "Authentication token not found." };
+
+      const response = await fetch(`http://localhost:5000/api/investments/${id}/maturity`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to record investment maturity.");
+      }
+
+      if (data.investment) {
+        setInvestments((current) =>
+          current.map((item) =>
+            String(item.id ?? item._id) === String(id)
+              ? {
+                  ...item,
+                  ...data.investment,
+                  id: item.id || data.investment._id,
+                }
+              : item
+          )
+        );
+      }
+
+      return {
+        success: true,
+        message: data.message || "Investment maturity recorded successfully.",
+        investment: data.investment,
+      };
+    } catch (error) {
+      console.error("Record Investment Maturity:", error);
+      return { success: false, message: error.message || "Failed to record investment maturity." };
+    }
+  };
+
+  const getInvestmentMaturityAllocations = async (id) => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+
+      if (!token) return { success: false, message: "Authentication token not found." };
+
+      const response = await fetch(`http://localhost:5000/api/investments/${id}/maturity-allocations`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to fetch maturity allocations.");
+      }
+
+      return data;
+    } catch (error) {
+      console.error("Get Investment Maturity Allocations:", error);
+      return { success: false, message: error.message || "Failed to fetch allocations." };
+    }
+  };
+
   const submitInvestmentMaturityAction = async (id, maturityData) => {
     try {
       const token =
@@ -2270,21 +2578,71 @@ function FinanceProvider({ children }) {
         throw new Error(data.message || "Failed to process maturity action.");
       }
 
-      setInvestments((current) =>
-        current.map((item) =>
-          item.id === id
-            ? {
-                ...item,
-                status: "Matured",
-                maturedAt: new Date().toISOString(),
-                currentValue: maturityData.maturityAmount || item.currentValue,
-                monthlyContribution: 0,
-              }
-            : item
-        )
-      );
+      // Update the matured investment in state
+      if (data.investment) {
+        setInvestments((current) =>
+          current.map((item) =>
+            String(item.id ?? item._id) === String(id)
+              ? {
+                  ...item,
+                  ...data.investment,
+                  id: item.id || data.investment._id,
+                }
+              : item
+          )
+        );
+      }
 
-      return { success: true, message: "Maturity action processed successfully." };
+      // If a new investment was created (via NEW_INVESTMENT, RENEW_FULL, RENEW_PARTIAL), add it to state
+      if (data.newInvestment) {
+        setInvestments((current) => [
+          ...current,
+          {
+            ...data.newInvestment,
+            id: data.newInvestment._id || data.newInvestment.id,
+          },
+        ]);
+      }
+
+      // If a liability was paid, update it in state
+      if (data.liability) {
+        setLiabilities((current) =>
+          current.map((l) =>
+            String(l._id ?? l.id) === String(data.liability._id ?? data.liability.id)
+              ? {
+                  ...l,
+                  ...data.liability,
+                  id: l.id || data.liability._id,
+                }
+              : l
+          )
+        );
+      }
+
+      // If KEEP_CASH was chosen, an AdditionalIncome was created!
+      // Immediately refresh month finance and monthly history so Available to Allocate updates right away!
+      if (data.additionalIncome || maturityData.actionType === "KEEP_CASH") {
+        if (data.additionalIncome) {
+          setAdditionalIncomeTransactions((current) => [
+            ...current,
+            {
+              ...data.additionalIncome,
+              id: data.additionalIncome._id || data.additionalIncome.id,
+            },
+          ]);
+        }
+        await loadMonthFinance(monthlyFinance.year, monthlyFinance.month);
+        await loadMonthlyHistory();
+      }
+
+      return {
+        success: true,
+        message: data.message || "Maturity action processed successfully.",
+        investment: data.investment,
+        liability: data.liability,
+        newInvestment: data.newInvestment,
+        maturityAction: data.maturityAction,
+      };
     } catch (error) {
       console.error("Submit Investment Maturity Action:", error);
       return { success: false, message: error.message || "Failed to process maturity action." };
@@ -2323,12 +2681,28 @@ function FinanceProvider({ children }) {
         sipContributions: Array.isArray(data.investment.sipContributions) ? data.investment.sipContributions : [],
       };
 
-      setInvestments((current) => [...current, renewedInvestment]);
+      if (data.oldInvestment) {
+        setInvestments((current) => {
+          const updated = current.map((item) =>
+            String(item.id ?? item._id) === String(id)
+              ? {
+                  ...item,
+                  ...data.oldInvestment,
+                  id: item.id || data.oldInvestment._id,
+                }
+              : item
+          );
+          return [...updated, renewedInvestment];
+        });
+      } else {
+        setInvestments((current) => [...current, renewedInvestment]);
+      }
 
       return {
         success: true,
         message: "Investment renewed successfully.",
         investment: renewedInvestment,
+        oldInvestment: data.oldInvestment,
       };
     } catch (error) {
       console.error("Renew Investment:", error);
@@ -3147,13 +3521,52 @@ function FinanceProvider({ children }) {
   ]);
 
   // ==========================================================
-  // NOTIFICATIONS
+  // ==========================================================
+  // NOTIFICATIONS & USER-SCOPED READ PERSISTENCE
   // ==========================================================
 
+  const getUserReadNotificationIds = (userId) => {
+    if (!userId) return new Set();
+    try {
+      const stored = localStorage.getItem(`financeos_read_notifications_${userId}`);
+      return new Set(stored ? JSON.parse(stored) : []);
+    } catch {
+      return new Set();
+    }
+  };
+
+  const saveUserReadNotificationId = (userId, id) => {
+    if (!userId || !id) return;
+    try {
+      const existing = getUserReadNotificationIds(userId);
+      existing.add(id);
+      localStorage.setItem(`financeos_read_notifications_${userId}`, JSON.stringify(Array.from(existing)));
+    } catch (e) {
+      console.warn("Failed to persist read notification id:", e);
+    }
+  };
+
+  const saveUserReadNotificationIds = (userId, ids = []) => {
+    if (!userId || !Array.isArray(ids) || ids.length === 0) return;
+    try {
+      const existing = getUserReadNotificationIds(userId);
+      ids.forEach((id) => existing.add(id));
+      localStorage.setItem(`financeos_read_notifications_${userId}`, JSON.stringify(Array.from(existing)));
+    } catch (e) {
+      console.warn("Failed to persist read notification ids:", e);
+    }
+  };
+
   const addNotification = (notificationData = {}) => {
+    const currentUserId = userData?._id || userData?.id || userData?.userId;
+    const notifId = notificationData.id || createId("notification");
+    const readIds = getUserReadNotificationIds(currentUserId);
+    const isAlreadyRead = Boolean(notificationData.read) || readIds.has(notifId);
+
     const notification = {
       ...notificationData,
-      id: notificationData.id || createId("notification"),
+      id: notifId,
+      userId: notificationData.userId || currentUserId || null,
       type: notificationData.type || "general",
       category: notificationData.category || "System",
       title: notificationData.title || "Notification",
@@ -3161,12 +3574,24 @@ function FinanceProvider({ children }) {
       source: notificationData.source || "system",
       sourceId: notificationData.sourceId || null,
       date: notificationData.date || new Date().toISOString(),
-      read: Boolean(notificationData.read),
+      read: isAlreadyRead,
       createdAt: notificationData.createdAt || new Date().toISOString(),
     };
 
     setNotifications((current) => {
-      if (current.some((item) => item.id === notification.id)) return current;
+      const existingIndex = current.findIndex((item) => item.id === notification.id);
+      if (existingIndex !== -1) {
+        // If already marked read in state or local storage, preserve read = true
+        if (current[existingIndex].read || isAlreadyRead) {
+          if (!current[existingIndex].read) {
+            const copy = [...current];
+            copy[existingIndex] = { ...copy[existingIndex], read: true };
+            return copy;
+          }
+          return current;
+        }
+        return current;
+      }
       return [notification, ...current];
     });
 
@@ -3174,15 +3599,19 @@ function FinanceProvider({ children }) {
   };
 
   const markNotificationAsRead = async (id) => {
+    const currentUserId = userData?._id || userData?.id || userData?.userId;
+    saveUserReadNotificationId(currentUserId, id);
+
     setNotifications((current) =>
       current.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
 
+    const token =
+      localStorage.getItem("financeos_token") ||
+      sessionStorage.getItem("financeos_token");
+
     if (String(id).startsWith("msg-")) {
       try {
-        const token =
-          localStorage.getItem("financeos_token") ||
-          sessionStorage.getItem("financeos_token");
         if (token) {
           await fetch(`http://localhost:5000/api/messages/${id}/read`, {
             method: "PUT",
@@ -3195,26 +3624,62 @@ function FinanceProvider({ children }) {
       } catch (err) {
         console.error("Failed to mark message read on backend:", err);
       }
+    } else if (String(id).startsWith("reminder-")) {
+      try {
+        const rawId = String(id).replace(/^reminder-/, "");
+        if (token && rawId) {
+          await fetch(`http://localhost:5000/api/reminders/${rawId}/read`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          });
+        }
+      } catch (err) {
+        console.error("Failed to mark reminder read on backend:", err);
+      }
     }
   };
 
-  const markAllNotificationsAsRead = async () => {
-    setNotifications((current) => current.map((n) => ({ ...n, read: true })));
+  const markAllNotificationsAsRead = async (targetIds = null) => {
+    const currentUserId = userData?._id || userData?.id || userData?.userId;
+    const idsToMark = Array.isArray(targetIds) && targetIds.length > 0
+      ? targetIds
+      : notifications.map((n) => n.id);
+
+    saveUserReadNotificationIds(currentUserId, idsToMark);
+
+    setNotifications((current) =>
+      current.map((n) =>
+        idsToMark.includes(n.id) ? { ...n, read: true } : n
+      )
+    );
+
     try {
       const token =
         localStorage.getItem("financeos_token") ||
         sessionStorage.getItem("financeos_token");
       if (token) {
-        await fetch(`http://localhost:5000/api/messages/mark-all-read`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        await Promise.allSettled([
+          fetch(`http://localhost:5000/api/messages/mark-all-read`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          }),
+          fetch(`http://localhost:5000/api/reminders/mark-all-read`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          }),
+        ]);
       }
     } catch (err) {
-      console.error("Failed to mark all messages read on backend:", err);
+      console.error("Failed to mark all messages/reminders read on backend:", err);
     }
   };
 
@@ -3305,6 +3770,8 @@ function FinanceProvider({ children }) {
 
     // Investment Maturity
     handleInvestmentMaturity,
+    recordInvestmentMaturity,
+    getInvestmentMaturityAllocations,
     renewInvestment,
     submitInvestmentMaturityAction,
     getInvestmentMaturityValue,
@@ -3381,6 +3848,14 @@ function FinanceProvider({ children }) {
     loadUserMessages,
     userReminders,
     loadUserReminders,
+    updateItemReminder,
+    disableItemReminder,
+    enableItemReminder,
+    deleteItemReminder,
+    createCustomReminder,
+    updateCustomReminder,
+    toggleCustomReminder,
+    deleteCustomReminder,
 
     // Sidebar UI State
     sidebarCollapsed,

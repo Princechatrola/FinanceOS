@@ -2,6 +2,8 @@ const Investment = require("../models/Investment");
 const Activity = require("../models/Activity");
 const User = require("../models/User");
 const InvestmentMaturityAction = require("../models/InvestmentMaturityAction");
+const Liability = require("../models/Liability");
+const AdditionalIncome = require("../models/AdditionalIncome");
 
 // Helper to log user activities safely under the strict Activity schema
 const logActivity = async (userId, description) => {
@@ -650,7 +652,16 @@ const recordInvestmentMaturity = async (req, res) => {
     investment.currentValue = actualMaturityValue;
     investment.status = "Matured";
     investment.monthlyContribution = 0;
-    investment.maturedAt = new Date();
+    investment.maturedAt = req.body.maturityDate ? new Date(req.body.maturityDate) : new Date();
+    if (req.body.maturityDate) {
+      investment.maturityDate = new Date(req.body.maturityDate);
+    }
+    investment.maturityAllocatedAmount = 0;
+    investment.maturityRemainingAmount = actualMaturityValue;
+    investment.maturityAllocationStatus = "Pending Allocation";
+    if (!Array.isArray(investment.maturityAllocations)) {
+      investment.maturityAllocations = [];
+    }
 
     await investment.save();
 
@@ -726,7 +737,7 @@ const renewInvestment = async (req, res) => {
     } = req.body;
 
     // --------------------------------------------------------
-    // MATURITY AMOUNT
+    // MATURITY AMOUNT & REMAINING TRACKING
     // --------------------------------------------------------
 
     const maturityAmount = Number(
@@ -737,6 +748,24 @@ const renewInvestment = async (req, res) => {
       0
     );
 
+    if (maturityAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Maturity amount must be greater than 0.",
+      });
+    }
+
+    if (!oldInvestment.actualMaturityValue) {
+      oldInvestment.actualMaturityValue = maturityAmount;
+    }
+
+    const prevAllocated = Number(oldInvestment.maturityAllocatedAmount || 0);
+    const availableRemaining =
+      oldInvestment.maturityRemainingAmount !== undefined &&
+      oldInvestment.maturityRemainingAmount !== null
+        ? Number(oldInvestment.maturityRemainingAmount)
+        : Math.max(0, maturityAmount - prevAllocated);
+
     // --------------------------------------------------------
     // RENEWAL AMOUNT
     // --------------------------------------------------------
@@ -744,7 +773,7 @@ const renewInvestment = async (req, res) => {
     const renewedAmount = Number(
       amount ??
       principalAmount ??
-      maturityAmount
+      availableRemaining
     );
 
     if (!Number.isFinite(renewedAmount) || renewedAmount <= 0) {
@@ -754,10 +783,10 @@ const renewInvestment = async (req, res) => {
       });
     }
 
-    if (renewedAmount > maturityAmount) {
+    if (renewedAmount > availableRemaining + 0.01) {
       return res.status(400).json({
         success: false,
-        message: "Renewal amount cannot exceed the maturity amount.",
+        message: `Renewal amount (₹${Math.round(renewedAmount).toLocaleString("en-IN")}) cannot exceed remaining maturity amount (₹${Math.round(availableRemaining).toLocaleString("en-IN")}).`,
       });
     }
 
@@ -801,11 +830,51 @@ const renewInvestment = async (req, res) => {
     });
 
     // --------------------------------------------------------
-    // LINK OLD → NEW
+    // UPDATE OLD INVESTMENT & LEDGER
     // --------------------------------------------------------
 
+    const newAllocated = prevAllocated + renewedAmount;
+    const newRemaining = Math.max(0, maturityAmount - newAllocated);
+    const newStatus = newRemaining <= 0 ? "Fully Allocated" : "Partially Allocated";
+    const isFull = renewedAmount >= availableRemaining - 0.01;
+
+    oldInvestment.maturityAllocatedAmount = newAllocated;
+    oldInvestment.maturityRemainingAmount = newRemaining;
+    oldInvestment.maturityAllocationStatus = newStatus;
+    oldInvestment.status = "Matured";
+    oldInvestment.monthlyContribution = 0;
+    if (!oldInvestment.maturedAt) {
+      oldInvestment.maturedAt = oldInvestment.maturityDate || new Date();
+    }
     oldInvestment.renewedToId = newInvestment._id;
+
+    // Create Action Ledger Record
+    const maturityAction = await InvestmentMaturityAction.create({
+      user: userId,
+      investment: oldInvestment._id,
+      actionType: isFull ? "RENEW_FULL" : "RENEW_PARTIAL",
+      maturityAmount,
+      actionAmount: renewedAmount,
+      remainingAmount: newRemaining,
+      actionDate: new Date(),
+      note: req.body.note || `Renewed ₹${renewedAmount} into ${newInvestment.name}`,
+      investmentDetails: {
+        newInvestmentId: newInvestment._id,
+        investmentType: newInvestment.type,
+        investmentName: newInvestment.name,
+      },
+    });
+
+    if (!Array.isArray(oldInvestment.maturityAllocations)) {
+      oldInvestment.maturityAllocations = [];
+    }
+    oldInvestment.maturityAllocations.push(maturityAction._id);
     await oldInvestment.save();
+
+    await logActivity(
+      userId,
+      `Renewed ₹${renewedAmount} from matured investment ${oldInvestment.name} into ${newInvestment.name}`
+    );
 
     // --------------------------------------------------------
     // SUCCESS
@@ -815,6 +884,8 @@ const renewInvestment = async (req, res) => {
       success: true,
       message: "Investment renewed successfully.",
       investment: newInvestment,
+      oldInvestment,
+      maturityAction,
       renewedFromId: oldInvestment._id,
       renewedToId: newInvestment._id,
     });
@@ -835,9 +906,9 @@ const processInvestmentMaturityAction = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
     const { id } = req.params;
-    const { actionType, actionAmount, remainingAmount, maturityAmount, note } = req.body;
+    const { actionType, actionAmount, note, actionDate } = req.body;
 
-    // FIND OLD INVESTMENT
+    // 1. FIND OLD INVESTMENT
     const investment = await Investment.findOne({
       _id: id,
       user: userId,
@@ -850,41 +921,278 @@ const processInvestmentMaturityAction = async (req, res) => {
       });
     }
 
-    if (String(investment.status).toLowerCase() !== "matured" && String(investment.status).toLowerCase() !== "active") {
+    // 2. DETERMINE TOTAL MATURITY AMOUNT
+    const totalMaturity = Number(
+      investment.actualMaturityValue ||
+      investment.estimatedMaturityAmount ||
+      investment.currentValue ||
+      investment.principalAmount ||
+      investment.amount ||
+      0
+    );
+
+    if (totalMaturity <= 0) {
       return res.status(400).json({
         success: false,
-        message: "Only an active or matured investment can be processed.",
+        message: "Actual maturity value is not recorded or must be greater than 0.",
       });
     }
 
-    // CREATE MATURITY ACTION
-    const maturityAction = await InvestmentMaturityAction.create({
+    if (!investment.actualMaturityValue) {
+      investment.actualMaturityValue = totalMaturity;
+    }
+
+    // 3. TRACK ALLOCATED & REMAINING
+    const currentAllocated = Number(investment.maturityAllocatedAmount || 0);
+    const currentRemaining =
+      investment.maturityRemainingAmount !== undefined &&
+      investment.maturityRemainingAmount !== null
+        ? Number(investment.maturityRemainingAmount)
+        : Math.max(0, totalMaturity - currentAllocated);
+
+    if (currentRemaining <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "This maturity amount has already been fully allocated.",
+      });
+    }
+
+    // 4. VALIDATE ACTION AMOUNT
+    const numActionAmount = Number(actionAmount);
+    if (!Number.isFinite(numActionAmount) || numActionAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid allocation amount greater than 0.",
+      });
+    }
+
+    if (numActionAmount > currentRemaining + 0.01) {
+      return res.status(400).json({
+        success: false,
+        message: `Allocation amount (₹${Math.round(numActionAmount).toLocaleString("en-IN")}) cannot exceed remaining maturity amount (₹${Math.round(currentRemaining).toLocaleString("en-IN")}).`,
+      });
+    }
+
+    // 5. PROCESS DESTINATION SPECIFIC ACTIONS
+    const effectiveActionDate = actionDate ? new Date(actionDate) : new Date();
+    const actionPayload = {
       user: userId,
       investment: investment._id,
       actionType: actionType || "KEEP_CASH",
-      maturityAmount: Number(maturityAmount) || 0,
-      actionAmount: Number(actionAmount) || 0,
-      remainingAmount: Number(remainingAmount) || 0,
+      maturityAmount: totalMaturity,
+      actionAmount: numActionAmount,
+      actionDate: effectiveActionDate,
       note: note || "",
-    });
+    };
 
-    // UPDATE INVESTMENT
+    let updatedLiability = null;
+    let createdNewInvestment = null;
+    let additionalIncomeCreated = null;
+
+    switch (actionType) {
+      case "BANK_SAVINGS": {
+        const bankName = String(req.body.bankName || "").trim();
+        const accountLast4 = String(req.body.accountLast4 || "").trim();
+        if (!bankName) {
+          return res.status(400).json({
+            success: false,
+            message: "Bank name is required for Save in Bank.",
+          });
+        }
+        if (!accountLast4 || !/^\d{4}$/.test(accountLast4)) {
+          return res.status(400).json({
+            success: false,
+            message: "Valid last 4 digits of the account number are required.",
+          });
+        }
+        actionPayload.bankDetails = { bankName, accountLast4 };
+        break;
+      }
+
+      case "KEEP_CASH": {
+        // Increases Available to Allocate via AdditionalIncome
+        const addIncome = await AdditionalIncome.create({
+          user: userId,
+          title: `Maturity Proceeds (Cash) - ${investment.name}`,
+          category: "Other",
+          amount: numActionAmount,
+          description: note || `Maturity cash allocation from ${investment.name}`,
+          month: effectiveActionDate.getMonth() + 1,
+          year: effectiveActionDate.getFullYear(),
+          receivedDate: effectiveActionDate,
+        });
+        actionPayload.cashDetails = { additionalIncomeId: addIncome._id };
+        additionalIncomeCreated = addIncome;
+        break;
+      }
+
+      case "PURCHASE": {
+        const itemName = String(req.body.itemName || "").trim();
+        const category = String(req.body.category || "Other").trim();
+        if (!itemName) {
+          return res.status(400).json({
+            success: false,
+            message: "Item or purchase name is required.",
+          });
+        }
+        actionPayload.purchaseDetails = { itemName, category };
+        break;
+      }
+
+      case "PAY_LIABILITY": {
+        const { liabilityId } = req.body;
+        if (!liabilityId) {
+          return res.status(400).json({
+            success: false,
+            message: "Please select an active liability to pay.",
+          });
+        }
+        const liability = await Liability.findOne({ _id: liabilityId, user: userId });
+        if (!liability) {
+          return res.status(404).json({
+            success: false,
+            message: "Selected liability was not found.",
+          });
+        }
+        const liabilityRemaining = Number(liability.remainingAmount || 0);
+        if (numActionAmount > liabilityRemaining + 0.01) {
+          return res.status(400).json({
+            success: false,
+            message: `Payment amount (₹${Math.round(numActionAmount).toLocaleString("en-IN")}) cannot exceed outstanding liability (₹${Math.round(liabilityRemaining).toLocaleString("en-IN")}).`,
+          });
+        }
+
+        const paymentRecord = {
+          amount: numActionAmount,
+          dueDate: effectiveActionDate,
+          paidDate: effectiveActionDate,
+          date: effectiveActionDate,
+          status: "Paid",
+          type: "Prepayment",
+          principalComponent: numActionAmount,
+          interestComponent: 0,
+          paymentSource: {
+            method: "Other",
+            otherDetails: `Maturity Proceeds (${investment.name})`,
+          },
+          note: note || `Paid from maturity proceeds of ${investment.name}`,
+        };
+
+        if (!Array.isArray(liability.payments)) {
+          liability.payments = [];
+        }
+        liability.payments.push(paymentRecord);
+        liability.remainingAmount = Math.max(0, liabilityRemaining - numActionAmount);
+        if (liability.remainingAmount <= 0) {
+          liability.status = "Completed";
+        }
+        await liability.save();
+        updatedLiability = liability;
+
+        actionPayload.liabilityDetails = {
+          liabilityId: liability._id,
+          liabilityName: liability.name,
+          paymentId: liability.payments[liability.payments.length - 1]._id,
+        };
+        break;
+      }
+
+      case "NEW_INVESTMENT":
+      case "RENEW_FULL":
+      case "RENEW_PARTIAL": {
+        const newInvType = req.body.investmentType || req.body.newInvestmentType || investment.type || "Other";
+        const newInvName = req.body.investmentName || req.body.newInvestmentName || `${investment.name} (Reinvested)`;
+
+        const newInv = await Investment.create({
+          user: userId,
+          name: newInvName,
+          type: newInvType,
+          amount: numActionAmount,
+          principalAmount: numActionAmount,
+          currentValue: numActionAmount,
+          monthlyContribution: 0,
+          startDate: effectiveActionDate,
+          maturityDate: req.body.newMaturityDate ? new Date(req.body.newMaturityDate) : null,
+          status: "Active",
+          institution: req.body.institution || investment.institution || "",
+          interestRate: Number(req.body.interestRate || investment.interestRate || 0),
+          interestMethod: req.body.interestMethod || investment.interestMethod || undefined,
+          paymentSource: "Other",
+          paymentSourceDetails: {
+            otherDetails: `Maturity Proceeds (${investment.name})`,
+          },
+          renewedFromId: investment._id,
+          reminder: investment.reminder,
+          maturityReminder: investment.maturityReminder,
+        });
+
+        investment.renewedToId = newInv._id;
+        createdNewInvestment = newInv;
+
+        actionPayload.investmentDetails = {
+          newInvestmentId: newInv._id,
+          investmentType: newInv.type,
+          investmentName: newInv.name,
+        };
+        break;
+      }
+
+      case "OTHER":
+      default: {
+        actionPayload.otherDetails = {
+          description: String(req.body.description || note || "Other allocation").trim(),
+          category: String(req.body.category || "Other").trim(),
+        };
+        break;
+      }
+    }
+
+    // 6. UPDATE REMAINING & TOTAL ALLOCATED
+    const newAllocated = currentAllocated + numActionAmount;
+    const newRemaining = Math.max(0, totalMaturity - newAllocated);
+    const newStatus = newRemaining <= 0 ? "Fully Allocated" : "Partially Allocated";
+
+    actionPayload.remainingAmount = newRemaining;
+
+    // 7. CREATE ACTION LEDGER RECORD
+    const maturityAction = await InvestmentMaturityAction.create(actionPayload);
+
+    // 8. UPDATE INVESTMENT RECORD
     investment.status = "Matured";
     investment.monthlyContribution = 0;
-    investment.maturedAt = new Date();
-    if (maturityAmount) {
-      investment.currentValue = Number(maturityAmount);
+    investment.actualMaturityValue = totalMaturity;
+    investment.maturityAllocatedAmount = newAllocated;
+    investment.maturityRemainingAmount = newRemaining;
+    investment.maturityAllocationStatus = newStatus;
+    if (!investment.maturedAt) {
+      investment.maturedAt = investment.maturityDate || new Date();
     }
+    if (!Array.isArray(investment.maturityAllocations)) {
+      investment.maturityAllocations = [];
+    }
+    investment.maturityAllocations.push(maturityAction._id);
     await investment.save();
 
-    // LOG ACTIVITY
-    await logActivity(userId, `Investment matured and action processed: ${actionType}`);
+    // 9. LOG ACTIVITY
+    await logActivity(
+      userId,
+      `Allocated ₹${numActionAmount} of maturity proceeds from ${investment.name} to ${actionType}`
+    );
 
     return res.status(200).json({
       success: true,
       message: "Maturity action processed successfully.",
       maturityAction,
       investment,
+      liability: updatedLiability,
+      newInvestment: createdNewInvestment,
+      additionalIncome: additionalIncomeCreated,
+      allocationSummary: {
+        maturityAmount: totalMaturity,
+        totalAllocated: newAllocated,
+        remainingAmount: newRemaining,
+        status: newStatus,
+      },
     });
   } catch (error) {
     console.error("Process Investment Maturity Action:", error);
@@ -892,6 +1200,55 @@ const processInvestmentMaturityAction = async (req, res) => {
       success: false,
       message: error.message || "Failed to process maturity action.",
     });
+  }
+};
+
+// ============================================================
+// GET INVESTMENT MATURITY ALLOCATIONS (LEDGER)
+// ============================================================
+const getInvestmentMaturityAllocations = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    const { id } = req.params;
+
+    const investment = await Investment.findOne({ _id: id, user: userId });
+    if (!investment) {
+      return res.status(404).json({ success: false, message: "Investment not found." });
+    }
+
+    const allocations = await InvestmentMaturityAction.find({
+      investment: investment._id,
+      user: userId,
+    }).sort({ actionDate: -1, createdAt: -1 });
+
+    const totalMaturity = Number(
+      investment.actualMaturityValue ||
+      investment.currentValue ||
+      investment.estimatedMaturityAmount ||
+      investment.amount ||
+      0
+    );
+    const totalAllocated = Number(investment.maturityAllocatedAmount || 0);
+    const remainingAmount = Number(
+      investment.maturityRemainingAmount !== undefined && investment.maturityRemainingAmount !== null
+        ? investment.maturityRemainingAmount
+        : Math.max(0, totalMaturity - totalAllocated)
+    );
+
+    return res.status(200).json({
+      success: true,
+      investment,
+      maturityAmount: totalMaturity,
+      totalAllocated,
+      remainingAmount,
+      status:
+        investment.maturityAllocationStatus ||
+        (remainingAmount <= 0 && totalAllocated > 0 ? "Fully Allocated" : "Pending Allocation"),
+      allocations,
+    });
+  } catch (error) {
+    console.error("Get Maturity Allocations:", error);
+    return res.status(500).json({ success: false, message: error.message || "Server Error" });
   }
 };
 
@@ -913,4 +1270,5 @@ module.exports = {
   recordInvestmentMaturity,
   renewInvestment,
   processInvestmentMaturityAction,
+  getInvestmentMaturityAllocations,
 };

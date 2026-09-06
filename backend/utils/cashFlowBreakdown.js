@@ -311,10 +311,18 @@ async function calculateMonthlyCashFlowBreakdown({ userId, year, month }) {
         const pDate = p.paidDate || p.dueDate || p.date;
         if (isDateInPeriod(pDate, targetYear, targetMonth)) {
           if (p.status === "Paid" || p.paid) {
-            const amt = safeNum(p.amount);
-            actualLiabilityPayments += amt;
-            liabPaidThisMonth += amt;
-            liabPaidCount++;
+            // Check if this payment was funded from maturity proceeds (capital transfer, not monthly income outflow)
+            const isMaturityFunded =
+              p.paymentSource?.method === "Maturity Proceeds" ||
+              (p.paymentSource?.otherDetails && String(p.paymentSource.otherDetails).includes("Maturity Proceeds")) ||
+              p.fundedFrom === "Maturity Proceeds";
+
+            if (!isMaturityFunded) {
+              const amt = safeNum(p.amount);
+              actualLiabilityPayments += amt;
+              liabPaidThisMonth += amt;
+              liabPaidCount++;
+            }
           }
         }
       });

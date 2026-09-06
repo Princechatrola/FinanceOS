@@ -746,27 +746,33 @@ export default function AdminMessages() {
 
     const newMessage = {
       title: form.subject.trim(),
+      subject: form.subject.trim(),
+      templateTitle: form.subject.trim(),
+
       message: form.message.trim(),
+      templateMessage: form.message.trim(),
 
       recipient:
         form.messageType === "Personal"
-          ? selectedUser.name
+          ? (selectedUser?.name || "User")
           : "All Users",
 
       userId:
         form.messageType === "Personal"
-          ? selectedUser.id
+          ? (selectedUser?.id || selectedUser?.userId || selectedUser?._id || null)
           : null,
 
       recipientEmail:
         form.messageType === "Personal"
-          ? selectedUser.email
+          ? (selectedUser?.email || null)
           : null,
 
       type: form.messageType,
+      audienceType: form.messageType,
 
       channels: [...form.channels],
 
+      delivery: form.delivery,
       deliveryStatus,
 
       status:
@@ -775,11 +781,18 @@ export default function AdminMessages() {
           : "Sent",
 
       createdBy: "Super Admin",
+      scheduleDate:
+        form.delivery === "Schedule"
+          ? form.scheduleDate
+          : null,
+      scheduleTime:
+        form.delivery === "Schedule"
+          ? form.scheduleTime
+          : null,
       scheduledDate:
         form.delivery === "Schedule"
           ? form.scheduleDate
           : null,
-
       scheduledTime:
         form.delivery === "Schedule"
           ? form.scheduleTime
@@ -800,12 +813,13 @@ export default function AdminMessages() {
           ...current,
         ]);
         closeCompose();
+        alert("Message created and dispatched successfully!");
       } else {
-        alert(data.message || "Failed to create message.");
+        alert(data.message || data.error || "Failed to create message.");
       }
     } catch (error) {
       console.error("Create Message Error:", error);
-      alert("Failed to create message.");
+      alert("Failed to create message: " + error.message);
     }
   }
 
@@ -1178,10 +1192,10 @@ export default function AdminMessages() {
 
                     ) : (
 
-                      filteredMessages.map((item) => (
+                      filteredMessages.map((item, mIdx) => (
 
                         <tr
-                          key={item.id}
+                          key={item._id || item.id || item.messageId || mIdx}
                           className="border-b border-[#edf0eb] last:border-b-0 hover:bg-[#fbfcfa]"
                         >
 
@@ -1233,9 +1247,9 @@ export default function AdminMessages() {
 
                             <div className="flex max-w-[220px] flex-wrap gap-1.5">
 
-                              {item.channels.map((channel) => (
+                              {item.channels.map((channel, cIdx) => (
                                 <ChannelBadge
-                                  key={channel}
+                                  key={`${channel}-${cIdx}`}
                                   channel={channel}
                                 />
                               ))}
@@ -1251,10 +1265,10 @@ export default function AdminMessages() {
 
                             <div className="space-y-1.5">
 
-                              {item.channels.map((channel) => (
+                              {item.channels.map((channel, cIdx) => (
 
                                 <div
-                                  key={channel}
+                                  key={`${channel}-${cIdx}`}
                                   className="flex items-center gap-2"
                                 >
 
@@ -1718,9 +1732,9 @@ function MessageFormModal({
                       <div className="flex flex-wrap gap-1">
 
                         {selectedUserChannels.length > 0 ? (
-                          selectedUserChannels.map((ch) => (
+                          selectedUserChannels.map((ch, cIdx) => (
                             <span
-                              key={ch}
+                              key={`${ch}-${cIdx}`}
                               className="rounded-full bg-[#dff2d2] px-2.5 py-0.5 text-[10px] font-bold text-[#315c46]"
                             >
                               ✓ {ch}
@@ -1822,10 +1836,10 @@ function MessageFormModal({
 
                       {userResults.length > 0 ? (
 
-                        userResults.map((user) => (
+                        userResults.map((user, uIdx) => (
 
                           <button
-                            key={user.id}
+                            key={user._id || user.id || uIdx}
                             type="button"
                             onClick={() =>
                               chooseUser(user)
@@ -2261,10 +2275,10 @@ function ViewMessageModal({
 
             <div className="mt-3 space-y-2">
 
-              {message.channels.map((channel) => (
+              {message.channels.map((channel, cIdx) => (
 
                 <div
-                  key={channel}
+                  key={`${channel}-${cIdx}`}
                   className="flex items-center justify-between rounded-lg border border-[#e1e7de] p-3"
                 >
 

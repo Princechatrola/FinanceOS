@@ -25,6 +25,7 @@ function SignIn() {
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
 
   const otpRefs = useRef([]);
+  const isSendingRef = useRef(false);
 
   const otp = otpDigits.join("");
 
@@ -213,6 +214,10 @@ function SignIn() {
   // ==========================================================
 
   const handleSendOTP = async () => {
+    if (isSendingRef.current || isSubmitting) {
+      return;
+    }
+
     setLoginError("");
 
     const email =
@@ -249,6 +254,7 @@ function SignIn() {
     }
 
     try {
+      isSendingRef.current = true;
       setIsSubmitting(true);
 
       // ======================================================
@@ -284,10 +290,27 @@ function SignIn() {
       // ======================================================
 
       if (!response.ok) {
-        setLoginError(
-          data.message ||
-            "Unable to send OTP."
-        );
+        if (response.status === 404) {
+          setLoginError(
+            data.message ||
+              "Authentication service endpoint is unavailable."
+          );
+        } else if (response.status === 429) {
+          setLoginError(
+            data.message ||
+              "Please wait before requesting another OTP."
+          );
+        } else if (response.status === 400) {
+          setLoginError(
+            data.message ||
+              "Please enter a valid email address."
+          );
+        } else {
+          setLoginError(
+            data.message ||
+              "Unable to send OTP right now. Please try again."
+          );
+        }
 
         return;
       }
@@ -314,10 +337,11 @@ function SignIn() {
       );
 
       setLoginError(
-        "Unable to connect to the FinanceOS server."
+        "Unable to connect to the FinanceOS server. Please check your connection."
       );
 
     } finally {
+      isSendingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -385,10 +409,22 @@ function SignIn() {
       // ======================================================
 
       if (!response.ok) {
-        setLoginError(
-          data.message ||
-            "Invalid OTP."
-        );
+        if (response.status === 404) {
+          setLoginError(
+            data.message ||
+              "Authentication service endpoint is unavailable."
+          );
+        } else if (response.status === 401) {
+          setLoginError(
+            data.message ||
+              "Invalid or expired OTP. Please try again."
+          );
+        } else {
+          setLoginError(
+            data.message ||
+              "Unable to verify OTP right now."
+          );
+        }
 
         return;
       }

@@ -62,6 +62,7 @@ import useFinance
   from "../../context/useFinance.js";
 import { parseSelectedMonth } from "../../utils/monthLifecycle.js";
 import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../../utils/dueDateSchedule.js";
+import ReminderConfigModal from "../reminders/ReminderConfigModal.jsx";
 
 
 // ============================================================
@@ -376,6 +377,11 @@ function SavingGoalCard({
     message,
     setMessage,
   ] = useState("");
+
+  const [
+    showReminderModal,
+    setShowReminderModal,
+  ] = useState(false);
 
 
   const [
@@ -1353,16 +1359,31 @@ function SavingGoalCard({
 
                 </p>
 
-                {goal?.reminder?.enabled && (
-                  <span className="inline-flex items-center gap-1 rounded-md bg-[#edf5e8] px-2 py-0.5 text-[9px] font-bold text-[#315c46]">
+                {goal?.reminder?.enabled ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowReminderModal(true)}
+                    className="inline-flex items-center gap-1 rounded-md bg-[#edf5e8] px-2 py-0.5 text-[9px] font-bold text-[#315c46] hover:bg-[#dfeecd] transition cursor-pointer"
+                    title="Click to manage reminder"
+                  >
                     <FiBell size={9} />
-                    Day {goal.reminder.contributionDay || 5} • {
+                    Day {goal.reminder.contributionDay || goalDay} • {
                       [
                         goal.reminder.channels?.inApp !== false ? "In-App" : null,
                         goal.reminder.channels?.email ? "Email" : null,
                       ].filter(Boolean).join(", ") || "In-App"
                     }
-                  </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowReminderModal(true)}
+                    className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-[9px] font-medium text-slate-500 hover:bg-slate-200 transition cursor-pointer"
+                    title="Click to enable reminder"
+                  >
+                    <FiBell size={9} />
+                    Set Reminder
+                  </button>
                 )}
 
               </div>
@@ -3034,6 +3055,16 @@ function SavingGoalCard({
         )}
 
 
+        {/* REMINDER */}
+        <button
+          type="button"
+          onClick={() => setShowReminderModal(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[#dce5d7] bg-white px-3 py-2 text-[11px] font-semibold text-[#315c46] transition hover:bg-[#f2f7f0]"
+        >
+          <FiBell className="text-xs" />
+          {goal?.reminder?.enabled ? "Reminder" : "Set Reminder"}
+        </button>
+
         {/* DELETE */}
 
         <button
@@ -3053,6 +3084,19 @@ function SavingGoalCard({
 
       </div>
 
+      {/* REMINDER MODAL */}
+      {showReminderModal && (
+        <ReminderConfigModal
+          isOpen={showReminderModal}
+          onClose={() => setShowReminderModal(false)}
+          sourceType="SavingGoal"
+          sourceId={goal._id || goal.id}
+          itemName={goal.goalName || goal.name || "Saving Goal"}
+          amount={Number(goal.monthlyContribution || goal.targetAmount || 0)}
+          dueDate={formatDateISO(new Date(new Date().getFullYear(), new Date().getMonth(), Number(goalDay) || 5))}
+          initialData={goal}
+        />
+      )}
 
     </div>
 

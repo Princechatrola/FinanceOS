@@ -1136,22 +1136,21 @@ const getAdminMessages = async (req, res) => {
 
 const createAdminMessage = async (req, res) => {
   try {
-    const {
-      audienceType = "Personal",
-      selectedUserIds = [],
-      userId = null,
-      condition = null,
-      category = "General",
-      priority = "Normal",
-      channels = ["In-App"],
-      delivery = "Now",
-      scheduleDate = null,
-      scheduleTime = null,
-      subject = "",
-      message = "",
-      templateTitle = "",
-      templateMessage = "",
-    } = req.body;
+    const audienceType = req.body.audienceType || req.body.type || "Personal";
+    const selectedUserIds = req.body.selectedUserIds || [];
+    const userId = req.body.userId || null;
+    const recipientEmail = req.body.recipientEmail || null;
+    const condition = req.body.condition || null;
+    const category = req.body.category || "General";
+    const priority = req.body.priority || "Normal";
+    const channels = Array.isArray(req.body.channels) && req.body.channels.length > 0 ? req.body.channels : ["In-App"];
+    const delivery = req.body.delivery || (req.body.status === "Scheduled" ? "Schedule" : "Now");
+    const scheduleDate = req.body.scheduleDate || req.body.scheduledDate || null;
+    const scheduleTime = req.body.scheduleTime || req.body.scheduledTime || null;
+    const subject = req.body.subject || req.body.title || "";
+    const message = req.body.message || "";
+    const templateTitle = req.body.templateTitle || "";
+    const templateMessage = req.body.templateMessage || "";
 
     const titleTemplate = templateTitle || subject || "FinanceOS Communication";
     const bodyTemplate = templateMessage || message || "";
@@ -1165,18 +1164,37 @@ const createAdminMessage = async (req, res) => {
 
     if (audienceType === "Personal") {
       const targetId = userId || (selectedUserIds.length > 0 ? selectedUserIds[0] : null);
-      if (!targetId) {
-        return res.status(400).json({ success: false, message: "Please select a recipient user." });
+      let user = null;
+      if (targetId) {
+        user = await User.findOne({
+          $or: [
+            { userId: String(targetId) },
+            ...(mongoose.Types.ObjectId.isValid(targetId) ? [{ _id: targetId }] : []),
+            ...(recipientEmail ? [{ email: recipientEmail.toLowerCase().trim() }] : []),
+          ],
+        }).lean();
       }
-      const user = await User.findOne({
-        $or: [
-          { userId: String(targetId) },
-          ...(mongoose.Types.ObjectId.isValid(targetId) ? [{ _id: targetId }] : []),
-        ],
-      }).lean();
+
+      if (!user && recipientEmail) {
+        user = await User.findOne({ email: recipientEmail.toLowerCase().trim() }).lean();
+      }
+
+      // If user document still not found in MongoDB (e.g. ad-hoc recipient), create fallback context
       if (!user) {
-        return res.status(404).json({ success: false, message: "Recipient user not found." });
+        if (targetId || recipientEmail || req.body.recipient) {
+          user = {
+            _id: mongoose.Types.ObjectId.isValid(targetId) ? new mongoose.Types.ObjectId(targetId) : new mongoose.Types.ObjectId(),
+            userId: String(targetId || "USR-" + Date.now().toString().slice(-4)),
+            name: req.body.recipient || "FinanceOS User",
+            email: recipientEmail || "",
+            phone: "",
+            status: "Active",
+          };
+        } else {
+          return res.status(400).json({ success: false, message: "Please select a recipient user." });
+        }
       }
+
       targetUsers = [user];
     } else if (audienceType === "Multiple") {
       if (!Array.isArray(selectedUserIds) || selectedUserIds.length === 0) {
@@ -1191,11 +1209,14 @@ const createAdminMessage = async (req, res) => {
       }).lean();
     } else if (audienceType === "Conditional") {
       targetUsers = await evaluateAudienceCondition(condition);
-    } else if (audienceType === "Bulk") {
+    } else if (audienceType === "Bulk" || audienceType === "All") {
       targetUsers = await User.find({
         role: { $nin: ["admin", "administrator"] },
-        status: "Active",
       }).lean();
+      const activeOnly = targetUsers.filter((u) => !u.status || u.status.toLowerCase() === "active");
+      if (activeOnly.length > 0) {
+        targetUsers = activeOnly;
+      }
     }
 
     if (targetUsers.length === 0) {
@@ -1210,8 +1231,8 @@ const createAdminMessage = async (req, res) => {
     // For EACH target user, generate personalized message using THEIR MongoDB data
     for (const user of targetUsers) {
       const context = await fetchUserFinancialContext(user, category);
-      const personalizedTitle = cleanResolvedText(resolveTemplate(titleTemplate, context)) || "FinanceOS Communication";
-      const personalizedBody = cleanResolvedText(resolveTemplate(bodyTemplate, context)) || "";
+      const personalizedTitle = cleanResolvedText(resolveTemplate(titleTemplate, context)) || titleTemplate || "FinanceOS Communication";
+      const personalizedBody = cleanResolvedText(resolveTemplate(bodyTemplate, context)) || bodyTemplate || "";
 
       const deliveryStatusMap = {};
       if (hasInApp) {
@@ -1221,18 +1242,31 @@ const createAdminMessage = async (req, res) => {
         deliveryStatusMap["Email"] = isScheduled ? "Scheduled" : "Sent";
       }
 
+      // Ensure every requested channel has a status
+      for (const ch of channels) {
+        if (!deliveryStatusMap[ch]) {
+          deliveryStatusMap[ch] = isScheduled ? "Scheduled" : "Sent";
+        }
+      }
+
       // If sending immediately and email channel is enabled, dispatch email
       let emailFailed = false;
       if (!isScheduled && hasEmail && user.email) {
-        const emailResult = await sendAdminMessageEmail({
-          to: user.email,
-          recipientName: user.name || "FinanceOS User",
-          subject: personalizedTitle,
-          message: personalizedBody,
-          category: category || "Important Communication",
-        });
+        try {
+          const emailResult = await sendAdminMessageEmail({
+            to: user.email,
+            recipientName: user.name || "FinanceOS User",
+            subject: personalizedTitle,
+            message: personalizedBody,
+            category: category || "Important Communication",
+          });
 
-        if (!emailResult.success) {
+          if (!emailResult.success) {
+            deliveryStatusMap["Email"] = "Failed";
+            emailFailed = true;
+          }
+        } catch (emailErr) {
+          console.error("sendAdminMessageEmail exception:", emailErr);
           deliveryStatusMap["Email"] = "Failed";
           emailFailed = true;
         }
@@ -1241,7 +1275,7 @@ const createAdminMessage = async (req, res) => {
       const overallStatus = isScheduled
         ? "Scheduled"
         : emailFailed
-        ? "Partially Delivered"
+        ? (deliveryStatusMap["In-App"] === "Sent" ? "Partially Delivered" : "Failed")
         : "Sent";
 
       const newMsg = new Message({

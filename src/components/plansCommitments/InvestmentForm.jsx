@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
-import { FiX, FiTrendingUp, FiCalendar, FiBell, FiDollarSign } from "react-icons/fi";
+import { FiX, FiTrendingUp, FiCalendar, FiBell, FiDollarSign, FiCheck, FiRefreshCw, FiCreditCard, FiBarChart2 } from "react-icons/fi";
 import useFinance from "../../context/useFinance.js";
 
 // ============================================================
@@ -275,6 +275,10 @@ function InvestmentForm({ onClose, onSuccess }) {
   const [stockTicker, setStockTicker] = useState("");
   const [stockQuantity, setStockQuantity] = useState("");
   const [stockPurchasePrice, setStockPurchasePrice] = useState("");
+  const [afterMaturityAction, setAfterMaturityAction] = useState("MANUAL_DECIDE");
+  const [afterMaturityBankName, setAfterMaturityBankName] = useState("");
+  const [afterMaturityAccountLast4, setAfterMaturityAccountLast4] = useState("");
+  const [afterMaturityNote, setAfterMaturityNote] = useState("");
   const [error, setError] = useState("");
 
   const isFixedDeposit = investmentType === "Fixed Deposit";
@@ -686,6 +690,20 @@ function InvestmentForm({ onClose, onSuccess }) {
           sms: maturityReminderEnabled && maturitySms,
         },
       },
+      afterMaturityAction: maturityDate ? afterMaturityAction : "MANUAL_DECIDE",
+      afterMaturityDetails: maturityDate
+        ? {
+            bankName:
+              afterMaturityAction === "BANK_SAVINGS"
+                ? (afterMaturityBankName.trim() || institution.trim())
+                : undefined,
+            accountLast4:
+              afterMaturityAction === "BANK_SAVINGS"
+                ? afterMaturityAccountLast4.trim()
+                : undefined,
+            note: afterMaturityNote.trim() || undefined,
+          }
+        : {},
     };
 
     const result = await addInvestment(investmentData);
@@ -1741,36 +1759,133 @@ function InvestmentForm({ onClose, onSuccess }) {
             )}
           </section>
 
-          {isFixedDeposit && maturityDate && (
+          {(isFixedDeposit || isRecurringDeposit || Boolean(maturityDate)) && (
             <section className="rounded-2xl border border-[#dcebd4] bg-[#f7fbf4] p-5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6c8b72]">
-                At Maturity
-              </p>
-              <h3 className="mt-1 text-sm font-semibold text-[#18392c]">
-                Choose what to do with the FD
-              </h3>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6c8b72]">
+                    At / After Maturity
+                  </p>
+                  <h3 className="mt-1 text-sm font-semibold text-[#18392c]">
+                    Choose what to do when this matures
+                  </h3>
+                </div>
+                <span className="rounded-full bg-[#e2f0dc] px-2.5 py-1 text-[10px] font-bold text-[#2d523e]">
+                  {afterMaturityAction === "RENEW_FULL"
+                    ? "Auto-Renew"
+                    : afterMaturityAction === "BANK_SAVINGS"
+                    ? "Bank Transfer"
+                    : afterMaturityAction === "KEEP_CASH"
+                    ? "Keep as Cash"
+                    : afterMaturityAction === "NEW_INVESTMENT"
+                    ? "Reinvest"
+                    : afterMaturityAction === "PAY_LIABILITY"
+                    ? "Pay Liability"
+                    : "Decide Later"}
+                </span>
+              </div>
               <p className="mt-2 text-xs leading-5 text-[#52665b]">
-                When the maturity date arrives, FinanceOS can mark the FD as matured and provide the available actions.
+                Select your preferred post-maturity action. When the maturity date arrives, FinanceOS will prompt or execute this option with full allocation tracking.
               </p>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <MaturityOption
-                  title="Withdraw / Close"
-                  description="Close the FD and move the available proceeds to Cash & Savings."
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <MaturityOptionButton
+                  id="BANK_SAVINGS"
+                  title="Transfer to Bank"
+                  description="Move proceeds safely into your linked bank savings account."
+                  icon={<FiCreditCard size={16} />}
+                  isSelected={afterMaturityAction === "BANK_SAVINGS"}
+                  onSelect={setAfterMaturityAction}
                 />
-                <MaturityOption
-                  title="Renew FD"
-                  description="Keep the old FD in history and create a renewed FD with new terms."
+                <MaturityOptionButton
+                  id="RENEW_FULL"
+                  title="Renew Investment"
+                  description="Continue principal and returns into a renewed investment cycle."
+                  icon={<FiRefreshCw size={16} />}
+                  isSelected={afterMaturityAction === "RENEW_FULL"}
+                  onSelect={setAfterMaturityAction}
                 />
-                <MaturityOption
-                  title="Create New FD"
-                  description="Use all or part of the proceeds to create another fixed deposit."
+                <MaturityOptionButton
+                  id="KEEP_CASH"
+                  title="Keep as Cash"
+                  description="Add maturity proceeds to Available to Allocate cash for flexible budgeting."
+                  icon={<FiDollarSign size={16} />}
+                  isSelected={afterMaturityAction === "KEEP_CASH"}
+                  onSelect={setAfterMaturityAction}
                 />
-                <MaturityOption
-                  title="Allocate to Goal"
-                  description="Use available maturity proceeds toward an active saving goal."
+                <MaturityOptionButton
+                  id="NEW_INVESTMENT"
+                  title="Reinvest in New Scheme"
+                  description="Deploy maturity funds into another mutual fund, FD, or asset."
+                  icon={<FiBarChart2 size={16} />}
+                  isSelected={afterMaturityAction === "NEW_INVESTMENT"}
+                  onSelect={setAfterMaturityAction}
+                />
+                <MaturityOptionButton
+                  id="PAY_LIABILITY"
+                  title="Pay Down Liability"
+                  description="Direct maturity proceeds toward loan paydowns or debt reduction."
+                  icon={<FiCreditCard size={16} />}
+                  isSelected={afterMaturityAction === "PAY_LIABILITY"}
+                  onSelect={setAfterMaturityAction}
+                />
+                <MaturityOptionButton
+                  id="MANUAL_DECIDE"
+                  title="Decide at Maturity"
+                  description="Keep allocation pending and choose the specific destination when matured."
+                  icon={<FiTrendingUp size={16} />}
+                  isSelected={afterMaturityAction === "MANUAL_DECIDE"}
+                  onSelect={setAfterMaturityAction}
                 />
               </div>
+
+              {/* Extra Inputs based on Selection */}
+              {afterMaturityAction === "BANK_SAVINGS" && (
+                <div className="mt-4 rounded-xl border border-[#cfe0cc] bg-white p-4">
+                  <p className="text-xs font-bold text-[#18392c]">Bank Account Details for Maturity Transfer</p>
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#52665b]">Bank Name</label>
+                      <input
+                        type="text"
+                        value={afterMaturityBankName}
+                        onChange={(e) => setAfterMaturityBankName(e.target.value)}
+                        placeholder={institution || "e.g., HDFC Bank, SBI"}
+                        className={`${inputClass} !mt-1`}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-[#52665b]">Account Last 4 Digits</label>
+                      <input
+                        type="text"
+                        maxLength="4"
+                        value={afterMaturityAccountLast4}
+                        onChange={(e) => setAfterMaturityAccountLast4(e.target.value.replace(/\D/g, ""))}
+                        placeholder="e.g., 4321"
+                        className={`${inputClass} !mt-1`}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {afterMaturityAction === "RENEW_FULL" && (
+                <div className="mt-3 rounded-xl border border-[#bce0b5] bg-[#eef7ea] p-3 text-xs text-[#285038]">
+                  <p className="font-semibold">Automatic Renewal Configured</p>
+                  <p className="mt-0.5 text-[11px] leading-4 text-[#446d54]">
+                    When this matures, FinanceOS will generate a renewed investment continuing with the full principal & interest.
+                  </p>
+                </div>
+              )}
+
+              {afterMaturityAction === "KEEP_CASH" && (
+                <div className="mt-3 rounded-xl border border-[#bce0b5] bg-[#eef7ea] p-3 text-xs text-[#285038]">
+                  <p className="font-semibold">Cash Pool Credit Configured</p>
+                  <p className="mt-0.5 text-[11px] leading-4 text-[#446d54]">
+                    Maturity proceeds will immediately increase your monthly Available to Allocate cash for flexible distribution.
+                  </p>
+                </div>
+              )}
             </section>
           )}
 
@@ -1881,12 +1996,42 @@ function SummaryItem({ label, value }) {
   );
 }
 
-function MaturityOption({ title, description }) {
+function MaturityOptionButton({ id, title, description, icon, isSelected, onSelect }) {
   return (
-    <div className="rounded-xl bg-white p-4">
-      <p className="text-xs font-semibold text-[#18392c]">{title}</p>
-      <p className="mt-1 text-[10px] leading-4 text-slate-400">{description}</p>
-    </div>
+    <button
+      type="button"
+      onClick={() => onSelect(id)}
+      className={`group relative flex flex-col justify-between rounded-2xl border p-4 text-left transition-all ${
+        isSelected
+          ? "border-[#315c46] bg-[#edf6e8] shadow-sm ring-2 ring-[#315c46]/20"
+          : "border-[#dfe8dc] bg-white hover:border-[#9fbd8d] hover:bg-[#fafcf8]"
+      }`}
+    >
+      <div className="flex w-full items-start justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition ${
+              isSelected
+                ? "bg-[#315c46] text-white"
+                : "bg-[#edf6e8] text-[#315c46] group-hover:bg-[#e2f0dc]"
+            }`}
+          >
+            {icon}
+          </span>
+          <p className="text-xs font-bold text-[#18392c]">{title}</p>
+        </div>
+        <div
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition ${
+            isSelected
+              ? "border-[#315c46] bg-[#315c46] text-white"
+              : "border-[#cbdac8] bg-white group-hover:border-[#9fbd8d]"
+          }`}
+        >
+          {isSelected && <FiCheck size={12} />}
+        </div>
+      </div>
+      <p className="mt-2 text-[11px] leading-4 text-[#52665b]">{description}</p>
+    </button>
   );
 }
 

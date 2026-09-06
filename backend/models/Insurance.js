@@ -80,7 +80,7 @@ const insuranceSchema = new mongoose.Schema(
     },
     premiumFrequency: {
       type: String,
-      enum: ["Monthly", "Quarterly", "Half-Yearly", "Yearly", "One Time"],
+      enum: ["Monthly", "Month", "Quarterly", "Half-Yearly", "Yearly", "One Time"],
       default: "Yearly",
     },
     // --------------------------------------------------------

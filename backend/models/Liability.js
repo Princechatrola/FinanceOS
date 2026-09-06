@@ -4,7 +4,7 @@ const paymentSourceSchema = new mongoose.Schema(
   {
     method: {
       type: String,
-      enum: ["Cash", "UPI", "Bank Account", "Other"],
+      enum: ["Cash", "UPI", "Bank Account", "Maturity Proceeds", "Other"],
       default: "Cash"
     },
     bankName: { type: String, default: "" },
@@ -77,11 +77,13 @@ const liabilitySchema = new mongoose.Schema(
         "Personal Loan",
         "Home Loan",
         "Vehicle Loan",
+        "Car Loan",
         "Education Loan",
         "Credit Card",
         "Gold Loan",
         "Business Loan",
         "Other Liability",
+        "Other",
       ],
       required: true,
     },

@@ -35,6 +35,8 @@
 //
 // ============================================================
 
+import { generateEventReminders } from "./financialReminders.js";
+
 const DEFAULT_OCCURRENCE_LIMIT = 12;
 
 
@@ -63,14 +65,14 @@ function isValidDate(date) {
     return false;
   }
 
-  const parsedDate =
-    new Date(
-      `${date}T00:00:00`
-    );
+  if (date instanceof Date) {
+    return !Number.isNaN(date.getTime());
+  }
 
-  return !Number.isNaN(
-    parsedDate.getTime()
-  );
+  const str = typeof date === "string" ? date.split("T")[0] : String(date);
+  const parsedDate = new Date(`${str}T00:00:00`);
+
+  return !Number.isNaN(parsedDate.getTime());
 }
 
 
@@ -82,18 +84,29 @@ function isValidDate(date) {
 //
 // ============================================================
 
-function parseDate(dateString) {
-  if (!isValidDate(dateString)) {
+function parseDate(dateInput) {
+  if (!isValidDate(dateInput)) {
     return null;
   }
 
+  if (dateInput instanceof Date) {
+    return new Date(
+      dateInput.getFullYear(),
+      dateInput.getMonth(),
+      dateInput.getDate()
+    );
+  }
+
+  const str = typeof dateInput === "string" ? dateInput.split("T")[0] : String(dateInput);
   const [
     year,
     month,
     day,
-  ] = dateString
+  ] = str
     .split("-")
     .map(Number);
+
+  if (!year || !month || !day) return null;
 
   return new Date(
     year,
@@ -215,36 +228,56 @@ function isAfterDate(
 
 function createEvent({
   id,
+  reminderId = null,
+  userId = null,
   sourceId,
+  sourceType,
   type,
   title,
+  cleanTitle,
   date,
+  dueDate,
   amount = 0,
   status = "Active",
   reminder = null,
   description = "",
+  isReminderEvent = false,
+  isDueEvent = false,
+  timing = null,
+  channels = null,
 }) {
+  const resolvedSourceType = sourceType || (
+    type?.includes("goal") ? "SavingGoal" :
+    type?.includes("investment") ? "Investment" :
+    type?.includes("insurance") ? "Insurance" :
+    type?.includes("liability") ? "Liability" : "General"
+  );
+
   return {
     id,
-
+    reminderId: reminderId || id,
+    _id: reminderId || id,
+    userId,
     sourceId,
-
+    sourceType: resolvedSourceType,
     type,
-
     title,
-
+    cleanTitle: cleanTitle || title,
     date,
-
-    amount:
-      Number(
-        amount || 0
-      ),
-
+    dueDate: dueDate || date,
+    amount: Number(amount || 0),
     status,
-
     reminder,
-
+    reminderEnabled: Boolean(
+      reminder?.enabled === true ||
+      reminder?.enabled === "true" ||
+      reminder === true
+    ),
     description,
+    isReminderEvent: Boolean(isReminderEvent),
+    isDueEvent: Boolean(isDueEvent),
+    timing,
+    channels: channels || reminder?.channels,
   };
 }
 
@@ -363,6 +396,7 @@ function createGoalEvents(
       const monthlyAllocation =
         Number(
           goal.monthlyAllocation ||
+          goal.monthlyContribution ||
             0
         );
 
@@ -390,7 +424,9 @@ function createGoalEvents(
               goal.startDate
             )
           ? goal.startDate
-          : null;
+          : goal.createdAt
+          ? goal.createdAt
+          : new Date();
 
 
       // ------------------------------------------------------
@@ -478,7 +514,7 @@ function createGoalEvents(
                   "goal",
 
                 title:
-                  `${goal.name} Contribution`,
+                  `${goal.name || goal.goalName || "Goal"} Contribution`,
 
                 date,
 
@@ -523,7 +559,7 @@ function createGoalEvents(
               "goal-deadline",
 
             title:
-              `${goal.name} Goal Deadline`,
+              `${goal.name || goal.goalName || "Goal"} Goal Deadline`,
 
             date:
               deadline,
@@ -857,7 +893,7 @@ function createInsuranceEvents(
                   "insurance",
 
                 title:
-                  `${policy.name} Premium`,
+                  `${policy.name || policy.policyName || "Insurance"} Premium`,
 
                 date,
 
@@ -868,7 +904,7 @@ function createInsuranceEvents(
                   policy.status,
 
                 reminder:
-                  policy.paymentReminder,
+                  policy.reminder || policy.paymentReminder,
 
                 description:
                   `${policy.premiumFrequency || "Premium"} payment ₹${formatMoney(
@@ -1187,64 +1223,84 @@ export function generateFinancialCalendarEvents({
   insurancePolicies = [],
   liabilities = [],
   userReminders = [],
+  currentUserId = null,
 }) {
-  const goalEvents =
-    createGoalEvents(
-      savingGoals
-    );
+  const goalEvents = createGoalEvents(savingGoals);
+  const investmentEvents = createInvestmentEvents(investments);
+  const insuranceEvents = createInsuranceEvents(insurancePolicies);
+  const liabilityEvents = createLiabilityEvents(liabilities);
 
-
-  const investmentEvents =
-    createInvestmentEvents(
-      investments
-    );
-
-
-  const insuranceEvents =
-    createInsuranceEvents(
-      insurancePolicies
-    );
-
-
-  const liabilityEvents =
-    createLiabilityEvents(
-      liabilities
-    );
-
-  const customReminderEvents = userReminders.map(reminder => createEvent({
-    id: `user-reminder-${reminder.id}`,
-    sourceId: reminder.id,
-    type: "user-reminder",
-    title: reminder.title,
-    date: reminder.date,
-    amount: 0,
-    status: "Active",
-    reminder: true,
-    description: reminder.description || "Custom Reminder"
-  }));
-
-
-  const allEvents = [
+  const dueEvents = [
     ...goalEvents,
     ...investmentEvents,
     ...insuranceEvents,
     ...liabilityEvents,
-    ...customReminderEvents,
+  ].map((ev) => ({
+    ...ev,
+    isDueEvent: true,
+    isReminderEvent: false,
+    dueDate: ev.date,
+  }));
+
+  // Show ONLY reminders that the specific user created with that specific reminder ID
+  const userCreatedReminderEvents = [];
+
+  (userReminders || []).forEach((reminder) => {
+    // Only show enabled reminders
+    if (reminder.enabled === false || reminder.status === "Disabled") {
+      return;
+    }
+
+    // Isolate by user ID if currentUserId is provided
+    if (
+      currentUserId &&
+      reminder.userId &&
+      String(reminder.userId) !== String(currentUserId)
+    ) {
+      return;
+    }
+
+    const reminderId = String(reminder._id || reminder.id || "");
+    if (!reminderId) return;
+
+    // Use the reminder's scheduled or due date
+    const eventDate = reminder.dueDate || reminder.scheduledDate || reminder.date;
+    if (!eventDate) return;
+
+    // Push exactly one calendar event using the reminder's specific ID
+    userCreatedReminderEvents.push(
+      createEvent({
+        id: reminderId,
+        reminderId: reminderId,
+        _id: reminderId,
+        userId: reminder.userId,
+        sourceId: reminder.sourceId || reminderId,
+        sourceType: reminder.sourceType || "General",
+        type: "reminder-alert",
+        title: `🔔 Reminder: ${reminder.title || reminder.itemName}`,
+        cleanTitle: reminder.title || reminder.itemName,
+        date: eventDate,
+        dueDate: reminder.dueDate || eventDate,
+        amount: Number(reminder.amount || 0),
+        status: reminder.status || "Scheduled",
+        reminder: { enabled: true, channels: reminder.channels },
+        description: reminder.description || reminder.message || "Reminder Alert",
+        isReminderEvent: true,
+        isDueEvent: false,
+        channels: reminder.channels,
+      })
+    );
+  });
+
+  const allEvents = [
+    ...dueEvents,
+    ...userCreatedReminderEvents,
   ];
-
-
-  // ==========================================================
-  // SORT BY DATE
-  // ==========================================================
 
   return allEvents.sort(
     (a, b) =>
-      parseDate(
-        a.date
-      ) -
-      parseDate(
-        b.date
-      )
+      parseDate(a.date) -
+      parseDate(b.date)
   );
 }
 

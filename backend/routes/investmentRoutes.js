@@ -23,6 +23,7 @@ const {
   recordInvestmentMaturity,
   renewInvestment,
   processInvestmentMaturityAction,
+  getInvestmentMaturityAllocations,
 } = require("../controllers/investmentController");
 
 // ============================================================
@@ -123,6 +124,13 @@ router.post(
   "/:id/maturity-action",
   authMiddleware,
   processInvestmentMaturityAction
+);
+
+// Get Investment Maturity Allocations
+router.get(
+  "/:id/maturity-allocations",
+  authMiddleware,
+  getInvestmentMaturityAllocations
 );
 
 // ============================================================

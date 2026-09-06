@@ -38,17 +38,29 @@ console.log("=================================");
 
 
 // ============================================================
-// NODEMAILER TRANSPORTER
+// NODEMAILER TRANSPORTER (POOLED + SECURE DIRECT TLS)
 // ============================================================
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
-
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
+  pool: true,
+  maxConnections: 5,
+  maxMessages: 100,
+  rateDelta: 1000,
+  rateLimit: 5,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD,
   },
+  connectionTimeout: 8000,
+  greetingTimeout: 4000,
+  socketTimeout: 8000,
 });
+
+// IN-FLIGHT REQUEST SET (PREVENTS DUPLICATE CONCURRENT SENDS)
+const inflightOtpRequests = new Set();
 
 
 // ============================================================
@@ -153,6 +165,19 @@ const sendLoginOTP = async (req, res) => {
 
 
     // ========================================================
+    // CONCURRENT IN-FLIGHT REQUEST CHECK
+    // ========================================================
+
+    if (inflightOtpRequests.has(normalizedEmail)) {
+      return res.status(429).json({
+        success: false,
+        message:
+          "An OTP request is already being processed. Please wait a moment.",
+      });
+    }
+
+
+    // ========================================================
     // EMAIL FORMAT VALIDATION
     // ========================================================
 
@@ -253,6 +278,26 @@ const sendLoginOTP = async (req, res) => {
 
 
     // ========================================================
+    // OTP RATE LIMIT / COOLDOWN CHECK (30 SECONDS COOLDOWN)
+    // ========================================================
+
+    if (user.otpExpiresAt) {
+      const msRemaining = user.otpExpiresAt.getTime() - Date.now();
+      // OTP has 5 minutes validity (300 seconds).
+      // If remaining time is greater than 270 seconds, request was made < 30 seconds ago.
+      if (msRemaining > (5 * 60 - 30) * 1000) {
+        const cooldownSeconds = Math.ceil(
+          (msRemaining - (5 * 60 - 30) * 1000) / 1000
+        );
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${cooldownSeconds} seconds before requesting another OTP.`,
+        });
+      }
+    }
+
+
+    // ========================================================
     // KEEP ROLE IN DATABASE SYNCHRONIZED
     // ========================================================
 
@@ -273,12 +318,6 @@ const sendLoginOTP = async (req, res) => {
 
     const otp =
       generateOTP();
-
-
-    console.log(
-      "OTP generated:",
-      otp
-    );
 
 
     // ========================================================
@@ -305,6 +344,9 @@ const sendLoginOTP = async (req, res) => {
         role,
       },
     });
+
+    // Mark request as in-flight
+    inflightOtpRequests.add(normalizedEmail);
 
 
     // ========================================================
@@ -465,9 +507,20 @@ FinanceOS Team
 
     console.error(
       "Send Login OTP Error:",
-      error
+      error.message || error
     );
 
+    // Rollback OTP in database if email dispatch failed
+    try {
+      const email = req.body?.email;
+      if (email) {
+        const normalized = String(email).trim().toLowerCase();
+        await User.findOneAndUpdate(
+          { email: normalized },
+          { $set: { otp: null, otpExpiresAt: null } }
+        );
+      }
+    } catch (_) {}
 
     return res.status(500).json({
 
@@ -478,6 +531,14 @@ FinanceOS Team
 
     });
 
+  } finally {
+    try {
+      const email = req.body?.email;
+      if (email) {
+        const normalized = String(email).trim().toLowerCase();
+        inflightOtpRequests.delete(normalized);
+      }
+    } catch (_) {}
   }
 };
 

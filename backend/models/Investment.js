@@ -345,6 +345,44 @@ const investmentSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    maturityAllocatedAmount: {
+      type: Number,
+      default: 0,
+    },
+    maturityRemainingAmount: {
+      type: Number,
+      default: 0,
+    },
+    maturityAllocationStatus: {
+      type: String,
+      enum: ["Pending Allocation", "Partially Allocated", "Fully Allocated"],
+      default: "Pending Allocation",
+    },
+    maturityAllocations: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "InvestmentMaturityAction",
+      },
+    ],
+    afterMaturityAction: {
+      type: String,
+      enum: [
+        "MANUAL_DECIDE",
+        "RENEW_FULL",
+        "RENEW_PARTIAL",
+        "BANK_SAVINGS",
+        "KEEP_CASH",
+        "NEW_INVESTMENT",
+        "PAY_LIABILITY",
+        "PURCHASE",
+        "OTHER",
+      ],
+      default: "MANUAL_DECIDE",
+    },
+    afterMaturityDetails: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
 
     // --------------------------------------------------------
     // FIXED DEPOSIT

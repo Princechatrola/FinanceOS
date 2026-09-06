@@ -96,9 +96,9 @@ function normalizeDate(value) {
   if (
     typeof value === "string"
   ) {
-
+    const str = value.split("T")[0];
     const parts =
-      value
+      str
         .split("-")
         .map(Number);
 
@@ -444,193 +444,88 @@ function getReminderTypeLabel(
 //
 // ============================================================
 
-function getReminderOptions(
-  reminder = {}
-) {
+function getReminderOptions(reminder = {}) {
+  const options = new Set();
 
-  const options =
-    new Set();
-
-
-  // ==========================================================
-  // ARRAY OPTIONS
-  // ==========================================================
-
-  if (
-    Array.isArray(
-      reminder.options
-    )
-  ) {
-
-    reminder.options.forEach(
-      (option) => {
-
-        options.add(
-          String(
-            option
-          )
-            .trim()
-            .toLowerCase()
-        );
-
-      }
-    );
-
+  // 1. Array options (legacy or explicit)
+  if (Array.isArray(reminder.options)) {
+    reminder.options.forEach((opt) => options.add(String(opt).trim().toLowerCase()));
+  }
+  if (Array.isArray(reminder.timings)) {
+    reminder.timings.forEach((opt) => options.add(String(opt).trim().toLowerCase()));
   }
 
-
-  // ==========================================================
-  // ALTERNATIVE ARRAY
-  // ==========================================================
-
-  if (
-    Array.isArray(
-      reminder.timings
-    )
-  ) {
-
-    reminder.timings.forEach(
-      (option) => {
-
-        options.add(
-          String(
-            option
-          )
-            .trim()
-            .toLowerCase()
-        );
-
-      }
-    );
-
+  // 2. notifyBefore array (e.g. [5, 1, 0, 7])
+  if (Array.isArray(reminder.notifyBefore)) {
+    reminder.notifyBefore.forEach((num) => {
+      const n = Number(num);
+      if (n === 0) options.add("on-due-date");
+      else if (n > 0) options.add(`${n}-days-before`);
+    });
   }
 
-
-  // ==========================================================
-  // BOOLEAN FIELDS
-  // ==========================================================
-
-  if (
-    reminder.remind5DaysBefore
-  ) {
-
-    options.add(
-      "5-days-before"
-    );
-
+  // 3. daysBefore number (Liabilities)
+  if (typeof reminder.daysBefore === "number" && reminder.daysBefore > 0) {
+    options.add(`${reminder.daysBefore}-days-before`);
   }
 
-
-  if (
-    reminder.remind1DayBefore
-  ) {
-
-    options.add(
-      "1-day-before"
-    );
-
+  // 4. notifyBeforeDays & notifyBeforeMonths (Maturity)
+  if (Array.isArray(reminder.notifyBeforeDays)) {
+    reminder.notifyBeforeDays.forEach((n) => {
+      if (Number(n) > 0) options.add(`${Number(n)}-days-before`);
+    });
+  }
+  if (Array.isArray(reminder.notifyBeforeMonths)) {
+    reminder.notifyBeforeMonths.forEach((n) => {
+      if (Number(n) > 0) options.add(`${Number(n)}-months-before`);
+    });
+  }
+  if (reminder.onMaturityDate) {
+    options.add("on-due-date");
   }
 
-
-  if (
-    reminder.remindOnDueDate
-  ) {
-
-    options.add(
-      "on-due-date"
-    );
-
+  // 5. Insurance premiumReminders
+  if (reminder.premiumReminders) {
+    if (reminder.premiumReminders.fiveDaysBefore) options.add("5-days-before");
+    if (reminder.premiumReminders.oneDayBefore) options.add("1-day-before");
+    if (reminder.premiumReminders.onDueDate) options.add("on-due-date");
   }
 
-
-  if (
-    reminder.remind2MonthsBefore
-  ) {
-
-    options.add(
-      "2-months-before"
-    );
-
+  // 6. Insurance expiryReminders
+  if (reminder.expiryReminders) {
+    if (reminder.expiryReminders.twoMonthsBefore) options.add("2-months-before");
+    if (reminder.expiryReminders.oneMonthBefore) options.add("1-month-before");
+    if (reminder.expiryReminders.sevenDaysBefore) options.add("7-days-before");
+    if (reminder.expiryReminders.onExpiryDate) options.add("on-due-date");
   }
 
-
-  if (
-    reminder.remind1MonthBefore
-  ) {
-
-    options.add(
-      "1-month-before"
-    );
-
+  // 7. Insurance maturityReminders
+  if (reminder.maturityReminders) {
+    if (reminder.maturityReminders.twoMonthsBefore) options.add("2-months-before");
+    if (reminder.maturityReminders.oneMonthBefore) options.add("1-month-before");
+    if (reminder.maturityReminders.onMaturityDate) options.add("on-due-date");
   }
 
+  // 8. Legacy boolean fields
+  if (reminder.remind5DaysBefore) options.add("5-days-before");
+  if (reminder.remind1DayBefore) options.add("1-day-before");
+  if (reminder.remindOnDueDate) options.add("on-due-date");
+  if (reminder.remind2MonthsBefore) options.add("2-months-before");
+  if (reminder.remind1MonthBefore) options.add("1-month-before");
 
-  // ==========================================================
-  // SUPPORT HUMAN-READABLE VALUES
-  // ==========================================================
+  // Normalize human strings
+  const normalized = new Set();
+  options.forEach((opt) => {
+    const s = String(opt).toLowerCase().trim();
+    if (s === "5 days before") normalized.add("5-days-before");
+    else if (s === "1 day before") normalized.add("1-day-before");
+    else if (s === "on due date" || s === "on date") normalized.add("on-due-date");
+    else if (s === "2 months before") normalized.add("2-months-before");
+    else if (s === "1 month before") normalized.add("1-month-before");
+    else normalized.add(s);
+  });
 
-  const normalized =
-    Array.from(
-      options
-    ).map(
-      (option) => {
-
-
-        if (
-          option === "5 days before"
-        ) {
-
-          return "5-days-before";
-
-        }
-
-
-        if (
-          option === "1 day before"
-        ) {
-
-          return "1-day-before";
-
-        }
-
-
-        if (
-          option === "on due date"
-        ) {
-
-          return "on-due-date";
-
-        }
-
-
-        if (
-          option === "2 months before"
-        ) {
-
-          return "2-months-before";
-
-        }
-
-
-        if (
-          option === "1 month before"
-        ) {
-
-          return "1-month-before";
-
-        }
-
-
-        return option;
-
-      }
-    );
-
-
-  return new Set(
-    normalized
-  );
-
+  return normalized;
 }
 
 
@@ -639,133 +534,31 @@ function getReminderOptions(
 // ============================================================
 
 function createReminder({
-
   event,
-
   reminderDate,
-
   timing,
-
   message,
-
 }) {
-
-  const eventDate =
-    normalizeDate(
-      event.date
-    );
-
+  const eventDate = normalizeDate(event.date);
 
   return {
-
-    // --------------------------------------------------------
-    // UNIQUE ID
-    // --------------------------------------------------------
-
-    id:
-      `${event.id}-${timing}-${formatDateKey(
-        reminderDate
-      )}`,
-
-
-    // --------------------------------------------------------
-    // SOURCE EVENT
-    // --------------------------------------------------------
-
-    eventId:
-      event.id,
-
-
-    eventType:
-      event.type,
-
-
-    type:
-      getReminderTypeLabel(
-        event
-      ),
-
-
-    // --------------------------------------------------------
-    // DISPLAY INFORMATION
-    // --------------------------------------------------------
-
-    title:
-      event.title ||
-      "Financial Reminder",
-
-
+    id: `${event.id}-${timing}-${formatDateKey(reminderDate)}`,
+    eventId: event.id,
+    eventType: event.type,
+    type: getReminderTypeLabel(event),
+    title: event.title || "Financial Reminder",
     message,
-
-
-    amount:
-      Number(
-        event.amount || 0
-      ),
-
-
-    // --------------------------------------------------------
-    // DATES
-    // --------------------------------------------------------
-
-    eventDate:
-      event.date,
-
-
-    reminderDate:
-      formatDateKey(
-        reminderDate
-      ),
-
-
-    // --------------------------------------------------------
-    // REMINDER TIMING
-    // --------------------------------------------------------
-
+    amount: Number(event.amount || 0),
+    eventDate: event.date,
+    reminderDate: formatDateKey(reminderDate),
+    date: formatDateKey(reminderDate),
     timing,
-
-
-    // --------------------------------------------------------
-    // SOURCE INFORMATION
-    // --------------------------------------------------------
-
-    status:
-      event.status || null,
-
-
-    sourceId:
-      event.sourceId || null,
-
-
-    // --------------------------------------------------------
-    // CHANNEL SETTINGS
-    // --------------------------------------------------------
-
-    channels:
-      event.reminder
-        ?.channels || [],
-
-
-    // --------------------------------------------------------
-    // DEFAULT UI STATE
-    // --------------------------------------------------------
-
-    read:
-      false,
-
-
-    // --------------------------------------------------------
-    // DAYS UNTIL EVENT
-    // --------------------------------------------------------
-
-    daysUntilEvent:
-      differenceInDays(
-        reminderDate,
-        eventDate
-      ),
-
+    status: event.status || null,
+    sourceId: event.sourceId || null,
+    channels: event.reminder?.channels || [],
+    read: false,
+    daysUntilEvent: differenceInDays(reminderDate, eventDate),
   };
-
 }
 
 
@@ -773,297 +566,80 @@ function createReminder({
 // GENERATE REMINDERS FOR ONE EVENT
 // ============================================================
 
-function generateEventReminders(
-  event
-) {
-
-
-  // ==========================================================
-  // VALIDATE EVENT
-  // ==========================================================
-
-  if (
-    !event ||
-    !event.date
-  ) {
-
+export function generateEventReminders(event) {
+  if (!event || !event.date) {
     return [];
-
   }
 
-
-  // ==========================================================
-  // REMINDER SETTINGS
-  // ==========================================================
-
-  const reminder =
-    event.reminder || {};
-
-
-  // ==========================================================
-  // REMINDER DISABLED
-  // ==========================================================
-
-  if (
-    reminder.enabled !== true
-  ) {
-
+  const reminder = event.reminder || {};
+  if (reminder.enabled !== true && reminder.enabled !== "true") {
     return [];
-
   }
 
-
-  // ==========================================================
-  // EVENT DATE
-  // ==========================================================
-
-  const eventDate =
-    normalizeDate(
-      event.date
-    );
-
-
+  const eventDate = normalizeDate(event.date);
   if (!eventDate) {
-
     return [];
-
   }
 
-
-  // ==========================================================
-  // OPTIONS
-  // ==========================================================
-
-  const options =
-    getReminderOptions(
-      reminder
-    );
-
-
-  const reminders =
-    [];
-
-
-  // ==========================================================
-  // IF NO OPTIONS EXIST
-  // ==========================================================
-  //
-  // Default:
-  //
-  // On due date.
-  //
-  // This prevents Reminder On from producing no reminder when
-  // older records do not contain timing options.
-  //
-  // ==========================================================
-
-  if (
-    options.size === 0
-  ) {
-
-    options.add(
-      "on-due-date"
-    );
-
+  const options = getReminderOptions(reminder);
+  if (options.size === 0) {
+    options.add("on-due-date");
   }
 
+  const reminders = [];
+  const processedTimings = new Set();
 
-  // ==========================================================
-  // 5 DAYS BEFORE
-  // ==========================================================
-
-  if (
-    options.has(
-      "5-days-before"
-    )
-  ) {
-
-    reminders.push(
-
-      createReminder({
-
-        event,
-
-        reminderDate:
-          subtractDays(
-            eventDate,
-            5
-          ),
-
-        timing:
-          "5-days-before",
-
-        message:
-          `${event.title} is due in 5 days.`,
-
-      })
-
-    );
-
-  }
-
-
-  // ==========================================================
-  // 1 DAY BEFORE
-  // ==========================================================
-
-  if (
-    options.has(
-      "1-day-before"
-    )
-  ) {
-
-    reminders.push(
-
-      createReminder({
-
-        event,
-
-        reminderDate:
-          subtractDays(
-            eventDate,
-            1
-          ),
-
-        timing:
-          "1-day-before",
-
-        message:
-          `${event.title} is due tomorrow.`,
-
-      })
-
-    );
-
-  }
-
-
-  // ==========================================================
-  // ON DUE DATE
-  // ==========================================================
-
-  if (
-    options.has(
-      "on-due-date"
-    )
-  ) {
-
-    reminders.push(
-
-      createReminder({
-
-        event,
-
-        reminderDate:
-          eventDate,
-
-        timing:
-          "on-due-date",
-
-        message:
-          `${event.title} is due today.`,
-
-      })
-
-    );
-
-  }
-
-
-  // ==========================================================
-  // MATURITY REMINDERS
-  // ==========================================================
-  //
-  // These timings are mainly intended for:
-  //
-  // FD maturity
-  // Policy maturity
-  // Goal deadline
-  // Liability completion
-  //
-  // ==========================================================
-
-  if (
-    isMaturityEvent(
-      event.type
-    )
-  ) {
-
-
-    // --------------------------------------------------------
-    // 2 MONTHS BEFORE
-    // --------------------------------------------------------
-
-    if (
-      options.has(
-        "2-months-before"
-      )
-    ) {
-
+  options.forEach((opt) => {
+    if (opt === "on-due-date" && !processedTimings.has("on-due-date")) {
+      processedTimings.add("on-due-date");
       reminders.push(
-
         createReminder({
-
           event,
-
-          reminderDate:
-            subtractMonths(
-              eventDate,
-              2
-            ),
-
-          timing:
-            "2-months-before",
-
-          message:
-            `${event.title} is scheduled in 2 months.`,
-
+          reminderDate: eventDate,
+          timing: "on-due-date",
+          message: `${event.title} is due today.`,
         })
-
       );
-
+      return;
     }
 
-
-    // --------------------------------------------------------
-    // 1 MONTH BEFORE
-    // --------------------------------------------------------
-
-    if (
-      options.has(
-        "1-month-before"
-      )
-    ) {
-
-      reminders.push(
-
-        createReminder({
-
-          event,
-
-          reminderDate:
-            subtractMonths(
-              eventDate,
-              1
-            ),
-
-          timing:
-            "1-month-before",
-
-          message:
-            `${event.title} is scheduled in 1 month.`,
-
-        })
-
-      );
-
+    const dayMatch = opt.match(/^(\d+)-days?-before$/);
+    if (dayMatch) {
+      const days = parseInt(dayMatch[1], 10);
+      const timingKey = `${days}-days-before`;
+      if (!processedTimings.has(timingKey)) {
+        processedTimings.add(timingKey);
+        reminders.push(
+          createReminder({
+            event,
+            reminderDate: subtractDays(eventDate, days),
+            timing: timingKey,
+            message: days === 1 ? `${event.title} is due tomorrow.` : `${event.title} is due in ${days} days.`,
+          })
+        );
+      }
+      return;
     }
 
-  }
-
+    const monthMatch = opt.match(/^(\d+)-months?-before$/);
+    if (monthMatch) {
+      const months = parseInt(monthMatch[1], 10);
+      const timingKey = `${months}-months-before`;
+      if (!processedTimings.has(timingKey)) {
+        processedTimings.add(timingKey);
+        reminders.push(
+          createReminder({
+            event,
+            reminderDate: subtractMonths(eventDate, months),
+            timing: timingKey,
+            message: `${event.title} is scheduled in ${months} month${months > 1 ? "s" : ""}.`,
+          })
+        );
+      }
+    }
+  });
 
   return reminders;
-
 }
 
 
@@ -1307,6 +883,60 @@ export function getActiveReminders(
       }
     );
 
+}
+
+
+// ============================================================
+// GET THIS MONTH REMINDERS
+// ============================================================
+//
+// Used by:
+//
+// Topbar Notification Bell
+// Returns all reminders that fall within the current calendar month.
+// ============================================================
+
+export function getThisMonthReminders(
+  reminders = [],
+  referenceDate = new Date()
+) {
+  const ref = normalizeDate(referenceDate) || new Date();
+  const year = ref.getFullYear();
+  const month = ref.getMonth();
+
+  if (!Array.isArray(reminders)) {
+    return [];
+  }
+
+  return reminders
+    .filter((reminder) => {
+      const dateVal = reminder.reminderDate || reminder.eventDate;
+      if (!dateVal) return false;
+
+      let rYear, rMonth;
+      if (typeof dateVal === "string") {
+        const clean = dateVal.split("T")[0];
+        const parts = clean.split("-").map(Number);
+        if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+          rYear = parts[0];
+          rMonth = parts[1] - 1;
+        }
+      }
+
+      if (rYear === undefined) {
+        const rDate = normalizeDate(dateVal);
+        if (!rDate) return false;
+        rYear = rDate.getFullYear();
+        rMonth = rDate.getMonth();
+      }
+
+      return rYear === year && rMonth === month;
+    })
+    .sort((first, second) => {
+      const firstDate = normalizeDate(first.reminderDate || first.eventDate)?.getTime() || 0;
+      const secondDate = normalizeDate(second.reminderDate || second.eventDate)?.getTime() || 0;
+      return secondDate - firstDate;
+    });
 }
 
 

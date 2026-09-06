@@ -1,6 +1,6 @@
 # FinanceOS
 
-**FinanceOS - The Complete Financial Operating System for Personal Wealth Management**
+**FinanceOS - The Complete Financial Organization System for Personal Wealth Management**
 
 FinanceOS is a financial management system designed to help users manage and monitor their personal finances.
 

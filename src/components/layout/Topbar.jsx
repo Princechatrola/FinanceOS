@@ -66,6 +66,7 @@ import {
 import {
   generateFinancialReminders,
   getActiveReminders,
+  getThisMonthReminders,
 } from "../../utils/financialReminders.js";
 
 
@@ -170,6 +171,41 @@ function formatDateTime(
 
 
 // ============================================================
+// CHECK IF DATE IS IN CURRENT CALENDAR MONTH
+// ============================================================
+
+function isThisMonth(dateVal) {
+  if (!dateVal) return false;
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth();
+
+  if (dateVal instanceof Date) {
+    return (
+      !isNaN(dateVal.getTime()) &&
+      dateVal.getFullYear() === curYear &&
+      dateVal.getMonth() === curMonth
+    );
+  }
+
+  if (typeof dateVal === "string") {
+    const clean = dateVal.split("T")[0];
+    const parts = clean.split("-").map(Number);
+    if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      return parts[0] === curYear && (parts[1] - 1) === curMonth;
+    }
+  }
+
+  const d = new Date(dateVal);
+  return (
+    !isNaN(d.getTime()) &&
+    d.getFullYear() === curYear &&
+    d.getMonth() === curMonth
+  );
+}
+
+
+// ============================================================
 // REMINDER ICON
 // ============================================================
 
@@ -260,6 +296,7 @@ function Topbar() {
     investments,
     insurancePolicies,
     liabilities,
+    userReminders,
 
 
     // --------------------------------------------------------
@@ -335,6 +372,79 @@ function Topbar() {
 
 
   // ==========================================================
+  // LOGGED IN USER IDENTIFIERS
+  // ==========================================================
+
+  const currentUserId = userData?._id || userData?.id;
+  const currentUserCode = userData?.userId;
+  const currentUserEmail = (userData?.email || "").toLowerCase();
+
+
+  // ==========================================================
+  // USER-SPECIFIC FINANCIAL PLAN RECORDS (STRICT USER ISOLATION)
+  // ==========================================================
+
+  const userGoals = useMemo(
+    () =>
+      goals.filter(
+        (g) =>
+          !currentUserId ||
+          !g.userId ||
+          String(g.userId) === String(currentUserId) ||
+          g.userId === currentUserCode
+      ),
+    [goals, currentUserId, currentUserCode]
+  );
+
+  const userInvestments = useMemo(
+    () =>
+      investmentRecords.filter(
+        (inv) =>
+          !currentUserId ||
+          !inv.userId ||
+          String(inv.userId) === String(currentUserId) ||
+          inv.userId === currentUserCode
+      ),
+    [investmentRecords, currentUserId, currentUserCode]
+  );
+
+  const userInsurances = useMemo(
+    () =>
+      insuranceRecords.filter(
+        (ins) =>
+          !currentUserId ||
+          !ins.userId ||
+          String(ins.userId) === String(currentUserId) ||
+          ins.userId === currentUserCode
+      ),
+    [insuranceRecords, currentUserId, currentUserCode]
+  );
+
+  const userLiabilities = useMemo(
+    () =>
+      liabilityRecords.filter(
+        (l) =>
+          !currentUserId ||
+          !l.userId ||
+          String(l.userId) === String(currentUserId) ||
+          l.userId === currentUserCode
+      ),
+    [liabilityRecords, currentUserId, currentUserCode]
+  );
+
+  const userCustomReminders = useMemo(
+    () =>
+      (userReminders || []).filter(
+        (r) =>
+          !currentUserId ||
+          String(r.userId) === String(currentUserId) ||
+          r.userId === currentUserCode
+      ),
+    [userReminders, currentUserId, currentUserCode]
+  );
+
+
+  // ==========================================================
   // FINANCIAL CALENDAR EVENTS
   // ==========================================================
 
@@ -344,23 +454,30 @@ function Topbar() {
         generateFinancialCalendarEvents({
 
           savingGoals:
-            goals,
+            userGoals,
 
           investments:
-            investmentRecords,
+            userInvestments,
 
           insurancePolicies:
-            insuranceRecords,
+            userInsurances,
 
           liabilities:
-            liabilityRecords,
+            userLiabilities,
+
+          userReminders:
+            userCustomReminders,
+
+          currentUserId,
 
         }),
       [
-        goals,
-        investmentRecords,
-        insuranceRecords,
-        liabilityRecords,
+        userGoals,
+        userInvestments,
+        userInsurances,
+        userLiabilities,
+        userCustomReminders,
+        currentUserId,
       ]
     );
 
@@ -382,14 +499,13 @@ function Topbar() {
 
 
   // ==========================================================
-  // ACTIVE FINANCIAL REMINDERS
+  // THIS MONTH'S FINANCIAL REMINDERS ONLY
   // ==========================================================
 
-
-  const activeReminders =
+  const thisMonthReminders =
     useMemo(
       () =>
-        getActiveReminders(
+        getThisMonthReminders(
           allReminders
         ),
       [
@@ -399,15 +515,7 @@ function Topbar() {
 
 
   // ==========================================================
-  // ADD ACTIVE REMINDERS TO SHARED NOTIFICATION CENTER
-  // ==========================================================
-  //
-  // IMPORTANT:
-  //
-  // addNotification() prevents duplicate IDs.
-  //
-  // Therefore, even if Topbar renders again, the same
-  // reminder will not be added repeatedly.
+  // ADD THIS MONTH'S REMINDERS TO SHARED NOTIFICATION CENTER
   // ==========================================================
 
   useEffect(
@@ -415,28 +523,15 @@ function Topbar() {
 
       if (
         typeof addNotification !==
-        "function"
+        "function" ||
+        !currentUserId
       ) {
         return;
       }
 
 
-      activeReminders.forEach(
+      thisMonthReminders.forEach(
         (reminder) => {
-
-
-          // ---------------------------------------------------
-          // ONLY IN-APP REMINDERS
-          // ---------------------------------------------------
-          //
-          // Some reminder objects may have channel information.
-          //
-          // If inApp is explicitly false, don't show it
-          // inside the bell.
-          //
-          // Older reminders without channel information
-          // continue working.
-          // ---------------------------------------------------
 
           const channels =
             reminder.channels ||
@@ -452,22 +547,17 @@ function Topbar() {
           }
 
 
-          // ---------------------------------------------------
-          // UNIQUE NOTIFICATION ID
-          // ---------------------------------------------------
-
           const notificationId =
             `reminder-${reminder.id}`;
 
-
-          // ---------------------------------------------------
-          // ADD
-          // ---------------------------------------------------
 
           addNotification({
 
             id:
               notificationId,
+
+            userId:
+              currentUserId,
 
             type:
               reminder.eventType ||
@@ -521,75 +611,118 @@ function Topbar() {
 
     },
     [
-      activeReminders,
+      thisMonthReminders,
       addNotification,
+      currentUserId,
     ]
   );
 
 
   // ==========================================================
-  // SORT NOTIFICATIONS
+  // FILTER NOTIFICATIONS: THIS MONTH & SPECIFIC USER ONLY
   // ==========================================================
 
   const notifications =
     useMemo(
       () => {
 
-        return [
-          ...storedNotifications,
-        ].sort(
-          (
-            first,
-            second
-          ) => {
+        if (!currentUserId) return [];
 
-            const firstDate =
-              new Date(
-                first.createdAt ||
-                first.date ||
-                first.eventDate ||
-                0
-              ).getTime();
+        return storedNotifications
+          .filter((notification) => {
+
+            // 1. Specific logged-in user check
+            const notifUserId =
+              notification.userId ||
+              notification.recipientUser;
+
+            if (notifUserId) {
+              const match =
+                String(notifUserId) === String(currentUserId) ||
+                String(notifUserId) === String(currentUserCode);
+
+              if (!match) return false;
+            }
+
+            if (notification.recipientEmail && currentUserEmail) {
+              if (
+                notification.recipientEmail.toLowerCase() !==
+                currentUserEmail
+              ) {
+                return false;
+              }
+            }
+
+            // 2. This month check
+            const dateVal =
+              notification.reminderDate ||
+              notification.eventDate ||
+              notification.scheduledAt ||
+              notification.date ||
+              notification.createdAt;
+
+            return isThisMonth(dateVal);
+
+          })
+          .sort(
+            (
+              first,
+              second
+            ) => {
+
+              const firstDate =
+                new Date(
+                  first.createdAt ||
+                  first.date ||
+                  first.eventDate ||
+                  first.reminderDate ||
+                  0
+                ).getTime();
 
 
-            const secondDate =
-              new Date(
-                second.createdAt ||
-                second.date ||
-                second.eventDate ||
-                0
-              ).getTime();
+              const secondDate =
+                new Date(
+                  second.createdAt ||
+                  second.date ||
+                  second.eventDate ||
+                  second.reminderDate ||
+                  0
+                ).getTime();
 
 
-            return (
-              (secondDate || 0) -
-              (firstDate || 0)
-            );
+              return (
+                (secondDate || 0) -
+                (firstDate || 0)
+              );
 
-          }
-        );
+            }
+          );
 
       },
       [
         storedNotifications,
+        currentUserId,
+        currentUserCode,
+        currentUserEmail,
       ]
     );
 
 
   // ==========================================================
-  // UNREAD COUNT
+  // UNREAD COUNT FOR THIS MONTH
   // ==========================================================
 
   const unreadCount =
-    typeof unreadNotificationCount ===
-      "number"
-
-      ? unreadNotificationCount
-
-      : notifications.filter(
+    useMemo(
+      () =>
+        notifications.filter(
           (notification) =>
             !notification.read
-        ).length;
+        ).length,
+      [
+        notifications,
+      ]
+    );
 
 
   // ==========================================================
@@ -615,7 +748,7 @@ function Topbar() {
 
 
   // ==========================================================
-  // MARK ALL AS READ
+  // MARK ALL AS READ (THIS MONTH)
   // ==========================================================
 
   function markAllAsRead() {
@@ -625,7 +758,14 @@ function Topbar() {
       "function"
     ) {
 
-      markAllNotificationsAsRead();
+      const thisMonthIds =
+        notifications.map(
+          (n) => n.id
+        );
+
+      markAllNotificationsAsRead(
+        thisMonthIds
+      );
 
     }
 
@@ -779,9 +919,15 @@ function Topbar() {
 
                 <div>
 
-                  <h3 className="text-sm font-bold text-[#18392c]">
-                    Notifications
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-[#18392c]">
+                      Notifications
+                    </h3>
+
+                    <span className="rounded-full bg-[#edf6e8] px-2 py-0.5 text-[9px] font-bold text-[#2d523e]">
+                      {new Date().toLocaleString("en-IN", { month: "short", year: "numeric" })}
+                    </span>
+                  </div>
 
 
                   <p className="mt-1 text-[10px] text-slate-400">
@@ -793,9 +939,9 @@ function Topbar() {
                             unreadCount === 1
                               ? ""
                               : "s"
-                          }`
+                          } this month`
 
-                        : "You're up to date"
+                        : "You're up to date this month"
                     }
 
                   </p>
@@ -871,14 +1017,13 @@ function Topbar() {
 
 
                   <p className="mt-3 text-sm font-semibold text-[#18392c]">
-                    No notifications right now
+                    No notifications for {new Date().toLocaleString("en-IN", { month: "long" })}
                   </p>
 
 
                   <p className="mx-auto mt-1 max-w-[280px] text-[10px] leading-5 text-slate-400">
 
-                    Financial reminders and FinanceOS Admin
-                    messages will appear here.
+                    Financial reminders and messages for this month will appear here.
 
                   </p>
 

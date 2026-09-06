@@ -89,10 +89,9 @@ function Home() {
       transition-colors
       duration-300
 
-      ${
-        isActive
-          ? "text-[#57923d]"
-          : "text-[#617268] hover:text-[#57923d]"
+      ${isActive
+        ? "text-[#57923d]"
+        : "text-[#617268] hover:text-[#57923d]"
       }
 
       after:absolute
@@ -256,7 +255,7 @@ function Home() {
                 />
 
                 <span className="text-xs font-semibold text-[#57923d]">
-                  Your Personal Finance Operating System
+                  Your Personal Finance Organ System
                 </span>
 
               </div>
@@ -613,7 +612,7 @@ function Home() {
 
               <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-[#6d7d73]">
 
-                FinanceOS is a Personal Finance Operating System
+                FinanceOS is a Personal Finance Organization System
                 designed to bring monthly finances, savings, goals,
                 investments and financial commitments together
                 into one connected system.
@@ -795,7 +794,7 @@ function Home() {
 
 
                     <h4 className="mt-1 text-xl font-bold text-[#173b2b]">
-                      Your Personal Finance Operating System
+                      Your Personal Finance Organization System
                     </h4>
 
 
@@ -1001,7 +1000,7 @@ function Home() {
 
               <p className="mt-5 max-w-md text-sm leading-6 text-[#c4d2c5]">
 
-                A Personal Finance Operating System that brings
+                A Personal Finance Organization System that brings
                 your monthly finances, savings, goals, investments
                 and financial commitments together in one connected system.
 
@@ -1139,13 +1138,13 @@ function Home() {
             FOOTER BOTTOM
         ================================================== */}
 
-        <div className="flex justify-center text-xs">
+          <div className="flex justify-center text-xs">
 
-          <p className="text-center text-[#9fb3a2]">
-            © 2026 FinanceOS. All rights reserved.
-          </p>
+            <p className="text-center text-[#9fb3a2]">
+              © 2026 FinanceOS. All rights reserved.
+            </p>
 
-        </div>
+          </div>
 
         </div>
 
@@ -1350,10 +1349,9 @@ function AboutCard({
         hover:border-[#c6d8ba]
         hover:shadow-md
 
-        ${
-          highlighted
-            ? "bg-[#f2f7ed]"
-            : "bg-[#fafcf8]"
+        ${highlighted
+          ? "bg-[#f2f7ed]"
+          : "bg-[#fafcf8]"
         }
       `}
     >
@@ -1367,10 +1365,9 @@ function AboutCard({
           justify-center
           rounded-xl
 
-          ${
-            highlighted
-              ? "bg-white"
-              : "bg-[#edf5e8]"
+          ${highlighted
+            ? "bg-white"
+            : "bg-[#edf5e8]"
           }
         `}
       >

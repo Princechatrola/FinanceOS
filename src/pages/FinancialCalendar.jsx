@@ -30,6 +30,7 @@ import {
 
 import {
   useSearchParams,
+  useNavigate,
 } from "react-router-dom";
 
 
@@ -48,7 +49,19 @@ import {
   FiPlus,
   FiX,
   FiBell,
+  FiSettings,
+  FiArrowRight,
+  FiClock,
+  FiExternalLink,
 } from "react-icons/fi";
+
+
+// ============================================================
+// IMPORT REMINDER CONFIG MODAL
+// ============================================================
+
+import ReminderConfigModal
+  from "../components/reminders/ReminderConfigModal.jsx";
 
 
 // ============================================================
@@ -272,40 +285,32 @@ function FinancialCalendar() {
     liabilities,
     userReminders,
     loadUserReminders,
+    userData,
     selectedMonth,
     setSelectedMonth,
     sidebarCollapsed,
   } = useFinance();
 
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
-  const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
-  const [reminderForm, setReminderForm] = useState({ title: "", date: "", description: "" });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleReminderSubmit = async (e) => {
-    e.preventDefault();
-    if (!reminderForm.title || !reminderForm.date) return;
-    
-    setIsSubmitting(true);
-    try {
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
-      const res = await fetch("http://localhost:5000/api/reminders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(reminderForm),
-      });
-      if (res.ok) {
-        await loadUserReminders();
-        setIsReminderModalOpen(false);
-        setReminderForm({ title: "", date: "", description: "" });
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSubmitting(false);
+  useEffect(() => {
+    if (typeof loadUserReminders === "function") {
+      loadUserReminders();
     }
-  };
+  }, []);
+
+  const [reminderModalConfig, setReminderModalConfig] = useState({
+    isOpen: false,
+    data: null,
+    sourceType: "General",
+    sourceId: null,
+    itemName: "",
+    amount: 0,
+    dueDate: "",
+  });
+
+  const [filterType, setFilterType] = useState("all"); // "all" | "due" | "reminders"
 
 
   // ==========================================================
@@ -481,6 +486,9 @@ function FinancialCalendar() {
 
           userReminders:
             userReminders || [],
+
+          currentUserId:
+            userData?._id || userData?.id,
         }),
 
       [
@@ -489,6 +497,7 @@ function FinancialCalendar() {
         insuranceRecords,
         liabilityRecords,
         userReminders,
+        userData,
       ]
     );
 
@@ -505,13 +514,18 @@ function FinancialCalendar() {
           year,
           month
         ),
-
       [
         allEvents,
         year,
         month,
       ]
     );
+
+  const filteredMonthEvents = useMemo(() => {
+    if (filterType === "due") return monthEvents.filter((e) => !e.isReminderEvent);
+    if (filterType === "reminders") return monthEvents.filter((e) => e.isReminderEvent);
+    return monthEvents;
+  }, [monthEvents, filterType]);
 
 
   // ==========================================================
@@ -525,12 +539,17 @@ function FinancialCalendar() {
           allEvents,
           selectedDate
         ),
-
       [
         allEvents,
         selectedDate,
       ]
     );
+
+  const filteredSelectedDateEvents = useMemo(() => {
+    if (filterType === "due") return selectedDateEvents.filter((e) => !e.isReminderEvent);
+    if (filterType === "reminders") return selectedDateEvents.filter((e) => e.isReminderEvent);
+    return selectedDateEvents;
+  }, [selectedDateEvents, filterType]);
 
 
   // ==========================================================
@@ -699,50 +718,33 @@ function FinancialCalendar() {
 
 
     const dayEvents =
-      monthEvents.filter(
+      filteredMonthEvents.filter(
         (event) =>
           event.date ===
           dateKey
       );
 
-
     const isToday =
       dateKey ===
       todayKey;
-
 
     const isSelected =
       dateKey ===
       selectedDate;
 
-
     calendarCells.push(
       <button
-        key={
-          dateKey
-        }
-
+        key={dateKey}
         type="button"
-
-        onClick={() =>
-          setSelectedDate(
-            dateKey
-          )
-        }
-
+        onClick={() => setSelectedDate(dateKey)}
         className={`min-h-[110px] border-b border-r border-[#edf0e9]/50 p-2 text-left transition-all duration-300 ${
           isSelected
             ? "bg-gradient-to-br from-[#f2f8ed] to-[#e6f4cf]/30 shadow-inner"
             : "bg-transparent hover:bg-white/80 hover:shadow-sm"
         }`}
       >
-
-        {/* ===============================================
-            DAY HEADER
-           =============================================== */}
-
+        {/* DAY HEADER */}
         <div className="flex items-center justify-between">
-
           <span
             className={
               isToday
@@ -750,80 +752,43 @@ function FinancialCalendar() {
                 : "flex h-7 w-7 items-center justify-center text-xs font-semibold text-[#52665b]"
             }
           >
-            {
-              day
-            }
+            {day}
           </span>
 
-
           {/* EVENT COUNT */}
-
-          {dayEvents.length >
-            0 && (
-
+          {dayEvents.length > 0 && (
             <span className="rounded-full bg-[#e9f4e2] px-1.5 py-0.5 text-[9px] font-semibold text-[#315c46]">
-              {
-                dayEvents.length
-              }
+              {dayEvents.length}
             </span>
-
           )}
-
         </div>
 
-
-        {/* ===============================================
-            EVENTS
-           =============================================== */}
-
+        {/* EVENTS */}
         <div className="mt-2 space-y-1">
-
-          {dayEvents
-            .slice(
-              0,
-              2
-            )
-            .map(
-              (event) => (
-
-                <div
-                  key={
-                    event.id
-                  }
-
-                  title={
-                    event.title
-                  }
-
-                  className="truncate rounded-md bg-[#e9f4e2] px-2 py-1 text-[9px] font-medium text-[#315c46]"
-                >
-                  {
-                    event.title
-                  }
-                </div>
-
-              )
-            )}
-
+          {dayEvents.slice(0, 3).map((event) => (
+            <div
+              key={event.id}
+              title={`${event.title}${event.dueDate ? ` (Due: ${event.dueDate})` : ""}`}
+              className={`truncate rounded-md px-1.5 py-0.5 text-[9px] font-medium flex items-center gap-1 ${
+                event.isReminderEvent
+                  ? "bg-amber-100/90 text-amber-900 border border-amber-200/60"
+                  : "bg-[#e9f4e2] text-[#315c46]"
+              }`}
+            >
+              {event.isReminderEvent && (
+                <FiBell className="shrink-0 text-[8px] text-amber-700" />
+              )}
+              <span className="truncate">{event.cleanTitle || event.title}</span>
+            </div>
+          ))}
 
           {/* MORE EVENTS */}
-
-          {dayEvents.length >
-            2 && (
-
+          {dayEvents.length > 3 && (
             <p className="px-1 text-[9px] font-medium text-slate-400">
-              +
-              {
-                dayEvents.length -
-                2
-              }{" "}
-              more
+              +{dayEvents.length - 3} more
             </p>
-
           )}
-
         </div>
-
       </button>
     );
   }
@@ -927,7 +892,17 @@ function FinancialCalendar() {
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setIsReminderModalOpen(true)}
+                onClick={() =>
+                  setReminderModalConfig({
+                    isOpen: true,
+                    data: null,
+                    sourceType: "General",
+                    sourceId: null,
+                    itemName: "",
+                    amount: 0,
+                    dueDate: selectedDate,
+                  })
+                }
                 className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#4f8d32] to-[#3a6825] px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-[#4f8d32]/20 transition-all hover:shadow-[#4f8d32]/40 hover:-translate-y-0.5"
               >
                 <FiPlus />
@@ -936,15 +911,10 @@ function FinancialCalendar() {
 
               <button
                 type="button"
-
-                onClick={
-                  goToday
-                }
-
+                onClick={goToday}
                 className="flex items-center gap-2 rounded-xl border border-[#dfe6da] bg-white/60 backdrop-blur px-4 py-2.5 text-xs font-semibold text-[#315c46] shadow-sm transition hover:bg-white"
               >
                 <FiCalendar />
-
                 Today
               </button>
             </div>
@@ -970,13 +940,8 @@ function FinancialCalendar() {
 
               <button
                 type="button"
-
-                onClick={
-                  goPreviousMonth
-                }
-
+                onClick={goPreviousMonth}
                 aria-label="Previous month"
-
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e2e8dc] text-[#52665b] transition hover:bg-[#f4f7f1]"
               >
                 <FiChevronLeft />
@@ -986,26 +951,16 @@ function FinancialCalendar() {
               {/* CURRENT MONTH */}
 
               <div className="text-center">
-
                 <h2 className="text-base font-bold text-[#18392c]">
-                  {
-                    monthName
-                  }
+                  {monthName}
                 </h2>
 
-
                 <p className="mt-1 text-[10px] text-slate-400">
-                  {
-                    monthEvents.length
-                  }{" "}
-                  {
-                    monthEvents.length ===
-                    1
-                      ? "financial event"
-                      : "financial events"
-                  }
+                  {filteredMonthEvents.length}{" "}
+                  {filteredMonthEvents.length === 1
+                    ? "financial event"
+                    : "financial events"}
                 </p>
-
               </div>
 
 
@@ -1013,18 +968,53 @@ function FinancialCalendar() {
 
               <button
                 type="button"
-
-                onClick={
-                  goNextMonth
-                }
-
+                onClick={goNextMonth}
                 aria-label="Next month"
-
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e2e8dc] text-[#52665b] transition hover:bg-[#f4f7f1]"
               >
                 <FiChevronRight />
               </button>
 
+            </div>
+
+            {/* =================================================
+                EVENT FILTER TABS
+               ================================================= */}
+            <div className="flex items-center gap-2 border-b border-[#e2e8dc] px-5 py-2.5 bg-[#fbfdfa]">
+              <button
+                type="button"
+                onClick={() => setFilterType("all")}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  filterType === "all"
+                    ? "bg-[#315c46] text-white shadow-sm"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                All Events ({monthEvents.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterType("due")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  filterType === "due"
+                    ? "bg-[#315c46] text-white shadow-sm"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                <span>Payments Due ({monthEvents.filter((e) => !e.isReminderEvent).length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterType("reminders")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  filterType === "reminders"
+                    ? "bg-amber-600 text-white shadow-sm"
+                    : "bg-amber-50 text-amber-800 hover:bg-amber-100"
+                }`}
+              >
+                <FiBell className="text-[11px]" />
+                <span>Reminder Alerts ({monthEvents.filter((e) => e.isReminderEvent).length})</span>
+              </button>
             </div>
 
 
@@ -1144,137 +1134,186 @@ function FinancialCalendar() {
                 SELECTED DATE EVENTS
                ================================================= */}
 
-            {selectedDateEvents.length >
-              0 && (
+            {/* =================================================
+                SELECTED DATE EVENTS
+               ================================================= */}
 
-              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {filteredSelectedDateEvents.length > 0 && (
+              <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {filteredSelectedDateEvents.map((event) => {
+                  const isReminder = event.isReminderEvent;
+                  const canNavigateToPlan =
+                    event.sourceType &&
+                    event.sourceType !== "General" &&
+                    event.sourceId;
 
-                {selectedDateEvents.map(
-                  (event) => (
+                  const handleNavigate = () => {
+                    if (event.sourceType === "SavingGoal") navigate("/saving-goals");
+                    else if (event.sourceType === "Investment") navigate("/plans?tab=investments");
+                    else if (event.sourceType === "Insurance") navigate("/plans?tab=insurance");
+                    else if (event.sourceType === "Liability") navigate("/plans?tab=liabilities");
+                  };
 
+                  return (
                     <div
-                      key={
-                        event.id
-                      }
-
-                      className="rounded-xl border border-[#e2e8dc] bg-[#fafcf8] p-4"
+                      key={event.id}
+                      className={`rounded-2xl border p-4 transition-all duration-200 ${
+                        isReminder
+                          ? "border-amber-200/80 bg-gradient-to-br from-amber-50/40 to-amber-100/20 shadow-sm"
+                          : "border-[#e2e8dc] bg-[#fafcf8]"
+                      }`}
                     >
-
-                      <div className="flex items-start gap-3">
-
-
+                      <div className="flex items-start gap-3.5">
                         {/* ICON */}
-
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#edf6e8] text-[#315c46]">
-
-                          <EventIcon
-                            type={
-                              event.type
-                            }
-                          />
-
+                        <div
+                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
+                            isReminder
+                              ? "bg-amber-100 text-amber-800 shadow-sm"
+                              : "bg-[#edf6e8] text-[#315c46]"
+                          }`}
+                        >
+                          {isReminder ? <FiBell className="text-lg" /> : <EventIcon type={event.type} />}
                         </div>
-
 
                         {/* EVENT DETAILS */}
-
                         <div className="min-w-0 flex-1">
+                          {/* BADGES ROW */}
+                          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[9px] font-bold tracking-wider uppercase ${
+                                isReminder
+                                  ? "bg-amber-200/80 text-amber-900"
+                                  : "bg-[#e2f0dc] text-[#2c5f3b]"
+                              }`}
+                            >
+                              {isReminder ? "Reminder Alert" : "Payment Due"}
+                            </span>
 
-
-                          {/* EVENT TYPE */}
-
-                          <p className="text-[9px] font-semibold uppercase tracking-wider text-[#6c8b72]">
-                            {
-                              getEventLabel(
-                                event.type
-                              )
-                            }
-                          </p>
-
-
-                          {/* TITLE */}
-
-                          <h3 className="mt-1 text-sm font-bold text-[#18392c]">
-                            {
-                              event.title
-                            }
-                          </h3>
-
-
-                          {/* DESCRIPTION */}
-
-                          {event.description && (
-
-                            <p className="mt-1 text-xs leading-5 text-slate-500">
-                              {
-                                event.description
-                              }
-                            </p>
-
-                          )}
-
-
-                          {/* AMOUNT */}
-
-                          {Number(
-                            event.amount ||
-                              0
-                          ) > 0 && (
-
-                            <p className="mt-3 text-sm font-bold text-[#315c46]">
-                              ₹
-                              {
-                                formatMoney(
-                                  event.amount
-                                )
-                              }
-                            </p>
-
-                          )}
-
-
-                          {/* STATUS AND REMINDER */}
-
-                          <div className="mt-3 flex flex-wrap gap-2">
-
-
-                            {/* STATUS */}
-
-                            {event.status && (
-
-                              <span className="rounded-full bg-white px-2.5 py-1 text-[9px] font-medium text-[#52665b]">
-                                {
-                                  event.status
-                                }
-                              </span>
-
-                            )}
-
-
-                            {/* REMINDER */}
-
-                            {event.reminder
-                              ?.enabled && (
-
-                              <span className="rounded-full bg-[#edf6e8] px-2.5 py-1 text-[9px] font-semibold text-[#315c46]">
-                                Reminder On
-                              </span>
-
-                            )}
-
+                            <span className="text-[9px] font-semibold uppercase text-slate-400">
+                              • {getEventLabel(event.type)}
+                            </span>
                           </div>
 
+                          {/* TITLE */}
+                          <h3 className="text-sm font-bold text-[#18392c]">
+                            {event.cleanTitle || event.title}
+                          </h3>
+
+                          {/* DESCRIPTION */}
+                          {event.description && (
+                            <p className="mt-1 text-xs leading-5 text-slate-500">
+                              {event.description}
+                            </p>
+                          )}
+
+                          {/* DATES & AMOUNT */}
+                          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                            {isReminder ? (
+                              <>
+                                <span className="font-semibold text-amber-900 flex items-center gap-1">
+                                  <FiClock className="text-[11px]" />
+                                  Alert Date: {formatDisplayDate(event.date)}
+                                </span>
+                                {event.dueDate && (
+                                  <span className="text-slate-500 flex items-center gap-1">
+                                    <FiCalendar className="text-[11px]" />
+                                    Payment Due: {formatDisplayDate(event.dueDate)}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="font-semibold text-[#315c46] flex items-center gap-1">
+                                <FiCalendar className="text-[11px]" />
+                                Due Date: {formatDisplayDate(event.date)}
+                              </span>
+                            )}
+
+                            {Number(event.amount || 0) > 0 && (
+                              <span className="font-bold text-[#315c46]">
+                                ₹{formatMoney(event.amount)}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* STATUS & CHANNELS */}
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            {event.status && (
+                              <span className="rounded-full bg-white border border-slate-200/80 px-2 py-0.5 text-[9px] font-medium text-slate-600">
+                                {event.status}
+                              </span>
+                            )}
+
+                            {isReminder && event.channels && (
+                              <div className="flex items-center gap-1">
+                                {event.channels.inApp && (
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-medium text-amber-800">
+                                    In-App
+                                  </span>
+                                )}
+                                {event.channels.email && (
+                                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[9px] font-medium text-blue-800">
+                                    Email
+                                  </span>
+                                )}
+                                {event.channels.sms && (
+                                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[9px] font-medium text-purple-800">
+                                    SMS
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {!isReminder && (
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${
+                                  event.reminderEnabled
+                                    ? "bg-[#edf6e8] text-[#315c46]"
+                                    : "bg-slate-100 text-slate-500"
+                                }`}
+                              >
+                                {event.reminderEnabled ? "🔔 Reminder Active" : "Reminder Off"}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* ACTIONS */}
+                          <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setReminderModalConfig({
+                                  isOpen: true,
+                                  data: event,
+                                  sourceType: event.sourceType,
+                                  sourceId: event.sourceId,
+                                  itemName: event.cleanTitle || event.title,
+                                  amount: event.amount,
+                                  dueDate: event.dueDate || event.date,
+                                })
+                              }
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-[#315c46] bg-white border border-[#d8e2d4] hover:bg-[#f4f7f2] transition"
+                            >
+                              <FiSettings className="text-xs" />
+                              <span>{isReminder ? "Manage Reminder" : "Configure Reminder"}</span>
+                            </button>
+
+                            {canNavigateToPlan && (
+                              <button
+                                type="button"
+                                onClick={handleNavigate}
+                                className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-[#315c46] transition"
+                              >
+                                <span>Go to Plan</span>
+                                <FiArrowRight className="text-xs" />
+                              </button>
+                            )}
+                          </div>
                         </div>
-
                       </div>
-
                     </div>
-
-                  )
-                )}
-
+                  );
+                })}
               </div>
-
             )}
 
           </section>
@@ -1284,107 +1323,46 @@ function FinancialCalendar() {
               NO FINANCIAL RECORDS
              ================================================== */}
 
-          {allEvents.length ===
-            0 && (
-
+          {allEvents.length === 0 && (
             <section className="mt-6 rounded-2xl border border-dashed border-[#dce5d7] bg-white px-6 py-8 text-center">
-
               <FiCalendar className="mx-auto text-2xl text-[#6c8b72]" />
-
-
               <h2 className="mt-3 text-sm font-semibold text-[#18392c]">
                 No financial events yet
               </h2>
-
-
               <p className="mx-auto mt-2 max-w-lg text-xs leading-5 text-slate-400">
-                Create a saving goal, investment,
-                insurance policy or liability with
-                schedule information. FinanceOS will
-                automatically display its financial
-                dates here.
+                Create a saving goal, investment, insurance policy or liability with schedule information. FinanceOS will automatically display its financial dates here.
               </p>
-
             </section>
-
           )}
 
         </div>
 
         {/* ==================================================
-            ADD REMINDER MODAL
+            UNIFIED REMINDER CONFIGURATION MODAL
            ================================================== */}
-        {isReminderModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#173b2b]/40 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
-              <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
-                <h3 className="text-lg font-bold text-[#18392c]">Add Custom Reminder</h3>
-                <button
-                  type="button"
-                  onClick={() => setIsReminderModalOpen(false)}
-                  className="rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
-                >
-                  <FiX size={18} />
-                </button>
-              </div>
-
-              <form onSubmit={handleReminderSubmit} className="p-6">
-                <div className="space-y-4">
-                  <div>
-                    <label className="mb-1 block text-xs font-semibold text-gray-600">Reminder Title</label>
-                    <input
-                      type="text"
-                      required
-                      value={reminderForm.title}
-                      onChange={(e) => setReminderForm({ ...reminderForm, title: e.target.value })}
-                      placeholder="e.g. Renew car insurance"
-                      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm focus:border-[#4f8d32] focus:bg-white focus:outline-none focus:ring-4 focus:ring-[#4f8d32]/10"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-1 block text-xs font-semibold text-gray-600">Date</label>
-                    <input
-                      type="date"
-                      required
-                      value={reminderForm.date}
-                      onChange={(e) => setReminderForm({ ...reminderForm, date: e.target.value })}
-                      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm focus:border-[#4f8d32] focus:bg-white focus:outline-none focus:ring-4 focus:ring-[#4f8d32]/10"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-1 block text-xs font-semibold text-gray-600">Description (Optional)</label>
-                    <textarea
-                      value={reminderForm.description}
-                      onChange={(e) => setReminderForm({ ...reminderForm, description: e.target.value })}
-                      placeholder="Add any notes here..."
-                      rows={3}
-                      className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm focus:border-[#4f8d32] focus:bg-white focus:outline-none focus:ring-4 focus:ring-[#4f8d32]/10"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-8 flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsReminderModalOpen(false)}
-                    className="flex-1 rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-600 transition hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="flex-1 rounded-xl bg-[#4f8d32] py-3 text-sm font-semibold text-white shadow-lg shadow-[#4f8d32]/20 transition hover:bg-[#437a2a]"
-                  >
-                    {isSubmitting ? "Saving..." : "Save Reminder"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+        <ReminderConfigModal
+          isOpen={reminderModalConfig.isOpen}
+          onClose={() =>
+            setReminderModalConfig({
+              isOpen: false,
+              data: null,
+              sourceType: "General",
+              sourceId: null,
+              itemName: "",
+              amount: 0,
+              dueDate: "",
+            })
+          }
+          initialData={reminderModalConfig.data}
+          sourceType={reminderModalConfig.sourceType}
+          sourceId={reminderModalConfig.sourceId}
+          itemName={reminderModalConfig.itemName}
+          amount={reminderModalConfig.amount}
+          dueDate={reminderModalConfig.dueDate}
+          onSuccess={() => {
+            loadUserReminders();
+          }}
+        />
 
       </main>
 

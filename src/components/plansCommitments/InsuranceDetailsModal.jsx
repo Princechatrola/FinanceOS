@@ -21,6 +21,7 @@ import {
 import useFinance from "../../context/useFinance.js";
 import { parseSelectedMonth } from "../../utils/monthLifecycle.js";
 import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../../utils/dueDateSchedule.js";
+import ReminderConfigModal from "../reminders/ReminderConfigModal.jsx";
 
 const inputClass =
   "mt-2 w-full rounded-xl border border-[#dfe6da] bg-[#fafcf8] px-4 py-3 text-sm text-[#18392c] outline-none transition placeholder:text-slate-300 focus:border-[#9fbd8d]";
@@ -92,6 +93,7 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
 
   // Policy notes state
   const [policyNotes, setPolicyNotes] = useState(policy?.notes || "");
@@ -592,7 +594,17 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
 
               {/* REMINDERS DETAILS */}
               <div className="border border-slate-150 bg-slate-100/10 p-4 rounded-xl text-xs space-y-2">
-                <h3 className="font-bold text-slate-700 flex items-center gap-1.5"><FiBell /> Notification & Reminders</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-slate-700 flex items-center gap-1.5"><FiBell /> Notification & Reminders</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowReminderModal(true)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#c3d9b8] bg-[#edf5e8] px-2.5 py-1 text-[11px] font-semibold text-[#244c3b] hover:bg-[#dfeecd] transition cursor-pointer"
+                  >
+                    <FiBell className="text-xs" />
+                    {policy.reminder?.enabled ? "Manage Reminder" : "Enable Reminder"}
+                  </button>
+                </div>
                 {policy.reminder?.enabled ? (
                   <div className="space-y-1">
                     <p className="text-slate-600">Reminder status: <span className="font-semibold text-green-600">Enabled</span></p>
@@ -603,6 +615,9 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
                           {policy.reminder.premiumReminders?.fiveDaysBefore && <li>5 days before due date</li>}
                           {policy.reminder.premiumReminders?.oneDayBefore && <li>1 day before due date</li>}
                           {policy.reminder.premiumReminders?.onDueDate && <li>On due date</li>}
+                          {Array.isArray(policy.reminder.notifyBefore) && policy.reminder.notifyBefore.length > 0 && (
+                            <li>Alert offsets: {policy.reminder.notifyBefore.join(", ")} days before</li>
+                          )}
                         </ul>
                       </div>
                       <div>
@@ -928,6 +943,20 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
           </div>
         </div>
       </div>
+
+      {/* REMINDER MODAL */}
+      {showReminderModal && (
+        <ReminderConfigModal
+          isOpen={showReminderModal}
+          onClose={() => setShowReminderModal(false)}
+          sourceType="Insurance"
+          sourceId={policy._id || policy.id}
+          itemName={policy.policyName || policy.name || "Insurance Policy"}
+          amount={Number(policy.premiumAmount || policy.monthlyPremium || 0)}
+          dueDate={derivedDueDateISO}
+          initialData={policy}
+        />
+      )}
     </div>
   );
 }

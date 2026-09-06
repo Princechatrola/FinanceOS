@@ -22,12 +22,9 @@ const investmentMaturityActionSchema = new mongoose.Schema(
     // ============================================================
 
     investment: {
-      type: Number,
-
+      type: mongoose.Schema.Types.ObjectId,
       ref: "Investment",
-
       required: true,
-
       index: true,
     },
 
@@ -39,13 +36,14 @@ const investmentMaturityActionSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: [
-        "RENEW_FULL",
-        "RENEW_PARTIAL",
         "BANK_SAVINGS",
+        "KEEP_CASH",
         "PURCHASE",
         "NEW_INVESTMENT",
         "PAY_LIABILITY",
-        "KEEP_CASH",
+        "OTHER",
+        "RENEW_FULL",
+        "RENEW_PARTIAL",
       ],
     },
 
@@ -57,28 +55,66 @@ const investmentMaturityActionSchema = new mongoose.Schema(
     actionAmount: {
       type: Number,
       required: true,
+      min: 0.01,
     },
 
     remainingAmount: {
       type: Number,
       default: 0,
+      min: 0,
     },
 
     // ============================================================
-    // NEW INVESTMENT DETAILS
+    // DESTINATION SPECIFIC DETAILS
     // ============================================================
 
-    newInvestmentId: {
-      type: Number,
+    bankDetails: {
+      bankName: { type: String, trim: true, default: "" },
+      accountLast4: { type: String, trim: true, default: "" },
+    },
 
-      ref: "Investment",
+    purchaseDetails: {
+      itemName: { type: String, trim: true, default: "" },
+      category: { type: String, trim: true, default: "" },
+    },
 
-      default: null,
+    investmentDetails: {
+      investmentType: { type: String, trim: true, default: "" },
+      investmentName: { type: String, trim: true, default: "" },
+      newInvestmentId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Investment",
+        default: null,
+      },
+    },
+
+    liabilityDetails: {
+      liabilityId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Liability",
+        default: null,
+      },
+      liabilityName: { type: String, trim: true, default: "" },
+      paymentId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    },
+
+    cashDetails: {
+      additionalIncomeId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "AdditionalIncome",
+        default: null,
+      },
+    },
+
+    otherDetails: {
+      description: { type: String, trim: true, default: "" },
+      category: { type: String, trim: true, default: "" },
     },
 
     note: {
       type: String,
       default: "",
+      trim: true,
     },
 
     actionDate: {
