@@ -6,8 +6,9 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const path = require("path");
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, ".env") });
 
 // ============================================================
 // EXPRESS
@@ -157,7 +158,7 @@ app.get("/", (req, res) => {
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: "API route not found.",
+    message: `API route not found: ${req.method} ${req.originalUrl}`,
   });
 });
 
@@ -187,6 +188,9 @@ mongoose
     app.listen(PORT, () => {
       console.log(
         `FinanceOS server running on port ${PORT}`
+      );
+      console.log(
+        `Backend startup URL: http://localhost:${PORT}`
       );
     });
   })

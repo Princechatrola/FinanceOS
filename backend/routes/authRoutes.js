@@ -22,6 +22,10 @@ const {
 
 const router = express.Router();
 
+console.log("AUTH ROUTES LOADED");
+console.log("POST /api/auth/send-otp");
+console.log("POST /api/auth/verify-otp");
+
 
 // ============================================================
 // SEND LOGIN OTP
