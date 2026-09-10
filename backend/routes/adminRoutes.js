@@ -36,6 +36,9 @@ const {
   getUserRemindersAdmin,
   getPersonalizationVariables,
   previewPersonalizedMessage,
+  getAdminUserFinancial,
+  getAdminUserActivity,
+  getAdminUserReport,
 } = require("../controllers/adminController");
 
 // ============================================================
@@ -78,6 +81,21 @@ router.post(
 router.get(
   "/users/:id",
   getAdminUserById
+);
+
+router.get(
+  "/users/:id/financial",
+  getAdminUserFinancial
+);
+
+router.get(
+  "/users/:id/activity",
+  getAdminUserActivity
+);
+
+router.get(
+  "/users/:id/reports",
+  getAdminUserReport
 );
 
 router.get(

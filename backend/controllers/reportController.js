@@ -144,19 +144,19 @@ function computeFinancialHealthScore({ income, expenses, commitments, availableT
 }
 
 // ============================================================
-// MAIN GET FINANCIAL REPORT HANDLER
+// BUILD FINANCIAL REPORT FOR USER (REUSABLE ENGINE)
 // ============================================================
-const getFinancialReport = async (req, res) => {
-  try {
-    const userId = req.user.id || req.user._id;
-    const { duration = "monthly", year, month, quarter, half } = req.query;
+const buildFinancialReportForUser = async (userId, query = {}) => {
+  const { duration = "monthly", year, month, quarter, half } = query;
 
-    const user = await User.findById(userId).select("name email phone role");
-    if (!user) {
-      return res.status(404).json({ success: false, message: "User not found." });
-    }
+  const user = await User.findById(userId).select("name email phone role");
+  if (!user) {
+    const err = new Error("User not found.");
+    err.statusCode = 404;
+    throw err;
+  }
 
-    const currentYearNum = Number(year) || new Date().getFullYear();
+  const currentYearNum = Number(year) || new Date().getFullYear();
     let months = [];
     let periodLabel = "";
     let periodRangeLabel = "";
@@ -796,73 +796,82 @@ const getFinancialReport = async (req, res) => {
 
     const hasAnyActivity = totalIncome > 0 || totalExpenses > 0 || totalInvestmentContributionsPeriod > 0 || totalGoalContributionsPeriod > 0 || totalLiabilityPaymentsPeriod > 0 || ledger.length > 0;
 
+    return {
+      header: {
+        userName: user.name,
+        userEmail: user.email,
+        duration,
+        year: currentYearNum,
+        month: duration === "monthly" ? months[0] : null,
+        quarter: duration === "quarterly" ? Number(quarter) || 1 : null,
+        half: duration === "halfYear" ? Number(half) || 1 : null,
+        periodLabel,
+        periodRangeLabel,
+        generatedAt: new Date().toISOString(),
+      },
+      hasAnyActivity,
+      financialSummary: {
+        openingBalance,
+        totalIncome,
+        totalExpenses,
+        totalSavings,
+        closingBalance: periodClosingBalance,
+        availableToAllocate: periodAvailableToAllocate,
+        avgMonthlyIncome,
+        avgMonthlyExpenses,
+        avgMonthlySavings,
+        totalInvestmentContributionsPeriod,
+        totalInsurancePremiumsPeriod,
+        totalLiabilityPaymentsPeriod,
+        totalPrincipalPaidPeriod,
+        totalInterestPaidPeriod,
+        totalGoalContributionsPeriod,
+      },
+      calculationBreakdown,
+      netWorthSummary: {
+        openingNetWorth,
+        closingNetWorth,
+        netWorthChange,
+        netWorthChangePct,
+        totalAssets: closingTotalAssets,
+        totalLiabilities: totalLiabilitiesVal,
+        history: netWorthPoints,
+      },
+      financialHealth: overallHealth,
+      monthDetails,
+      plansLifecycle: {
+        plansCreatedThisPeriod,
+        plansStartedThisPeriod,
+        maturitiesInPeriod,
+        upcomingFutureEvents,
+        noMaturityMessage: maturitiesInPeriod.length === 0 ? "No maturity, renewal, or expiry activity in this period." : null,
+      },
+      plans: {
+        investments: investmentSummaries,
+        insurance: insuranceSummaries,
+        liabilities: liabilitySummaries,
+        savingGoals: savingGoalSummaries,
+      },
+      transactionsLedger: ledger,
+      insights,
+      suggestions,
+    };
+};
+
+// ============================================================
+// MAIN GET FINANCIAL REPORT HANDLER (FOR AUTHENTICATED USER)
+// ============================================================
+const getFinancialReport = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const report = await buildFinancialReportForUser(userId, req.query);
     return res.status(200).json({
       success: true,
-      report: {
-        header: {
-          userName: user.name,
-          userEmail: user.email,
-          duration,
-          year: currentYearNum,
-          month: duration === "monthly" ? months[0] : null,
-          quarter: duration === "quarterly" ? Number(quarter) || 1 : null,
-          half: duration === "halfYear" ? Number(half) || 1 : null,
-          periodLabel,
-          periodRangeLabel,
-          generatedAt: new Date().toISOString(),
-        },
-        hasAnyActivity,
-        financialSummary: {
-          openingBalance,
-          totalIncome,
-          totalExpenses,
-          totalSavings,
-          closingBalance: periodClosingBalance,
-          availableToAllocate: periodAvailableToAllocate,
-          avgMonthlyIncome,
-          avgMonthlyExpenses,
-          avgMonthlySavings,
-          totalInvestmentContributionsPeriod,
-          totalInsurancePremiumsPeriod,
-          totalLiabilityPaymentsPeriod,
-          totalPrincipalPaidPeriod,
-          totalInterestPaidPeriod,
-          totalGoalContributionsPeriod,
-        },
-        calculationBreakdown,
-        netWorthSummary: {
-          openingNetWorth,
-          closingNetWorth,
-          netWorthChange,
-          netWorthChangePct,
-          totalAssets: closingTotalAssets,
-          totalLiabilities: totalLiabilitiesVal,
-          history: netWorthPoints,
-        },
-        financialHealth: overallHealth,
-        monthDetails,
-        plansLifecycle: {
-          plansCreatedThisPeriod,
-          plansStartedThisPeriod,
-          maturitiesInPeriod,
-          upcomingFutureEvents,
-          noMaturityMessage: maturitiesInPeriod.length === 0 ? "No maturity, renewal, or expiry activity in this period." : null,
-        },
-        plans: {
-          investments: investmentSummaries,
-          insurance: insuranceSummaries,
-          liabilities: liabilitySummaries,
-          savingGoals: savingGoalSummaries,
-        },
-        transactionsLedger: ledger,
-        insights,
-        suggestions,
-      }
+      report,
     });
-
   } catch (error) {
     console.error("Report Controller Error:", error);
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || "Failed to generate financial report."
     });
@@ -871,4 +880,6 @@ const getFinancialReport = async (req, res) => {
 
 module.exports = {
   getFinancialReport,
+  buildFinancialReportForUser,
+  computeFinancialHealthScore,
 };

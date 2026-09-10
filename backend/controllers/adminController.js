@@ -12,7 +12,12 @@ const Investment = require("../models/Investment");
 const Insurance = require("../models/Insurance");
 const Liability = require("../models/Liability");
 const Message = require("../models/Message");
+const AdditionalIncome = require("../models/AdditionalIncome");
+const Reminder = require("../models/Reminder");
+const InvestmentMaturityAction = require("../models/InvestmentMaturityAction");
 
+const { calculateMonthlyCashFlowBreakdown } = require("../utils/cashFlowBreakdown");
+const { buildFinancialReportForUser } = require("./reportController");
 const { logActivity } = require("../utils/activityLogger");
 const { sendAdminMessageEmail } = require("../utils/emailService");
 const {
@@ -1551,6 +1556,320 @@ const getUserRemindersAdmin = async (req, res) => {
 };
 
 // ============================================================
+// GET ADMIN USER FINANCIAL
+// GET /api/admin/users/:id/financial
+// ============================================================
+
+const getAdminUserFinancial = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID.",
+      });
+    }
+
+    const user = await User.findOne({
+      _id: id,
+      role: { $nin: ["admin", "administrator"] },
+    })
+      .select("name userId email mobile phone city state gender dateOfBirth status createdAt")
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    // Determine requested year & month
+    const now = new Date();
+    let targetYear = Number(req.query.year);
+    let targetMonth = Number(req.query.month);
+
+    // If period is not specified or invalid, check if user has records; default to latest or current
+    if (
+      !Number.isInteger(targetYear) ||
+      targetYear < 2000 ||
+      targetYear > 2100 ||
+      !Number.isInteger(targetMonth) ||
+      targetMonth < 1 ||
+      targetMonth > 12
+    ) {
+      const latestMf = await MonthlyFinance.findOne({ user: id })
+        .sort({ year: -1, month: -1 })
+        .lean();
+
+      if (latestMf) {
+        targetYear = latestMf.year;
+        targetMonth = latestMf.month;
+      } else {
+        targetYear = now.getFullYear();
+        targetMonth = now.getMonth() + 1;
+      }
+    }
+
+    // Authoritative cash flow breakdown calculation
+    const breakdown = await calculateMonthlyCashFlowBreakdown({
+      userId: id,
+      year: targetYear,
+      month: targetMonth,
+    });
+
+    // Fetch all user's recorded periods for navigation dropdown
+    const allMonthlyRecords = await MonthlyFinance.find({ user: id })
+      .sort({ year: -1, month: -1 })
+      .select("year month income expenses cashBalance openingBalance closingBalance commitments")
+      .lean();
+
+    const monthNames = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+
+    const availablePeriods = allMonthlyRecords.map((r) => ({
+      year: r.year,
+      month: r.month,
+      label: `${monthNames[r.month - 1] || r.month} ${r.year}`,
+    }));
+
+    // Fetch connected financial models strictly scoped to this user
+    const [
+      savingGoals,
+      investments,
+      liabilities,
+      insurances,
+      additionalIncomes,
+      reminders,
+      maturityActions,
+    ] = await Promise.all([
+      SavingGoal.find({ user: id }).sort({ createdAt: -1 }).lean(),
+      Investment.find({ user: id }).sort({ createdAt: -1 }).lean(),
+      Liability.find({ user: id }).sort({ createdAt: -1 }).lean(),
+      Insurance.find({ user: id }).sort({ createdAt: -1 }).lean(),
+      AdditionalIncome.find({ user: id, year: targetYear, month: targetMonth }).sort({ date: -1 }).lean(),
+      Reminder.find({ userId: id }).sort({ dueDate: -1 }).lean(),
+      InvestmentMaturityAction.find({ user: id }).sort({ createdAt: -1 }).lean(),
+    ]);
+
+    // Calculate Asset & Liability totals for Net Worth
+    const totalGoalsSaved = savingGoals.reduce(
+      (sum, g) => sum + (Number(g.currentAmount) || Number(g.alreadySaved) || 0),
+      0
+    );
+    const totalInvestmentsValuation = investments.reduce(
+      (sum, i) => sum + (Number(i.currentValuation) || Number(i.amount) || 0),
+      0
+    );
+    const closingLiquid = Number(breakdown.closingBalance) || 0;
+    const totalAssets = Math.max(
+      0,
+      totalGoalsSaved + totalInvestmentsValuation + Math.max(0, closingLiquid)
+    );
+
+    const totalLiabilities = liabilities.reduce(
+      (sum, l) => sum + (Number(l.remainingAmount) || 0),
+      0
+    );
+    const netWorth = totalAssets - totalLiabilities;
+
+    const currentRecord =
+      allMonthlyRecords.find((r) => r.year === targetYear && r.month === targetMonth) ||
+      null;
+
+    const hasAnyFinancialData =
+      allMonthlyRecords.length > 0 ||
+      savingGoals.length > 0 ||
+      investments.length > 0 ||
+      liabilities.length > 0 ||
+      insurances.length > 0 ||
+      additionalIncomes.length > 0;
+
+    return res.status(200).json({
+      success: true,
+      hasAnyFinancialData,
+      user: {
+        _id: user._id,
+        userId: user.userId,
+        name: user.name,
+        email: user.email,
+        phone: user.mobile || user.phone || "",
+      },
+      period: {
+        year: targetYear,
+        month: targetMonth,
+        monthLabel: breakdown.monthLabel,
+      },
+      availablePeriods,
+      breakdown,
+      monthlyFinance: currentRecord,
+      summary: {
+        income: breakdown.inflow.totalIncome,
+        baseIncome: breakdown.inflow.baseIncome,
+        additionalIncome: breakdown.inflow.additionalIncome,
+        expenses: breakdown.outflows.expenses,
+        savings: breakdown.monthlySavings,
+        openingBalance: breakdown.openingBalance.amount,
+        closingBalance: breakdown.closingBalance,
+        availableToAllocate: breakdown.availableToAllocate,
+        totalAssets,
+        totalLiabilities,
+        netWorth,
+        activeGoalsCount: savingGoals.filter((g) => g.status === "Active").length,
+        activeInvestmentsCount: investments.filter((i) => i.status === "Active").length,
+        activeLiabilitiesCount: liabilities.filter((l) => l.status === "Active").length,
+        activeInsurancesCount: insurances.filter((ins) => ins.status === "Active").length,
+      },
+      savingGoals,
+      investments,
+      liabilities,
+      insurances,
+      additionalIncomes,
+      reminders,
+      maturityActions,
+    });
+  } catch (error) {
+    console.error("Get Admin User Financial Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load user financial data.",
+      error: error.message,
+    });
+  }
+};
+
+// ============================================================
+// GET ADMIN USER ACTIVITY
+// GET /api/admin/users/:id/activity
+// ============================================================
+
+const getAdminUserActivity = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID.",
+      });
+    }
+
+    const user = await User.findOne({
+      _id: id,
+      role: { $nin: ["admin", "administrator"] },
+    })
+      .select("name userId email")
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    const activities = await Activity.find({ userId: id })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const normalizedActivities = activities.map((activity) => ({
+      _id: activity._id,
+      userId: activity.userId,
+      user: activity.userName || user.name,
+      email: activity.userEmail || user.email,
+      type: activity.type,
+      description: activity.description,
+      createdAt: activity.createdAt,
+    }));
+
+    const stats = {
+      total: activities.length,
+      registration: activities.filter((a) => a.type === "Registration").length,
+      signIn: activities.filter((a) => a.type === "Sign In").length,
+      account: activities.filter((a) => a.type === "Account").length,
+      report: activities.filter((a) => a.type === "Report").length,
+      settings: activities.filter((a) => a.type === "Settings").length,
+      other: activities.filter(
+        (a) => !["Registration", "Sign In", "Account", "Report", "Settings"].includes(a.type)
+      ).length,
+    };
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        _id: user._id,
+        userId: user.userId,
+        name: user.name,
+        email: user.email,
+      },
+      activities: normalizedActivities,
+      stats,
+    });
+  } catch (error) {
+    console.error("Get Admin User Activity Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load user activity.",
+      error: error.message,
+    });
+  }
+};
+
+// ============================================================
+// GET ADMIN USER REPORT
+// GET /api/admin/users/:id/reports
+// ============================================================
+
+const getAdminUserReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID.",
+      });
+    }
+
+    const user = await User.findOne({
+      _id: id,
+      role: { $nin: ["admin", "administrator"] },
+    })
+      .select("name userId email phone role")
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    const report = await buildFinancialReportForUser(id, req.query);
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        _id: user._id,
+        userId: user.userId,
+        name: user.name,
+        email: user.email,
+      },
+      report,
+    });
+  } catch (error) {
+    console.error("Get Admin User Report Error:", error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to generate user report.",
+    });
+  }
+};
+
+// ============================================================
 // EXPORT
 // ============================================================
 
@@ -1572,4 +1891,7 @@ module.exports = {
   getUserRemindersAdmin,
   getPersonalizationVariables,
   previewPersonalizedMessage,
+  getAdminUserFinancial,
+  getAdminUserActivity,
+  getAdminUserReport,
 };
