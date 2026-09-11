@@ -25,8 +25,14 @@ async function runTest() {
     console.log('1. Setting up admin session in localStorage...');
     await page.goto('http://localhost:5173/', { waitUntil: 'networkidle0' });
 
-    const adminToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhODc1NTgwYzVmMGE1ZGE3ZDc1MzEzZiIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTc4ODk3MzY1NSwiZXhwIjoxNzg5NTc4NDU1fQ.oOELolDbgTAZF5HjPR5svu27PwD2eJLtsIas6A3Ib9c';
-    const adminUser = JSON.stringify({ id: '6a875580c5f0a5da7d75313f', role: 'admin', name: 'admin', email: 'financeos.system@gmail.com' });
+    const jwt = require('jsonwebtoken');
+    const jwtSecret = process.env.JWT_SECRET || 'financeos_secret_key_2026';
+    const adminToken = jwt.sign(
+      { id: '6a875580c5f0a5da7d75313f', role: 'admin', email: 'admin@financeos.com' },
+      jwtSecret,
+      { expiresIn: '1h' }
+    );
+    const adminUser = JSON.stringify({ id: '6a875580c5f0a5da7d75313f', role: 'admin', name: 'admin', email: 'admin@financeos.com' });
 
     await page.evaluate((tok, usr) => {
       localStorage.setItem('financeos_token', tok);

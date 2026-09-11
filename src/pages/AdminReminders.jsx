@@ -10,7 +10,6 @@ import {
   RefreshCw,
   Search,
   Send,
-  Smartphone,
   User,
   X,
   XCircle,
@@ -540,11 +539,6 @@ export default function AdminReminders() {
                   <option value="Email">
                     Email
                   </option>
-
-                  <option value="SMS">
-                    SMS
-                  </option>
-
                 </FilterSelect>
 
 
@@ -1546,12 +1540,14 @@ function SmallBadge({ children }) {
 // ============================================================
 
 function ChannelBadge({ channel, channels }) {
-  const channelList =
+  const rawList =
     Array.isArray(channels) && channels.length > 0
       ? channels
       : typeof channel === "string"
       ? channel.split(",").map((c) => c.trim()).filter(Boolean)
       : ["In-App"];
+
+  const channelList = rawList.filter((c) => c.toUpperCase() !== "SMS");
 
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -1560,10 +1556,6 @@ function ChannelBadge({ channel, channels }) {
 
         if (ch === "Email") {
           Icon = Mail;
-        }
-
-        if (ch === "SMS") {
-          Icon = Smartphone;
         }
 
         return (

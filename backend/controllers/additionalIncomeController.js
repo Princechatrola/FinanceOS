@@ -10,6 +10,14 @@ const AdditionalIncome = require("../models/AdditionalIncome");
 
 const addAdditionalIncome = async (req, res) => {
   try {
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
+    }
+
     const {
       title,
       category,
@@ -20,15 +28,23 @@ const addAdditionalIncome = async (req, res) => {
       receivedDate,
     } = req.body;
 
+    const numericAmount = Number(amount);
+    if (!numericAmount || numericAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid income amount is required.",
+      });
+    }
+
     const additionalIncome = await AdditionalIncome.create({
-      user: req.user._id,
-      title,
-      category,
-      amount,
-      description,
-      month,
-      year,
-      receivedDate,
+      user: userId,
+      title: (title || "").trim(),
+      category: category || "Other",
+      amount: numericAmount,
+      description: (description || "").trim(),
+      month: Number(month) || (new Date().getMonth() + 1),
+      year: Number(year) || new Date().getFullYear(),
+      receivedDate: receivedDate || new Date(),
     });
 
     res.status(201).json({
@@ -50,8 +66,16 @@ const addAdditionalIncome = async (req, res) => {
 
 const getAdditionalIncome = async (req, res) => {
   try {
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
+    }
+
     const incomes = await AdditionalIncome.find({
-      user: req.user._id,
+      user: userId,
     }).sort({
       year: -1,
       month: -1,
@@ -77,9 +101,17 @@ const getAdditionalIncome = async (req, res) => {
 
 const updateAdditionalIncome = async (req, res) => {
   try {
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
+    }
+
     const income = await AdditionalIncome.findOne({
       _id: req.params.id,
-      user: req.user._id,
+      user: userId,
     });
 
     if (!income) {
@@ -112,9 +144,17 @@ const updateAdditionalIncome = async (req, res) => {
 
 const deleteAdditionalIncome = async (req, res) => {
   try {
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
+    }
+
     const income = await AdditionalIncome.findOne({
       _id: req.params.id,
-      user: req.user._id,
+      user: userId,
     });
 
     if (!income) {

@@ -157,6 +157,7 @@ const reminderSchema = new mongoose.Schema(
 
     channel: {
       type: String,
+      enum: ["In-App", "Email"],
       default: "In-App",
     },
 
@@ -169,16 +170,35 @@ const reminderSchema = new mongoose.Schema(
         type: Boolean,
         default: true,
       },
-      sms: {
-        type: Boolean,
-        default: false,
-      },
+    },
+
+    scheduledAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+
+    nextRunAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+
+    lastProcessedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deliveryStatus: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
     },
 
     status: {
       type: String,
       enum: [
         "Scheduled",
+        "Processing",
         "Sent",
         "Failed",
         "Completed",

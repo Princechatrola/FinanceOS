@@ -31,6 +31,9 @@ const authMiddleware = (req, res, next) => {
 
     // Store decoded JWT information on request
     req.user = decoded;
+    if (req.user && req.user.id && !req.user._id) {
+      req.user._id = req.user.id;
+    }
 
     next();
   } catch (error) {

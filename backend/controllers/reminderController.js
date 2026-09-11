@@ -232,7 +232,6 @@ const getAdminReminders = async (req, res) => {
         const channels = [];
         if (inv.reminder.channels?.inApp !== false) channels.push("In-App");
         if (inv.reminder.channels?.email) channels.push("Email");
-        if (inv.reminder.channels?.sms) channels.push("SMS");
         if (channels.length === 0) channels.push("In-App");
 
         const rules = [];
@@ -289,7 +288,6 @@ const getAdminReminders = async (req, res) => {
         const channels = [];
         if (inv.maturityReminder.channels?.inApp !== false) channels.push("In-App");
         if (inv.maturityReminder.channels?.email) channels.push("Email");
-        if (inv.maturityReminder.channels?.sms) channels.push("SMS");
         if (channels.length === 0) channels.push("In-App");
 
         const dispatchSchedule = [];
@@ -349,7 +347,6 @@ const getAdminReminders = async (req, res) => {
         const channels = [];
         if (prem.channels?.inApp !== false) channels.push("In-App");
         if (prem.channels?.email) channels.push("Email");
-        if (prem.channels?.sms) channels.push("SMS");
         if (channels.length === 0) channels.push("In-App");
 
         const insDay = Number(ins.premiumDueDay || (ins.startDate ? new Date(ins.startDate).getDate() : 1));
@@ -414,7 +411,6 @@ const getAdminReminders = async (req, res) => {
       const channels = [];
       if (liab.reminder?.channels?.inApp !== false) channels.push("In-App");
       if (liab.reminder?.channels?.email) channels.push("Email");
-      if (liab.reminder?.channels?.sms) channels.push("SMS");
       if (channels.length === 0) channels.push("In-App");
 
       const liabDay = Number(liab.dueDay || (liab.nextDueDate ? new Date(liab.nextDueDate).getDate() : 5));
@@ -583,6 +579,7 @@ const getAdminReminders = async (req, res) => {
       success: true,
       count: filtered.length,
       data: filtered,
+      reminders: filtered,
     });
   } catch (error) {
     console.error("Get admin reminders error:", error);

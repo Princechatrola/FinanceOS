@@ -207,18 +207,103 @@ const aiSuggestionSchema = new mongoose.Schema(
       maturedInvestmentsCount: { type: Number, default: 0 },
       activeSIPsCount: { type: Number, default: 0 },
       activeFDsCount: { type: Number, default: 0 },
+      goldHoldingsCount: { type: Number, default: 0 },
+      stockHoldingsCount: { type: Number, default: 0 },
     },
 
-    // External real-time context
+    // Structured Short AI Suggestion Sections (100 - 180 words format)
+    currentPosition: {
+      availableToAllocate: { type: Number, default: 0 },
+      savingsRate: { type: Number, default: 0 },
+      emergencyFundMonths: { type: Number, default: 0 },
+      totalLiabilities: { type: Number, default: 0 },
+      goldExposurePercent: { type: Number, default: 0 },
+      equityExposurePercent: { type: Number, default: 0 },
+      summary: { type: String, default: "" },
+    },
+
+    marketInsight: {
+      summary: { type: String, default: "" },
+      goldSpotFormatted: { type: String, default: "" },
+      silverSpotFormatted: { type: String, default: "" },
+      niftyIndexFormatted: { type: String, default: "" },
+      fdRangeFormatted: { type: String, default: "" },
+      keyFactors: [{ type: String, trim: true }],
+    },
+
+    personalizedSuggestion: {
+      text: { type: String, default: "" },
+      reason: { type: String, default: "" },
+      priority: { type: String, default: "Medium" },
+      actionCategory: { type: String, default: "General" },
+    },
+
+    futureOutlook: {
+      baseCase: { type: String, default: "" },
+      bullCase: { type: String, default: "" },
+      bearCase: { type: String, default: "" },
+      keyRisks: [{ type: String, trim: true }],
+    },
+
+    // Mandatory One-Line Risk Disclaimer (Always Visible)
+    riskDisclaimer: {
+      type: String,
+      default: "Invest at your own risk — market prices and conditions can change, and values may increase or decrease.",
+    },
+
+    // External verified multi-asset market context
     externalContext: {
-      goldPricePerGram24K: { type: Number, default: 7450 },
-      goldPricePerGram22K: { type: Number, default: 6830 },
+      // Gold
+      goldPricePerGram24K: { type: Number, default: null },
+      goldPricePerGram22K: { type: Number, default: null },
+      goldAvailable: { type: Boolean, default: false },
+      goldCurrency: { type: String, default: "INR" },
+      goldUnit: { type: String, default: "₹ / gram" },
+      goldSource: { type: String, default: "" },
+
+      // Silver
+      silverPricePerGram: { type: Number, default: null },
+      silverPricePerKg: { type: Number, default: null },
+      silverAvailable: { type: Boolean, default: false },
+      silverSource: { type: String, default: "" },
+
+      // Equities / Nifty 50
+      niftyCurrentValue: { type: Number, default: null },
+      niftyDayChange: { type: Number, default: null },
+      niftyDayChangePercent: { type: Number, default: null },
+      niftyHistoricalCAGR: { type: String, default: "12.50%" },
+      niftyAvailable: { type: Boolean, default: false },
+      equitiesSource: { type: String, default: "National Stock Exchange of India (NSE)" },
+
+      // Mutual Funds
+      mutualFundNav: { type: Number, default: null },
+      mutualFundScheme: { type: String, default: "" },
+      mutualFundAvailable: { type: Boolean, default: false },
+      mutualFundSource: { type: String, default: "AMFI India" },
+
+      // Fixed & Recurring Deposits
       rbiRepoRate: { type: String, default: "6.50%" },
       benchmarkFDRate: { type: String, default: "6.80% - 7.60%" },
+      benchmarkRDRate: { type: String, default: "6.80% - 7.10%" },
+      fdAvailable: { type: Boolean, default: true },
+      fdSource: { type: String, default: "RBI & Scheduled Commercial Banks" },
+
+      // Property & Real Estate
+      propertyTrend: { type: String, default: "8.5% - 11.2% YoY growth across Tier-1 metros" },
+      propertyAvailable: { type: Boolean, default: true },
+      propertySource: { type: String, default: "National Housing Bank (NHB RESIDEX)" },
+
+      // IPO
+      ipoMarketStatus: { type: String, default: "Active primary market pipeline; valuation scrutiny elevated" },
+      ipoAvailable: { type: Boolean, default: true },
+      ipoSource: { type: String, default: "BSE / NSE Primary Market" },
+
+      // Macro & Inflation
       inflationRate: { type: String, default: "4.80%" },
-      equityHistoricalCAGR: { type: String, default: "12.5%" },
-      marketTrend: { type: String, default: "Stable interest rate environment; balanced equity growth" },
-      source: { type: String, default: "RBI, NSE & India Bullion Market" },
+      usdInrRate: { type: Number, default: null },
+      marketTrend: { type: String, default: "Stable monetary policy with balanced equity & commodity dynamics" },
+      marketDataStatus: { type: String, default: "" },
+      source: { type: String, default: "RBI, NSE, AMFI, NHB & Bullion Market" },
       fetchedAt: { type: Date, default: Date.now },
       asOfFormatted: { type: String, default: "" },
     },
@@ -226,7 +311,7 @@ const aiSuggestionSchema = new mongoose.Schema(
     // Context metadata
     promptContextType: {
       type: String,
-      enum: ["plans_commitments", "dashboard_advisor", "maturity_action", "general"],
+      enum: ["plans_commitments", "dashboard_advisor", "dashboard", "maturity_action", "general"],
       default: "plans_commitments",
     },
 

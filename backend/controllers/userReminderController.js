@@ -36,12 +36,13 @@ function formatReminder(item) {
     sourceId: item.sourceId ? String(item.sourceId) : null,
     referenceId: item.referenceId || "",
     amount: Number(item.amount) || 0,
-    channels: item.channels || {
-      inApp: true,
-      email: item.channel === "Email",
-      sms: false,
+    frequency: item.frequency || "Monthly",
+    channels: {
+      inApp: item.channels?.inApp !== false,
+      email: Boolean(item.channels?.email || item.channel === "Email"),
     },
     channel: item.channel || "In-App",
+    deliveryStatus: item.deliveryStatus || {},
     status: item.status || "Scheduled",
     read: Boolean(item.read),
     readAt: item.readAt || null,
@@ -124,13 +125,31 @@ const createUserReminder = async (req, res) => {
       category = "General",
       amount = 0,
       notifyBefore = [0],
-      channels = { inApp: true, email: false, sms: false },
+      channels = { inApp: true, email: false },
       channel = "In-App",
       rule = "On due date",
     } = req.body;
 
+    // Reject any attempt to use SMS notifications
+    if (
+      String(channel || "").toLowerCase() === "sms" ||
+      channels?.sms === true ||
+      (Array.isArray(channels) && channels.some((c) => String(c).toLowerCase() === "sms"))
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "SMS notifications are not supported. FinanceOS supports only Email and In-App notifications.",
+      });
+    }
+
+    const cleanChannels = {
+      inApp: channels?.inApp !== false,
+      email: Boolean(channels?.email),
+    };
+    const cleanChannel = cleanChannels.email ? "Email" : (String(channel).toLowerCase() === "email" ? "Email" : "In-App");
+
     const finalTitle = title || itemName;
-    const targetDueDate = dueDate || date;
+    const targetDueDate = dueDate || date || req.body.reminderDate;
 
     if (!finalTitle || !targetDueDate) {
       return res.status(400).json({
@@ -149,6 +168,35 @@ const createUserReminder = async (req, res) => {
 
     const targetScheduledDate = scheduledDate || targetDueDate;
 
+    let finalReminderType = "General";
+    let finalCategory = category || "General";
+    const lowerType = String(reminderType || "").toLowerCase();
+    if (lowerType === "liability" || lowerType === "loan" || lowerType === "emi") {
+      finalReminderType = "Payment";
+      finalCategory = "Liability";
+    } else if (lowerType === "investment" || lowerType === "sip" || lowerType === "fd" || lowerType === "rd") {
+      finalReminderType = "Investment";
+      finalCategory = "Investment";
+    } else if (lowerType === "goal" || lowerType === "saving goal" || lowerType === "saving_goal") {
+      finalReminderType = "Goal";
+      finalCategory = "Saving Goal";
+    } else if (lowerType === "insurance" || lowerType === "policy") {
+      finalReminderType = "Insurance";
+      finalCategory = "Insurance";
+    } else if (lowerType === "maturity") {
+      finalReminderType = "Maturity";
+    } else if (lowerType === "payment") {
+      finalReminderType = "Payment";
+    } else {
+      finalReminderType = "General";
+    }
+
+    const targetDueDateObj = new Date(targetDueDate);
+    const targetScheduledDateObj = new Date(targetScheduledDate);
+    const validFrequency = ["Once", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly"].includes(req.body.frequency)
+      ? req.body.frequency
+      : (req.body.frequency || "Monthly");
+
     const newReminder = await Reminder.create({
       userId,
       userCode: user.userCode || "",
@@ -158,16 +206,22 @@ const createUserReminder = async (req, res) => {
       sourceType,
       sourceId,
       referenceId,
-      reminderType,
-      category,
+      reminderType: finalReminderType,
+      category: finalCategory,
       itemName: finalTitle,
-      dueDate: new Date(targetDueDate),
-      scheduledDate: new Date(targetScheduledDate),
+      dueDate: targetDueDateObj,
+      scheduledDate: targetScheduledDateObj,
+      scheduledAt: targetScheduledDateObj,
+      frequency: validFrequency,
       rule: rule || "Scheduled Reminder",
       notifyBefore: Array.isArray(notifyBefore) ? notifyBefore : [0],
       amount: Number(amount) || 0,
-      channels,
-      channel: channels.email ? "Email" : (channel || "In-App"),
+      channels: cleanChannels,
+      channel: cleanChannel,
+      deliveryStatus: {
+        inApp: { status: cleanChannels.inApp ? "Scheduled" : "Skipped", sentAt: null, error: null },
+        email: { status: cleanChannels.email ? "Scheduled" : "Skipped", sentAt: null, error: null, messageId: null },
+      },
       status: "Scheduled",
       enabled: true,
       message: description || message || `Reminder for ${finalTitle}`,
@@ -189,6 +243,7 @@ const createUserReminder = async (req, res) => {
     return res.status(201).json({
       success: true,
       data: formatReminder(newReminder),
+      reminder: formatReminder(newReminder),
       message: "Reminder created successfully.",
     });
   } catch (error) {
@@ -238,19 +293,42 @@ const updateUserReminder = async (req, res) => {
       });
     }
 
+    // Reject any attempt to use SMS notifications
+    if (
+      String(channel || "").toLowerCase() === "sms" ||
+      channels?.sms === true ||
+      (Array.isArray(channels) && channels.some((c) => String(c).toLowerCase() === "sms"))
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "SMS notifications are not supported. FinanceOS supports only Email and In-App notifications.",
+      });
+    }
+
     if (title || itemName) existing.itemName = title || itemName;
     if (dueDate || date) existing.dueDate = new Date(dueDate || date);
-    if (scheduledDate) existing.scheduledDate = new Date(scheduledDate);
+    if (scheduledDate) {
+      existing.scheduledDate = new Date(scheduledDate);
+      existing.scheduledAt = new Date(scheduledDate);
+    }
+    if (req.body.frequency) existing.frequency = req.body.frequency;
     if (description !== undefined || message !== undefined) {
       existing.message = description !== undefined ? description : message;
     }
     if (rule) existing.rule = rule;
     if (Array.isArray(notifyBefore)) existing.notifyBefore = notifyBefore;
     if (channels) {
-      existing.channels = channels;
-      existing.channel = channels.email ? "Email" : (channel || existing.channel || "In-App");
+      existing.channels = {
+        inApp: channels.inApp !== false,
+        email: Boolean(channels.email),
+      };
+      existing.channel = existing.channels.email ? "Email" : (channel === "Email" ? "Email" : "In-App");
+    } else if (channel) {
+      existing.channel = channel === "Email" ? "Email" : "In-App";
+      if (existing.channels) {
+        existing.channels.email = existing.channel === "Email";
+      }
     }
-    if (channel) existing.channel = channel;
     if (amount !== undefined) existing.amount = Number(amount);
     if (enabled !== undefined) {
       existing.enabled = Boolean(enabled);

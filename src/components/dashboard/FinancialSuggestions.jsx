@@ -41,6 +41,7 @@ import {
   FiSliders,
   FiZap,
   FiX,
+  FiRefreshCw,
 } from "react-icons/fi";
 
 
@@ -121,6 +122,19 @@ function FinancialSuggestions() {
     isAISuggestionModalOpen,
     setIsAISuggestionModalOpen,
   ] = useState(false);
+
+  const handleRefreshAISuggestion = async () => {
+    try {
+      const res = await finance?.generateAISuggestion({
+        context: "dashboard_advisor",
+      });
+      if (res) {
+        setIsAISuggestionModalOpen(true);
+      }
+    } catch (err) {
+      console.error("Dashboard AI generation error:", err);
+    }
+  };
 
   // ==========================================================
   // MATURITY MODAL STATE
@@ -772,8 +786,13 @@ function FinancialSuggestions() {
   ) {
 
     // ========================================================
-    // AI SUGGESTION MODAL
+    // AI SUGGESTION ACTIONS
     // ========================================================
+
+    if (action === "refresh-ai-suggestion") {
+      handleRefreshAISuggestion();
+      return;
+    }
 
     if (
       suggestion?.isAI ||
@@ -1095,13 +1114,21 @@ function FinancialSuggestions() {
   // ==========================================================
 
   if (latestAISuggestion) {
+    const analysisDateStr = new Date(latestAISuggestion.createdAt || Date.now()).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
     suggestions.push({
       id: `ai-suggestion-${latestAISuggestion._id || latestAISuggestion.id || "latest"}`,
       isAI: true,
       type: "success",
       icon: FiZap,
       title: latestAISuggestion.title || "AI Financial Recommendation",
-      description: latestAISuggestion.summary || "",
+      description: `${latestAISuggestion.summary || ""} • Last analyzed: ${analysisDateStr}`,
       category: "ai",
       priority: 200,
       actions: [
@@ -1109,6 +1136,11 @@ function FinancialSuggestions() {
           id: "view-ai-suggestion",
           label: "View Suggestion",
           primary: true,
+        },
+        {
+          id: "refresh-ai-suggestion",
+          label: finance?.aiLoading ? "Analyzing..." : "Refresh Analysis",
+          primary: false,
         },
       ],
       rawAI: latestAISuggestion,
@@ -2049,37 +2081,53 @@ function FinancialSuggestions() {
         >
 
 
-          <div>
+          <div className="flex-1">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <p
+                className="
+                  text-[10px]
+                  font-semibold
+                  uppercase
+                  tracking-[0.14em]
+                  text-[#6c8b72]
+                "
+              >
+                Smart Guidance
+              </p>
+              {latestAISuggestion && (
+                <span className="rounded-full bg-[#f0f5ee] px-2 py-0.5 text-[9px] font-semibold text-[#315c46]">
+                  Last analyzed: {new Date(latestAISuggestion.createdAt || Date.now()).toLocaleDateString("en-IN", {
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              )}
+            </div>
 
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+              <h2
+                className="
+                  text-base
+                  font-semibold
+                  text-[#18392c]
+                "
+              >
+                Financial Suggestions
+              </h2>
 
-            <p
-              className="
-                text-[10px]
-                font-semibold
-                uppercase
-                tracking-[0.14em]
-                text-[#6c8b72]
-              "
-            >
-
-              Smart Guidance
-
-            </p>
-
-
-            <h2
-              className="
-                mt-1
-                text-base
-                font-semibold
-                text-[#18392c]
-              "
-            >
-
-              Financial Suggestions
-
-            </h2>
-
+              <button
+                type="button"
+                onClick={handleRefreshAISuggestion}
+                disabled={finance?.aiLoading}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#315c46] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#18392c] shadow-2xs transition hover:bg-[#edf6e8] disabled:opacity-50 cursor-pointer"
+                title="Run fresh AI analysis on current MongoDB and live market data"
+              >
+                <FiRefreshCw className={`text-xs ${finance?.aiLoading ? "animate-spin text-[#315c46]" : "text-[#315c46]"}`} />
+                <span>{finance?.aiLoading ? (finance?.aiLoadingMessage || "Analyzing latest data...") : (latestAISuggestion ? "Refresh AI Suggestion" : "Get AI Suggestion")}</span>
+              </button>
+            </div>
 
             <p
               className="
@@ -2090,13 +2138,9 @@ function FinancialSuggestions() {
                 text-slate-400
               "
             >
-
-              Suggestions are generated from your monthly
-              finances, commitments, goals and financial-plan
-              lifecycle.
-
+              Suggestions are generated fresh from your monthly
+              finances, commitments, goals and verified market data.
             </p>
-
 
           </div>
 
@@ -2303,6 +2347,8 @@ function FinancialSuggestions() {
         isOpen={isAISuggestionModalOpen}
         suggestion={latestAISuggestion}
         onClose={() => setIsAISuggestionModalOpen(false)}
+        onRefresh={handleRefreshAISuggestion}
+        aiLoading={finance?.aiLoading}
       />
 
     </>
@@ -2513,6 +2559,12 @@ function SuggestionCard({
 
           </p>
 
+          {suggestion?.isAI && (
+            <p className="mt-2 text-[10px] text-amber-800/80 font-medium italic border-t border-[#e2e8dc] pt-1.5">
+              Invest at your own risk — market prices and conditions can change, and values may increase or decrease.
+            </p>
+          )}
+
 
           {/* ==================================================
               ACTION BUTTONS
@@ -2617,7 +2669,7 @@ function SuggestionCard({
 // AI SUGGESTION DETAILS MODAL
 // ============================================================
 
-export function AISuggestionDetailsModal({ isOpen, suggestion, onClose }) {
+export function AISuggestionDetailsModal({ isOpen, suggestion, onClose, onRefresh, aiLoading }) {
   if (!isOpen || !suggestion) return null;
 
   const snapshot = suggestion.financialSnapshot || {};
@@ -2680,45 +2732,229 @@ export function AISuggestionDetailsModal({ isOpen, suggestion, onClose }) {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close modal"
-            className="flex h-8 w-8 items-center justify-center rounded-xl text-white/80 transition hover:bg-white/10 hover:text-white cursor-pointer"
-          >
-            <FiX size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            {onRefresh && (
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={aiLoading}
+                className="hidden sm:inline-flex items-center gap-1 rounded-xl bg-white/15 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/25 disabled:opacity-50 cursor-pointer"
+                title="Refresh with live MongoDB & market data"
+              >
+                <FiRefreshCw size={12} className={aiLoading ? "animate-spin" : ""} />
+                <span>{aiLoading ? "Analyzing..." : "Re-analyze"}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close modal"
+              className="flex h-8 w-8 items-center justify-center rounded-xl text-white/80 transition hover:bg-white/10 hover:text-white cursor-pointer"
+            >
+              <FiX size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Executive Summary */}
-          <div className="rounded-2xl border border-[#dcebd4] bg-[#f4faef] p-4.5">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-[#6c8b72] mb-1">
-              Executive Summary
-            </p>
-            <p className="text-xs sm:text-sm leading-6 font-medium text-[#18392c]">
-              {suggestion.summary}
-            </p>
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {/* Section 1: Current Position */}
+          <div className="rounded-2xl border border-[#dfe8dc] bg-[#f8faf7] p-4">
+            <div className="flex items-center justify-between mb-2.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#315c46]">
+                1. Current Financial Position
+              </p>
+              <span className="text-[10px] text-[#6c8b72] font-semibold">
+                Available to Allocate: ₹{(suggestion.currentPosition?.availableToAllocate ?? snapshot.availableToAllocate ?? 0).toLocaleString("en-IN")}
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-2.5">
+              <div className="rounded-xl border border-[#e5ebe2] bg-white p-2 text-center">
+                <p className="text-[10px] text-slate-400">Savings Rate</p>
+                <p className="mt-0.5 text-xs font-bold text-[#315c46]">
+                  {suggestion.currentPosition?.savingsRate ?? snapshot.savingsRate ?? 0}%
+                </p>
+              </div>
+              <div className="rounded-xl border border-[#e5ebe2] bg-white p-2 text-center">
+                <p className="text-[10px] text-slate-400">Emergency Buffer</p>
+                <p className="mt-0.5 text-xs font-bold text-[#18392c]">
+                  {suggestion.currentPosition?.emergencyFundMonths ?? snapshot.emergencyFundMonths ?? 0} months
+                </p>
+              </div>
+              <div className="rounded-xl border border-[#e5ebe2] bg-white p-2 text-center">
+                <p className="text-[10px] text-slate-400">Gold Exposure</p>
+                <p className="mt-0.5 text-xs font-bold text-[#b38600]">
+                  {suggestion.currentPosition?.goldExposurePercent ?? snapshot.goldExposurePercent ?? 0}%
+                </p>
+              </div>
+              <div className="rounded-xl border border-[#e5ebe2] bg-white p-2 text-center">
+                <p className="text-[10px] text-slate-400">Equity Exposure</p>
+                <p className="mt-0.5 text-xs font-bold text-[#18392c]">
+                  {suggestion.currentPosition?.equityExposurePercent ?? snapshot.equityExposurePercent ?? 0}%
+                </p>
+              </div>
+            </div>
+
+            {suggestion.currentPosition?.summary && (
+              <p className="text-xs text-[#2c4739] leading-5 font-medium">
+                {suggestion.currentPosition.summary}
+              </p>
+            )}
           </div>
 
-          {/* Structured Recommendations */}
+          {/* Section 2: Market Insight */}
+          <div className="rounded-2xl border border-[#e2ebd8] bg-white p-4 space-y-2.5 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-1">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#315c46]">
+                2. Current Market Insight (Live & Verified)
+              </p>
+              <span className="text-[10px] text-[#6c8b72]">
+                As of: {external.asOfFormatted || "Latest available"}
+              </span>
+            </div>
+
+            {/* Multi-Asset Benchmarks Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="rounded-xl border border-[#edf1ea] bg-[#f9fbf8] p-2.5">
+                <p className="text-[10px] text-slate-400">24K Spot Gold</p>
+                <p className="mt-0.5 font-bold text-[#18392c]">
+                  {external.goldPricePerGram24K
+                    ? `₹${Number(external.goldPricePerGram24K).toLocaleString("en-IN")}/g`
+                    : "Data unavailable"}
+                </p>
+                <p className="text-[9px] text-[#6c8b72]">{external.goldSource || "Bullion API"}</p>
+              </div>
+
+              <div className="rounded-xl border border-[#edf1ea] bg-[#f9fbf8] p-2.5">
+                <p className="text-[10px] text-slate-400">Spot Silver</p>
+                <p className="mt-0.5 font-bold text-[#18392c]">
+                  {external.silverPricePerGram
+                    ? `₹${Number(external.silverPricePerGram).toLocaleString("en-IN")}/g`
+                    : "Data unavailable"}
+                </p>
+                <p className="text-[9px] text-[#6c8b72]">{external.silverSource || "Bullion Spot"}</p>
+              </div>
+
+              <div className="rounded-xl border border-[#edf1ea] bg-[#f9fbf8] p-2.5">
+                <p className="text-[10px] text-slate-400">Nifty 50 Index</p>
+                <p className="mt-0.5 font-bold text-[#18392c]">
+                  {external.niftyCurrentValue
+                    ? `${Number(external.niftyCurrentValue).toLocaleString("en-IN")}`
+                    : "NSE Benchmark"}
+                </p>
+                <p className="text-[9px] text-[#6c8b72]">
+                  {external.niftyDayChangePercent !== undefined && external.niftyDayChangePercent !== null
+                    ? `${external.niftyDayChangePercent >= 0 ? "+" : ""}${external.niftyDayChangePercent}%`
+                    : "10-Yr: 12.5%"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-[#edf1ea] bg-[#f9fbf8] p-2.5">
+                <p className="text-[10px] text-slate-400">Bank FD Benchmark</p>
+                <p className="mt-0.5 font-bold text-[#18392c]">
+                  {external.benchmarkFDRate || "6.80% - 7.60%"}
+                </p>
+                <p className="text-[9px] text-[#6c8b72]">RBI Repo: {external.rbiRepoRate || "6.50%"}</p>
+              </div>
+            </div>
+
+            {suggestion.marketInsight?.summary && (
+              <p className="text-xs text-[#30483c] leading-5 pt-1">
+                <strong>Situation:</strong> {suggestion.marketInsight.summary}
+              </p>
+            )}
+          </div>
+
+          {/* Section 3: Personalized Suggestion */}
+          <div className="rounded-2xl border border-[#dcebd4] bg-[#f4faef] p-4.5 space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#315c46]">
+              3. Personalized Suggestion
+            </p>
+            <p className="text-xs sm:text-sm font-semibold text-[#18392c] leading-6">
+              {suggestion.personalizedSuggestion?.text || suggestion.summary}
+            </p>
+            {suggestion.personalizedSuggestion?.reason && (
+              <p className="text-xs text-[#3d5a4a] leading-5 bg-white/70 rounded-xl p-2.5 border border-[#e2ebde]">
+                <strong>Financial Rationale:</strong> {suggestion.personalizedSuggestion.reason}
+              </p>
+            )}
+          </div>
+
+          {/* Section 4: Future Outlook (Scenario-Based) */}
+          <div className="rounded-2xl border border-[#dfe8dc] bg-white p-4 space-y-3 shadow-xs">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#315c46]">
+                4. Future Outlook (Scenario-Based)
+              </p>
+              <span className="text-[9px] text-slate-400 font-semibold">Non-Guaranteed Scenarios</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+              <div className="rounded-xl border border-[#edf2ea] bg-[#fafcf9] p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#315c46] mb-1">
+                  Base Case
+                </p>
+                <p className="text-slate-600 leading-5">
+                  {suggestion.futureOutlook?.baseCase || "Moderate growth with range-bound asset valuations in the short to medium term."}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-[#edf2ea] bg-[#fafcf9] p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#2e7d32] mb-1">
+                  Bull Case
+                </p>
+                <p className="text-slate-600 leading-5">
+                  {suggestion.futureOutlook?.bullCase || "Easing inflation and steady domestic earnings accelerate portfolio capital compounding."}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-[#edf2ea] bg-[#fafcf9] p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#c62828] mb-1">
+                  Bear Case
+                </p>
+                <p className="text-slate-600 leading-5">
+                  {suggestion.futureOutlook?.bearCase || "Global macroeconomic uncertainty or commodity volatility could trigger interim market pullbacks."}
+                </p>
+              </div>
+            </div>
+
+            {Array.isArray(suggestion.futureOutlook?.keyRisks) && suggestion.futureOutlook.keyRisks.length > 0 && (
+              <div className="pt-1">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                  Key Risk Factors to Monitor:
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestion.futureOutlook.keyRisks.map((risk, rIdx) => (
+                    <span
+                      key={rIdx}
+                      className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] text-slate-600 font-medium border border-slate-200"
+                    >
+                      • {risk}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Section 5: Structured Strategy Items */}
           {recommendations.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-bold uppercase tracking-wider text-[#18392c]">
-                  Personalized Allocation Decisions & Advice
+              <div className="flex items-center justify-between mb-2.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#18392c]">
+                  5. Actionable Allocations & Strategy Items
                 </p>
                 <span className="text-[11px] text-slate-500">
-                  {recommendations.length} strategy item{recommendations.length > 1 ? "s" : ""}
+                  {recommendations.length} item{recommendations.length > 1 ? "s" : ""}
                 </span>
               </div>
 
-              <div className="space-y-3.5">
+              <div className="space-y-3">
                 {recommendations.map((rec, idx) => (
                   <div
                     key={idx}
-                    className="rounded-2xl border border-[#e2e8dc] bg-white p-4 shadow-xs space-y-3"
+                    className="rounded-2xl border border-[#e2e8dc] bg-white p-3.5 shadow-xs space-y-2.5"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
@@ -2751,50 +2987,10 @@ export function AISuggestionDetailsModal({ isOpen, suggestion, onClose }) {
                       </p>
                     )}
 
-                    <div className="rounded-xl bg-[#f8faf7] p-3 text-xs leading-5 text-slate-600 border border-[#edf1ea]">
-                      <span className="font-bold text-[#18392c]">Why: </span>
-                      {rec.reason}
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#f0f4ed] text-xs">
-                      {rec.suggestedAction && (
-                        <div className="text-[11px] text-slate-500">
-                          <span className="font-semibold text-[#315c46]">Action:</span> {rec.suggestedAction}
-                        </div>
-                      )}
-                      {rec.suggestedAmount > 0 && (
-                        <div className="text-[11px] font-bold text-[#18392c] bg-[#edf6e8] px-2.5 py-1 rounded-lg">
-                          Suggested Allocation: ₹{rec.suggestedAmount.toLocaleString("en-IN")}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Numeric Facts with Verified Sources & Timestamps */}
-                    {Array.isArray(rec.numericFacts) && rec.numericFacts.length > 0 && (
-                      <div className="pt-2">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                          Verified External Benchmarks & Facts
-                        </p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {rec.numericFacts.map((fact, fIdx) => (
-                            <div
-                              key={fIdx}
-                              className="rounded-xl border border-[#e5ebe2] bg-[#fbfdfa] p-2.5 text-[11px]"
-                            >
-                              <div className="flex items-center justify-between text-slate-500">
-                                <span>{fact.label}</span>
-                                <span className="font-bold text-[#18392c]">
-                                  {typeof fact.value === "number" ? `₹${fact.value.toLocaleString("en-IN")}` : fact.value} {fact.unit || ""}
-                                </span>
-                              </div>
-                              <div className="mt-1 flex items-center justify-between text-[9px] text-slate-400">
-                                <span>Source: {fact.source || "Official"}</span>
-                                <span>As of: {fact.asOf || "Live"}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                    {rec.reason && (
+                      <p className="text-xs leading-5 text-[#335343] bg-[#f8fbf6] rounded-xl p-2.5 border border-[#e5ece2]">
+                        <strong>Rationale:</strong> {rec.reason}
+                      </p>
                     )}
                   </div>
                 ))}
@@ -2802,137 +2998,18 @@ export function AISuggestionDetailsModal({ isOpen, suggestion, onClose }) {
             </div>
           )}
 
-          {/* Key Observations */}
-          {Array.isArray(suggestion.keyObservations) && suggestion.keyObservations.length > 0 && (
-            <div>
-              <p className="text-xs font-bold text-[#18392c] mb-2 uppercase tracking-wider">
-                Key Observations Analyzed
-              </p>
-              <div className="space-y-2">
-                {suggestion.keyObservations.map((obs, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-start gap-2.5 rounded-xl border border-[#e2e8dc] bg-white p-3 text-xs text-[#2e473a]"
-                  >
-                    <FiCheckCircle size={15} className="shrink-0 text-[#315c46] mt-0.5" />
-                    <span>{obs}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Recommended Action Steps */}
-          {Array.isArray(suggestion.actionSteps) && suggestion.actionSteps.length > 0 && (
-            <div>
-              <p className="text-xs font-bold text-[#18392c] mb-2 uppercase tracking-wider">
-                Recommended Execution Steps
-              </p>
-              <div className="space-y-2">
-                {suggestion.actionSteps.map((action, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-start gap-3 rounded-xl border border-[#dfe6da] bg-white p-3.5 shadow-xs"
-                  >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#edf6e8] text-xs font-bold text-[#315c46]">
-                      {action.step || idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-xs font-bold text-[#18392c]">
-                          {action.title}
-                        </p>
-                        {action.priority && (
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
-                              String(action.priority).toLowerCase() === "high"
-                                ? "bg-red-50 text-red-600 border border-red-100"
-                                : String(action.priority).toLowerCase() === "medium"
-                                ? "bg-amber-50 text-amber-700 border border-amber-100"
-                                : "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                            }`}
-                          >
-                            {action.priority}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">
-                        {action.description}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Detailed Advice */}
-          {suggestion.detailedAdvice && (
-            <div className="rounded-2xl border border-[#e2e8dc] bg-white p-4.5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[#6c8b72] mb-1.5">
-                Comprehensive Strategic Guidance
-              </p>
-              <p className="text-xs sm:text-sm leading-6 text-slate-600">
-                {suggestion.detailedAdvice}
-              </p>
-            </div>
-          )}
-
-          {/* Financial Snapshot Summary */}
-          {snapshot.income !== undefined && (
-            <div className="rounded-2xl border border-[#dfe8dc] bg-[#f8faf7] p-4.5">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[#6c8b72] mb-3">
-                Analyzed User Financial Snapshot ({snapshot.targetPeriod || "Current"})
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="rounded-xl border border-[#e8ece5] bg-white p-2.5 text-center">
-                  <p className="text-[10px] text-slate-400">Monthly Income</p>
-                  <p className="mt-0.5 text-xs font-bold text-[#18392c]">
-                    ₹{(snapshot.income || 0).toLocaleString("en-IN")}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-[#e8ece5] bg-white p-2.5 text-center">
-                  <p className="text-[10px] text-slate-400">Savings Rate</p>
-                  <p className="mt-0.5 text-xs font-bold text-[#315c46]">
-                    {snapshot.savingsRate || 0}%
-                  </p>
-                </div>
-                <div className="rounded-xl border border-[#e8ece5] bg-white p-2.5 text-center">
-                  <p className="text-[10px] text-slate-400">Available to Allocate</p>
-                  <p className="mt-0.5 text-xs font-bold text-[#18392c]">
-                    ₹{(snapshot.availableToAllocate || 0).toLocaleString("en-IN")}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-[#e8ece5] bg-white p-2.5 text-center">
-                  <p className="text-[10px] text-slate-400">Current Net Worth</p>
-                  <p className="mt-0.5 text-xs font-bold text-[#18392c]">
-                    ₹{(snapshot.netWorth || 0).toLocaleString("en-IN")}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* External Verified Benchmarks Info */}
-          {external.rbiRepoRate && (
-            <div className="rounded-2xl border border-[#e2ebd8] bg-[#fafcf9] p-4 text-[11px] text-slate-500 space-y-1.5">
-              <p className="font-bold text-[#18392c] text-xs">Verified Reference Benchmarks</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-600">
-                <div>24K Gold: <strong className="text-[#18392c]">₹{external.goldPricePerGram24K || 7450}/g</strong></div>
-                <div>RBI Repo Rate: <strong className="text-[#18392c]">{external.rbiRepoRate}</strong></div>
-                <div>Bank FD Range: <strong className="text-[#18392c]">{external.benchmarkFDRate}</strong></div>
-                <div>CPI Inflation: <strong className="text-[#18392c]">{external.inflationRate}</strong></div>
-              </div>
-              <p className="text-[9px] text-slate-400 pt-1">
-                Source: {external.source || "Official Reserve Bank of India & Bullion Market Feeds"}
-              </p>
-            </div>
-          )}
+          {/* Section 6: Mandatory One-Line Risk Disclaimer */}
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-3.5 flex items-start gap-2.5 shadow-xs">
+            <span className="text-amber-700 text-xs mt-0.5">⚠️</span>
+            <p className="text-xs font-semibold text-amber-900 leading-snug">
+              {suggestion.riskDisclaimer || "Invest at your own risk — market prices and conditions can change, and values may increase or decrease."}
+            </p>
+          </div>
 
           {/* Metadata Footer */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e6ebe5] pt-3 text-[10px] text-slate-400">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e6ebe5] pt-2 text-[10px] text-slate-400">
             <span>
-              Generated on: {new Date(suggestion.createdAt || Date.now()).toLocaleDateString("en-IN", {
+              Last analyzed: {new Date(suggestion.createdAt || Date.now()).toLocaleDateString("en-IN", {
                 day: "numeric",
                 month: "short",
                 year: "numeric",
@@ -2941,13 +3018,28 @@ export function AISuggestionDetailsModal({ isOpen, suggestion, onClose }) {
               })}
             </span>
             <span>
+              Sources: {external.source || "RBI, NSE, AMFI & Bullion Spot Feeds"}
+            </span>
+            <span>
               Engine: {suggestion.modelUsed ? `Gemini (${suggestion.modelUsed})` : "FinanceOS AI Adviser"}
             </span>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex shrink-0 justify-end border-t border-[#dfe8dc] bg-white px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-t border-[#dfe8dc] bg-white px-6 py-4">
+          {onRefresh ? (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={aiLoading}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#315c46] bg-[#f2f7f0] px-4 py-2 text-xs font-semibold text-[#18392c] shadow-xs transition hover:bg-[#e4efe0] disabled:opacity-50 cursor-pointer"
+            >
+              <FiRefreshCw size={12} className={aiLoading ? "animate-spin text-[#315c46]" : "text-[#315c46]"} />
+              <span>{aiLoading ? "Analyzing latest data..." : "Re-analyze Now"}</span>
+            </button>
+          ) : <div />}
+
           <button
             type="button"
             onClick={onClose}

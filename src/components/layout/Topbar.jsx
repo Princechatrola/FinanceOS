@@ -604,6 +604,9 @@ function Topbar() {
               reminder.eventDate ||
               new Date().toISOString(),
 
+            read:
+              Boolean(reminder.read),
+
           });
 
         }

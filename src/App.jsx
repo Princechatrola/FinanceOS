@@ -92,7 +92,6 @@ import AdminMessages from "./pages/AdminMessages.jsx";
 // ============================================================
 
 import AdminReminders from "./pages/AdminReminders.jsx";
-// import AdminSettings from "./pages/AdminSettings";
 
 // ============================================================
 // APP
@@ -434,12 +433,6 @@ function App() {
           </AdminProtectedRoute>
         }
       />
-
-      {/* <Route path="/admin/settings" element={
-          <AdminProtectedRoute>
-            <AdminSettings />
-          </AdminProtectedRoute>
-        } /> */}
 
       {/* ======================================================
           404 / UNKNOWN ROUTE

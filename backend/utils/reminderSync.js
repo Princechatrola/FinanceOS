@@ -106,12 +106,10 @@ async function syncPlanRemindersForUser(userId) {
     const channels = {
       inApp: goal.reminder?.channels?.inApp !== false,
       email: Boolean(goal.reminder?.channels?.email),
-      sms: Boolean(goal.reminder?.channels?.sms),
     };
     const channelList = [];
     if (channels.inApp) channelList.push("In-App");
     if (channels.email) channelList.push("Email");
-    if (channels.sms) channelList.push("SMS");
     const channel = channelList[0] || "In-App";
 
     const rule = `Day ${day} (${notifyBefore.map((n) => (n === 0 ? "On date" : `${n}d before`)).join(", ")})`;
@@ -182,7 +180,6 @@ async function syncPlanRemindersForUser(userId) {
       const channels = {
         inApp: inv.reminder?.channels?.inApp !== false,
         email: Boolean(inv.reminder?.channels?.email),
-        sms: Boolean(inv.reminder?.channels?.sms),
       };
       const channel = channels.email ? "Email" : "In-App";
       const rule = `SIP Day ${day} (${notifyBefore.map((n) => (n === 0 ? "On date" : `${n}d before`)).join(", ")})`;
@@ -247,7 +244,6 @@ async function syncPlanRemindersForUser(userId) {
       const channels = {
         inApp: inv.maturityReminder?.channels?.inApp !== false,
         email: Boolean(inv.maturityReminder?.channels?.email),
-        sms: Boolean(inv.maturityReminder?.channels?.sms),
       };
       const channel = channels.email ? "Email" : "In-App";
 
@@ -327,7 +323,6 @@ async function syncPlanRemindersForUser(userId) {
       const channels = {
         inApp: prem?.channels?.inApp !== false,
         email: Boolean(prem?.channels?.email),
-        sms: Boolean(prem?.channels?.sms),
       };
       const channel = channels.email ? "Email" : "In-App";
       const rule = `Premium Due (${notifyBefore.map((n) => (n === 0 ? "On date" : `${n}d before`)).join(", ")})`;
@@ -403,7 +398,6 @@ async function syncPlanRemindersForUser(userId) {
       const channels = {
         inApp: liab.reminder?.channels?.inApp !== false,
         email: Boolean(liab.reminder?.channels?.email),
-        sms: Boolean(liab.reminder?.channels?.sms),
       };
       const channel = channels.email ? "Email" : "In-App";
 
@@ -467,7 +461,6 @@ async function updateSourcePlanReminder(userId, sourceType, sourceId, config) {
   const channels = {
     inApp: config.channels?.inApp !== false,
     email: Boolean(config.channels?.email),
-    sms: Boolean(config.channels?.sms),
   };
   const notifyBefore = Array.isArray(config.notifyBefore)
     ? config.notifyBefore

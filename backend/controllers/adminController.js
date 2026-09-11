@@ -19,7 +19,8 @@ const InvestmentMaturityAction = require("../models/InvestmentMaturityAction");
 const { calculateMonthlyCashFlowBreakdown } = require("../utils/cashFlowBreakdown");
 const { buildFinancialReportForUser } = require("./reportController");
 const { logActivity } = require("../utils/activityLogger");
-const { sendAdminMessageEmail } = require("../utils/emailService");
+const { sendAdminMessageEmail, isDeliverableEmail, maskEmail } = require("../services/emailService");
+const { parseScheduledDateTime } = require("../services/schedulerService");
 const {
   APPROVED_VARIABLES,
   SUPPORTED_CONDITIONS,
@@ -278,21 +279,18 @@ const getAdminUsers = async (req, res) => {
       const uid = String(inv.user);
       if (inv.reminder?.channels?.inApp !== false) registerUserReminder(uid, "In-App");
       if (inv.reminder?.channels?.email) registerUserReminder(uid, "Email");
-      if (inv.reminder?.channels?.sms) registerUserReminder(uid, "SMS");
     });
 
     insurances.forEach((ins) => {
       const uid = String(ins.user);
       if (ins.reminder?.premiumReminders?.channels?.inApp !== false) registerUserReminder(uid, "In-App");
       if (ins.reminder?.premiumReminders?.channels?.email) registerUserReminder(uid, "Email");
-      if (ins.reminder?.premiumReminders?.channels?.sms) registerUserReminder(uid, "SMS");
     });
 
     liabilities.forEach((l) => {
       const uid = String(l.user);
       if (l.reminder?.channels?.inApp !== false) registerUserReminder(uid, "In-App");
       if (l.reminder?.channels?.email) registerUserReminder(uid, "Email");
-      if (l.reminder?.channels?.sms) registerUserReminder(uid, "SMS");
     });
 
     monthlyFinances.forEach((mf) => {
@@ -309,6 +307,7 @@ const getAdminUsers = async (req, res) => {
         ...u,
         id: u.userId || String(u._id),
         phone: u.phone || u.mobile || "",
+        isEmailDeliverable: isDeliverableEmail(u.email),
         enabledChannels: channels,
         activeRemindersCount: rem ? rem.count : 0,
       };
@@ -459,7 +458,9 @@ const createAdminUser = async (req, res) => {
     // Validations
     if (!normalizedName) return res.status(400).json({ success: false, message: "Full name cannot be empty." });
     if (!/^[0-9]{10}$/.test(normalizedMobile)) return res.status(400).json({ success: false, message: "Enter a valid 10-digit mobile number." });
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) return res.status(400).json({ success: false, message: "Enter a valid email address." });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || !isDeliverableEmail(normalizedEmail)) {
+      return res.status(400).json({ success: false, message: "Enter a valid, deliverable email address (test/mock domains and typos are not permitted)." });
+    }
 
     const allowedGenders = ["Male", "Female", "Other", "male", "female", "other", "prefer-not-to-say"];
     if (!allowedGenders.includes(String(gender).trim())) return res.status(400).json({ success: false, message: "Invalid gender selected." });
@@ -599,7 +600,9 @@ const updateAdminUser = async (req, res) => {
 
     if (email !== undefined) {
       const normalizedEmail = String(email).trim().toLowerCase();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) return res.status(400).json({ success: false, message: "Enter a valid email address." });
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || !isDeliverableEmail(normalizedEmail)) {
+        return res.status(400).json({ success: false, message: "Enter a valid, deliverable email address (test/mock domains and typos are not permitted)." });
+      }
 
       // Check for duplicate email (excluding this user)
       const existingUser = await User.findOne({ email: normalizedEmail, _id: { $ne: id } });
@@ -1147,20 +1150,109 @@ const createAdminMessage = async (req, res) => {
     const recipientEmail = req.body.recipientEmail || null;
     const condition = req.body.condition || null;
     const category = req.body.category || "General";
-    const priority = req.body.priority || "Normal";
-    const channels = Array.isArray(req.body.channels) && req.body.channels.length > 0 ? req.body.channels : ["In-App"];
+
+    // Normalize priority to valid Mongoose enum: ["Normal", "Important", "Urgent"]
+    const rawPriority = String(req.body.priority || "").trim().toLowerCase();
+    let priority = "Normal";
+    if (rawPriority === "urgent") priority = "Urgent";
+    else if (rawPriority === "important") priority = "Important";
+    else if (rawPriority === "normal" || rawPriority === "medium") priority = "Normal";
+
+    // Validate and reject SMS channel submission
+    if (Array.isArray(req.body.channels) && req.body.channels.some((c) => String(c).toLowerCase().includes("sms"))) {
+      return res.status(400).json({
+        success: false,
+        message: "SMS channel is not supported. Only In-App and Email are supported.",
+      });
+    }
+
+    // Reject empty channels array
+    if (Array.isArray(req.body.channels) && req.body.channels.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select at least one delivery channel (In-App or Email).",
+      });
+    }
+
+    const rawChannels = Array.isArray(req.body.channels) && req.body.channels.length > 0 ? req.body.channels : ["In-App"];
+    const channels = [];
+    if (rawChannels.some((c) => String(c).toLowerCase().includes("app") || String(c).toLowerCase() === "in-app")) channels.push("In-App");
+    if (rawChannels.some((c) => String(c).toLowerCase() === "email")) channels.push("Email");
+
+    if (channels.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select at least one valid delivery channel (In-App or Email).",
+      });
+    }
+
+    // Delivery mode and schedule validation
     const delivery = req.body.delivery || (req.body.status === "Scheduled" ? "Schedule" : "Now");
+    const isScheduled = delivery === "Schedule";
     const scheduleDate = req.body.scheduleDate || req.body.scheduledDate || null;
     const scheduleTime = req.body.scheduleTime || req.body.scheduledTime || null;
-    const subject = req.body.subject || req.body.title || "";
-    const message = req.body.message || "";
-    const templateTitle = req.body.templateTitle || "";
-    const templateMessage = req.body.templateMessage || "";
 
-    const titleTemplate = templateTitle || subject || "FinanceOS Communication";
-    const bodyTemplate = templateMessage || message || "";
+    let scheduledDateTime = null;
+    if (req.body.scheduledAt) {
+      const parsedAt = new Date(req.body.scheduledAt);
+      if (!isNaN(parsedAt.getTime())) {
+        scheduledDateTime = parsedAt;
+      }
+    }
+    if (!scheduledDateTime && scheduleDate && scheduleTime) {
+      scheduledDateTime =
+        parseScheduledDateTime(scheduleDate, scheduleTime) ||
+        new Date(`${scheduleDate}T${scheduleTime}`);
+    }
 
-    const isScheduled = delivery === "Schedule";
+    if (isScheduled) {
+      if (!scheduleDate || !scheduleTime) {
+        return res.status(400).json({
+          success: false,
+          message: "Please select a future date and time.",
+        });
+      }
+
+      if (!scheduledDateTime || isNaN(scheduledDateTime.getTime()) || scheduledDateTime.getTime() <= Date.now()) {
+        return res.status(400).json({
+          success: false,
+          message: "Scheduled time must be in the future.",
+        });
+      }
+    }
+
+    // Subject / Title validation
+    const rawTitle = req.body.templateTitle || req.body.subject || req.body.title || "";
+    const titleTemplate = String(rawTitle).trim();
+    if (!titleTemplate) {
+      return res.status(400).json({
+        success: false,
+        message: "Subject is required and cannot be empty or whitespace only.",
+      });
+    }
+    if (titleTemplate.length > 200) {
+      return res.status(400).json({
+        success: false,
+        message: "Subject exceeds maximum allowed length of 200 characters.",
+      });
+    }
+
+    // Message Body validation
+    const rawBody = req.body.templateMessage || req.body.message || "";
+    const bodyTemplate = String(rawBody).trim();
+    if (!bodyTemplate) {
+      return res.status(400).json({
+        success: false,
+        message: "Message body is required and cannot be empty or whitespace only.",
+      });
+    }
+    if (bodyTemplate.length > 5000) {
+      return res.status(400).json({
+        success: false,
+        message: "Message body exceeds maximum allowed length of 5000 characters.",
+      });
+    }
+
     const hasEmail = channels.some((c) => c.toLowerCase() === "email");
     const hasInApp = channels.some((c) => c.toLowerCase().includes("app") || c.toLowerCase() === "in-app");
 
@@ -1169,35 +1261,30 @@ const createAdminMessage = async (req, res) => {
 
     if (audienceType === "Personal") {
       const targetId = userId || (selectedUserIds.length > 0 ? selectedUserIds[0] : null);
+      if (!targetId && !recipientEmail) {
+        return res.status(400).json({ success: false, message: "Please select a recipient user." });
+      }
+
       let user = null;
       if (targetId) {
         user = await User.findOne({
           $or: [
             { userId: String(targetId) },
             ...(mongoose.Types.ObjectId.isValid(targetId) ? [{ _id: targetId }] : []),
-            ...(recipientEmail ? [{ email: recipientEmail.toLowerCase().trim() }] : []),
+            ...(recipientEmail ? [{ email: String(recipientEmail).toLowerCase().trim() }] : []),
           ],
         }).lean();
       }
 
       if (!user && recipientEmail) {
-        user = await User.findOne({ email: recipientEmail.toLowerCase().trim() }).lean();
+        user = await User.findOne({ email: String(recipientEmail).toLowerCase().trim() }).lean();
       }
 
-      // If user document still not found in MongoDB (e.g. ad-hoc recipient), create fallback context
       if (!user) {
-        if (targetId || recipientEmail || req.body.recipient) {
-          user = {
-            _id: mongoose.Types.ObjectId.isValid(targetId) ? new mongoose.Types.ObjectId(targetId) : new mongoose.Types.ObjectId(),
-            userId: String(targetId || "USR-" + Date.now().toString().slice(-4)),
-            name: req.body.recipient || "FinanceOS User",
-            email: recipientEmail || "",
-            phone: "",
-            status: "Active",
-          };
-        } else {
-          return res.status(400).json({ success: false, message: "Please select a recipient user." });
-        }
+        return res.status(404).json({
+          success: false,
+          message: "Recipient user not found.",
+        });
       }
 
       targetUsers = [user];
@@ -1232,6 +1319,7 @@ const createAdminMessage = async (req, res) => {
     }
 
     const createdMessages = [];
+    const finalScheduledAt = isScheduled ? scheduledDateTime : null;
 
     // For EACH target user, generate personalized message using THEIR MongoDB data
     for (const user of targetUsers) {
@@ -1239,49 +1327,24 @@ const createAdminMessage = async (req, res) => {
       const personalizedTitle = cleanResolvedText(resolveTemplate(titleTemplate, context)) || titleTemplate || "FinanceOS Communication";
       const personalizedBody = cleanResolvedText(resolveTemplate(bodyTemplate, context)) || bodyTemplate || "";
 
-      const deliveryStatusMap = {};
-      if (hasInApp) {
-        deliveryStatusMap["In-App"] = isScheduled ? "Scheduled" : "Sent";
-      }
-      if (hasEmail) {
-        deliveryStatusMap["Email"] = isScheduled ? "Scheduled" : "Sent";
-      }
+      const deliveryStatusMap = {
+        inApp: {
+          status: hasInApp ? (isScheduled ? "Scheduled" : "Sent") : "Skipped",
+          sentAt: hasInApp && !isScheduled ? new Date() : null,
+          error: null,
+        },
+        email: {
+          status: hasEmail ? (isScheduled ? "Scheduled" : "Pending") : "Skipped",
+          sentAt: null,
+          error: null,
+          messageId: null,
+        },
+        // Backwards compatibility keys
+        "In-App": hasInApp ? (isScheduled ? "Scheduled" : "Sent") : "Skipped",
+        Email: hasEmail ? (isScheduled ? "Scheduled" : "Pending") : "Skipped",
+      };
 
-      // Ensure every requested channel has a status
-      for (const ch of channels) {
-        if (!deliveryStatusMap[ch]) {
-          deliveryStatusMap[ch] = isScheduled ? "Scheduled" : "Sent";
-        }
-      }
-
-      // If sending immediately and email channel is enabled, dispatch email
-      let emailFailed = false;
-      if (!isScheduled && hasEmail && user.email) {
-        try {
-          const emailResult = await sendAdminMessageEmail({
-            to: user.email,
-            recipientName: user.name || "FinanceOS User",
-            subject: personalizedTitle,
-            message: personalizedBody,
-            category: category || "Important Communication",
-          });
-
-          if (!emailResult.success) {
-            deliveryStatusMap["Email"] = "Failed";
-            emailFailed = true;
-          }
-        } catch (emailErr) {
-          console.error("sendAdminMessageEmail exception:", emailErr);
-          deliveryStatusMap["Email"] = "Failed";
-          emailFailed = true;
-        }
-      }
-
-      const overallStatus = isScheduled
-        ? "Scheduled"
-        : emailFailed
-        ? (deliveryStatusMap["In-App"] === "Sent" ? "Partially Delivered" : "Failed")
-        : "Sent";
+      const initialStatus = isScheduled ? "Scheduled" : "Sent";
 
       const newMsg = new Message({
         recipientUser: user._id,
@@ -1299,7 +1362,8 @@ const createAdminMessage = async (req, res) => {
         condition: audienceType === "Conditional" ? condition : null,
         channels: [...channels],
         deliveryStatus: deliveryStatusMap,
-        status: overallStatus,
+        status: initialStatus,
+        scheduledAt: isScheduled ? scheduledDateTime : null,
         scheduledDate: isScheduled ? scheduleDate : null,
         scheduledTime: isScheduled ? scheduleTime : null,
         sentAt: isScheduled ? null : new Date(),
@@ -1307,13 +1371,118 @@ const createAdminMessage = async (req, res) => {
         metadata: context,
       });
 
+      // Save initial record in MongoDB first
       await newMsg.save();
+
+      // If sending immediately and email channel is enabled, dispatch email
+      if (!isScheduled && hasEmail) {
+        if (user.email && isDeliverableEmail(user.email)) {
+          try {
+            const emailResult = await sendAdminMessageEmail({
+              to: user.email,
+              recipientName: user.name || "FinanceOS User",
+              subject: personalizedTitle,
+              message: personalizedBody,
+              category: category || "Important Communication",
+            });
+
+            if (emailResult.success && Array.isArray(emailResult.accepted) && emailResult.accepted.length > 0) {
+              deliveryStatusMap.email = {
+                status: "Sent",
+                sentAt: new Date(),
+                error: null,
+                messageId: emailResult.messageId || null,
+              };
+              deliveryStatusMap["Email"] = "Sent";
+            } else {
+              deliveryStatusMap.email = {
+                status: "Failed",
+                sentAt: new Date(),
+                error: emailResult.error || "Email not accepted by SMTP server",
+                messageId: null,
+              };
+              deliveryStatusMap["Email"] = "Failed";
+            }
+          } catch (emailErr) {
+            console.error("sendAdminMessageEmail exception:", emailErr.message);
+            deliveryStatusMap.email = {
+              status: "Failed",
+              sentAt: new Date(),
+              error: emailErr.message,
+              messageId: null,
+            };
+            deliveryStatusMap["Email"] = "Failed";
+          }
+        } else {
+          deliveryStatusMap.email = {
+            status: "Failed",
+            sentAt: new Date(),
+            error: `Recipient email is invalid or undeliverable: ${maskEmail(user.email)}`,
+            messageId: null,
+          };
+          deliveryStatusMap["Email"] = "Failed";
+        }
+
+        // Calculate overall status truthfully
+        const inAppStatus = deliveryStatusMap.inApp?.status;
+        const emailStatus = deliveryStatusMap.email?.status;
+
+        let overall = "Sent";
+        if (hasInApp && hasEmail) {
+          if (inAppStatus === "Sent" && emailStatus === "Sent") {
+            overall = "Sent";
+          } else if (inAppStatus === "Sent" && emailStatus === "Failed") {
+            overall = "Partially Delivered";
+          } else if (inAppStatus === "Failed" && emailStatus === "Sent") {
+            overall = "Partially Delivered";
+          } else {
+            overall = "Failed";
+          }
+        } else if (hasInApp) {
+          overall = inAppStatus === "Sent" ? "Sent" : "Failed";
+        } else if (hasEmail) {
+          overall = emailStatus === "Sent" ? "Sent" : "Failed";
+        }
+
+        newMsg.deliveryStatus = deliveryStatusMap;
+        newMsg.status = overall;
+        newMsg.markModified("deliveryStatus");
+        await newMsg.save();
+      }
+
       createdMessages.push(newMsg);
+    }
+
+    // Determine truthful response message
+    let responseText = "Message created successfully.";
+    const firstMsg = createdMessages[0];
+    if (isScheduled) {
+      responseText = "Message scheduled successfully.";
+    } else if (firstMsg) {
+      const inAppSent = firstMsg.deliveryStatus?.inApp?.status === "Sent" || firstMsg.deliveryStatus?.["In-App"] === "Sent";
+      const emailSent = firstMsg.deliveryStatus?.email?.status === "Sent" || firstMsg.deliveryStatus?.["Email"] === "Sent";
+      const emailFailed = firstMsg.deliveryStatus?.email?.status === "Failed" || firstMsg.deliveryStatus?.["Email"] === "Failed";
+
+      if (hasInApp && hasEmail) {
+        if (inAppSent && emailSent) {
+          responseText = "Message delivered in-app; email accepted by mail server.";
+        } else if (inAppSent && emailFailed) {
+          responseText = "Message delivered in-app, but email delivery failed.";
+        } else if (!inAppSent && emailSent) {
+          responseText = "Email accepted by mail server, but in-app delivery failed.";
+        } else {
+          responseText = "Message delivery failed on all channels.";
+        }
+      } else if (hasEmail) {
+        responseText = emailSent ? "Email accepted by mail server." : "Email delivery failed.";
+      } else if (hasInApp) {
+        responseText = inAppSent ? "Message delivered in-app." : "In-app delivery failed.";
+      }
     }
 
     return res.status(201).json({
       success: true,
-      message: `Successfully created ${createdMessages.length} personalized message(s).`,
+      message: responseText,
       count: createdMessages.length,
       data: createdMessages[0],
     });
@@ -1330,7 +1499,49 @@ const createAdminMessage = async (req, res) => {
 const updateAdminMessage = async (req, res) => {
   try {
     const { id } = req.params;
-    const updatedMessage = await Message.findByIdAndUpdate(id, req.body, { new: true });
+
+    if (Array.isArray(req.body.channels) && req.body.channels.some((c) => String(c).toLowerCase() === "sms")) {
+      return res.status(400).json({
+        success: false,
+        message: "SMS channel is not supported. Only In-App and Email are supported.",
+      });
+    }
+
+    if (req.body.priority) {
+      const rawP = String(req.body.priority).toLowerCase().trim();
+      if (rawP === "urgent") req.body.priority = "Urgent";
+      else if (rawP === "important") req.body.priority = "Important";
+      else req.body.priority = "Normal";
+    }
+
+    const updateData = { ...req.body };
+
+    // If rescheduling, update scheduledAt
+    const sDate = req.body.scheduleDate || req.body.scheduledDate;
+    const sTime = req.body.scheduleTime || req.body.scheduledTime;
+    if (sDate && sTime) {
+      let parsed = null;
+      if (req.body.scheduledAt) {
+        const d = new Date(req.body.scheduledAt);
+        if (!isNaN(d.getTime())) parsed = d;
+      }
+      if (!parsed) {
+        parsed = parseScheduledDateTime(sDate, sTime) || new Date(`${sDate}T${sTime}`);
+      }
+      if (!parsed || isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+        return res.status(400).json({
+          success: false,
+          message: "Scheduled time must be in the future.",
+        });
+      }
+      updateData.scheduledAt = parsed;
+    }
+
+    if (req.body.status === "Cancelled") {
+      updateData.cancelledAt = new Date();
+    }
+
+    const updatedMessage = await Message.findByIdAndUpdate(id, updateData, { new: true });
     if (!updatedMessage) {
       return res.status(404).json({ success: false, message: "Message not found" });
     }
@@ -1338,13 +1549,34 @@ const updateAdminMessage = async (req, res) => {
     // Check if retry was requested for email
     const deliveryStatus = req.body.deliveryStatus || {};
     if (deliveryStatus.Email === "Sent" && updatedMessage.recipientEmail) {
-      sendAdminMessageEmail({
-        to: updatedMessage.recipientEmail,
-        recipientName: updatedMessage.recipient || "FinanceOS User",
-        subject: updatedMessage.title,
-        message: updatedMessage.message,
-        category: updatedMessage.category || "Admin Communication",
-      }).catch((err) => console.error("Retry email error:", err.message));
+      if (isDeliverableEmail(updatedMessage.recipientEmail)) {
+        try {
+          const emailRes = await sendAdminMessageEmail({
+            to: updatedMessage.recipientEmail,
+            recipientName: updatedMessage.recipient || "FinanceOS User",
+            subject: updatedMessage.title,
+            message: updatedMessage.message,
+            category: updatedMessage.category || "Admin Communication",
+          });
+          if (emailRes.success && Array.isArray(emailRes.accepted) && emailRes.accepted.length > 0) {
+            updatedMessage.deliveryStatus = { ...updatedMessage.deliveryStatus, Email: "Sent" };
+          } else {
+            updatedMessage.deliveryStatus = { ...updatedMessage.deliveryStatus, Email: "Failed" };
+          }
+        } catch (err) {
+          console.error("Retry email error:", err.message);
+          updatedMessage.deliveryStatus = { ...updatedMessage.deliveryStatus, Email: "Failed" };
+        }
+      } else {
+        updatedMessage.deliveryStatus = { ...updatedMessage.deliveryStatus, Email: "Failed" };
+      }
+
+      const curStatuses = Object.values(updatedMessage.deliveryStatus || {});
+      if (curStatuses.every((s) => s === "Sent")) updatedMessage.status = "Sent";
+      else if (curStatuses.every((s) => s === "Failed")) updatedMessage.status = "Failed";
+      else updatedMessage.status = "Partially Delivered";
+
+      await updatedMessage.save();
     }
 
     return res.status(200).json({ success: true, message: "Message updated", data: updatedMessage });
@@ -1398,6 +1630,8 @@ const getUserRemindersAdmin = async (req, res) => {
       ]);
 
     const context = await fetchUserFinancialContext(user);
+    const items = [];
+    const enabledChannelsSet = new Set();
 
     // Saving goals
     for (const g of goals) {
@@ -1445,7 +1679,6 @@ const getUserRemindersAdmin = async (req, res) => {
         const chs = [];
         if (inv.reminder?.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
         if (inv.reminder?.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
-        if (inv.reminder?.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
         if (chs.length === 0) chs.push("In-App");
 
         const invAmt = (inv.monthlyContribution ? Number(inv.monthlyContribution).toLocaleString("en-IN") : context.amount) || "2,000";
@@ -1468,7 +1701,6 @@ const getUserRemindersAdmin = async (req, res) => {
       const chs = [];
       if (ins.reminder?.premiumReminders?.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
       if (ins.reminder?.premiumReminders?.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
-      if (ins.reminder?.premiumReminders?.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
       if (chs.length === 0) chs.push("In-App");
 
       const insAmt = (ins.premiumAmount ? Number(ins.premiumAmount).toLocaleString("en-IN") : context.premiumAmount) || "1,000";
@@ -1490,7 +1722,6 @@ const getUserRemindersAdmin = async (req, res) => {
       const chs = [];
       if (l.reminder?.channels?.inApp !== false) { chs.push("In-App"); enabledChannelsSet.add("In-App"); }
       if (l.reminder?.channels?.email) { chs.push("Email"); enabledChannelsSet.add("Email"); }
-      if (l.reminder?.channels?.sms) { chs.push("SMS"); enabledChannelsSet.add("SMS"); }
       if (chs.length === 0) chs.push("In-App");
 
       const emiAmt = (l.monthlyEMI ? Number(l.monthlyEMI).toLocaleString("en-IN") : context.emiAmount) || "3,260";

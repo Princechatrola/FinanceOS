@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import {
+  AlertTriangle,
   Bell,
   CalendarClock,
   Check,
@@ -18,7 +19,6 @@ import {
   RefreshCw,
   Search,
   Send,
-  Smartphone,
   Trash2,
   User,
   Users,
@@ -68,10 +68,95 @@ const emptyForm = {
 
 
 // ============================================================
-// GET STORED MESSAGES
+// EMAIL DELIVERABILITY VALIDATOR
 // ============================================================
 
-// Removed getStoredMessages
+function isDeliverableEmail(email) {
+  if (!email || typeof email !== "string") return false;
+  const trimmed = email.trim().toLowerCase();
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (!emailRegex.test(trimmed)) return false;
+  const [, domain] = trimmed.split("@");
+  if (!domain) return false;
+  const blocked = [
+    "test.com",
+    "example.com",
+    "example.org",
+    "example.net",
+    "fake.com",
+    "sample.com",
+    "financeos-test.com",
+    "invalid.com",
+    "localhost",
+  ];
+  if (blocked.includes(domain)) return false;
+  if (domain.endsWith(".com.com") || domain.endsWith(".co.com") || domain.endsWith(".test")) {
+    return false;
+  }
+  const segments = domain.split(".");
+  const tld = segments[segments.length - 1];
+  if (!tld || tld.length < 2 || !/^[a-z]+$/.test(tld)) return false;
+  return true;
+}
+ 
+// ============================================================
+// SCHEDULE DATE & TIME VALIDATION HELPERS
+// Strictly dynamic based on user local time
+// ============================================================
+
+function getLocalDateString(d = new Date()) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getLocalTimeString(d = new Date()) {
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function getNextMinuteTimeString(d = new Date()) {
+  const nextMin = new Date(d.getTime() + 60000);
+  return getLocalTimeString(nextMin);
+}
+
+function validateSchedule(dateStr, timeStr) {
+  if (!dateStr || !timeStr) {
+    return { valid: false, message: "Please select a future date and time." };
+  }
+
+  const now = new Date();
+  const todayStr = getLocalDateString(now);
+
+  if (dateStr < todayStr) {
+    return { valid: false, message: "Previous dates cannot be scheduled." };
+  }
+
+  const currentTimeStr = getLocalTimeString(now);
+  if (dateStr === todayStr) {
+    if (timeStr < currentTimeStr) {
+      return { valid: false, message: "This time has already passed. Please select a future time." };
+    }
+    if (timeStr === currentTimeStr) {
+      return { valid: false, message: "Please select a time later than the current time." };
+    }
+  }
+
+  const scheduleDateObj = new Date(`${dateStr}T${timeStr}`);
+  if (Number.isNaN(scheduleDateObj.getTime())) {
+    return { valid: false, message: "Please enter a valid date and time." };
+  }
+
+  if (scheduleDateObj.getTime() <= now.getTime()) {
+    return { valid: false, message: "Scheduled time must be in the future." };
+  }
+
+  return { valid: true, scheduleDateObj };
+}
+
+
 
 
 // ============================================================
@@ -266,6 +351,7 @@ export default function AdminMessages() {
   });
 
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ==========================================================
   // AUTH HEADERS HELPER
@@ -315,6 +401,90 @@ export default function AdminMessages() {
 
     fetchData();
   }, []);
+
+  // ==========================================================
+  // LIVE STATUS POLLING (ZERO-REFRESH REAL-TIME UPDATES)
+  // Controlled 5-second polling while page is mounted
+  // Merges updated status and deliveryStatus without reloads
+  // ==========================================================
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function pollAdminMessages() {
+      try {
+        const headers = getAuthHeaders();
+        const res = await fetch("http://localhost:5000/api/admin/messages", { headers });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (data.success && isMounted && Array.isArray(data.data)) {
+          setMessages((prevMessages) => {
+            let hasChange = false;
+
+            if (prevMessages.length !== data.data.length) {
+              hasChange = true;
+            } else {
+              for (let i = 0; i < data.data.length; i++) {
+                const fresh = data.data[i];
+                const existing = prevMessages.find(
+                  (m) => (m._id || m.id) === (fresh._id || fresh.id)
+                );
+                if (
+                  !existing ||
+                  existing.status !== fresh.status ||
+                  JSON.stringify(existing.deliveryStatus) !== JSON.stringify(fresh.deliveryStatus)
+                ) {
+                  hasChange = true;
+                  break;
+                }
+              }
+            }
+
+            if (!hasChange) return prevMessages;
+
+            // In-place merge to preserve user's view, filters, search, and pagination
+            const updated = prevMessages.map((existing) => {
+              const fresh = data.data.find(
+                (m) => (m._id || m.id) === (existing._id || existing.id)
+              );
+              return fresh ? { ...existing, ...fresh } : existing;
+            });
+
+            const existingIds = new Set(prevMessages.map((m) => m._id || m.id));
+            const freshAdditions = data.data.filter((m) => !existingIds.has(m._id || m.id));
+
+            return [...freshAdditions, ...updated];
+          });
+        }
+      } catch {
+        // Silent catch during background polling
+      }
+    }
+
+    const pollInterval = setInterval(pollAdminMessages, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+    };
+  }, []);
+
+  // Sync selectedMessage if modal is open and its status changes
+  useEffect(() => {
+    if (showView && selectedMessage) {
+      const match = messages.find(
+        (m) => (m._id || m.id) === (selectedMessage._id || selectedMessage.id)
+      );
+      if (
+        match &&
+        (match.status !== selectedMessage.status ||
+          JSON.stringify(match.deliveryStatus) !== JSON.stringify(selectedMessage.deliveryStatus))
+      ) {
+        setSelectedMessage(match);
+      }
+    }
+  }, [messages, showView, selectedMessage]);
 
   // ==========================================================
   // SAVE IN-APP MESSAGES
@@ -444,7 +614,7 @@ export default function AdminMessages() {
       return [];
     }
 
-    return users.filter((user) =>
+    const matches = users.filter((user) =>
       [
         user.id,
         user._id,
@@ -459,7 +629,14 @@ export default function AdminMessages() {
           .includes(query)
       )
     );
-  }, [userSearch, users]);
+
+    // If Email channel is selected, show only recipients with deliverable email addresses
+    if (form.channels.includes("Email")) {
+      return matches.filter((user) => isDeliverableEmail(user.email));
+    }
+
+    return matches;
+  }, [userSearch, users, form.channels]);
 
 
   // ==========================================================
@@ -506,6 +683,13 @@ export default function AdminMessages() {
   // ==========================================================
 
   function toggleChannel(channel) {
+    if (channel === "Email" && !form.channels.includes("Email")) {
+      if (form.messageType === "Personal" && selectedUser && !isDeliverableEmail(selectedUser.email)) {
+        alert(`Recipient "${selectedUser.name}" does not have a deliverable email address. Email channel cannot be enabled for this recipient.`);
+        return;
+      }
+    }
+
     setForm((current) => {
       const exists = current.channels.includes(channel);
 
@@ -527,6 +711,11 @@ export default function AdminMessages() {
   // ==========================================================
 
   function chooseUser(user) {
+    if (user && form.channels.includes("Email") && !isDeliverableEmail(user.email)) {
+      alert(`User "${user.name}" does not have a deliverable email address. Please select another recipient or uncheck Email.`);
+      return;
+    }
+
     setSelectedUser(user);
     setUserSearch("");
     if (user?.enabledChannels?.length) {
@@ -696,33 +885,22 @@ export default function AdminMessages() {
     }
 
     if (
-      form.delivery === "Schedule" &&
-      (!form.scheduleDate || !form.scheduleTime)
+      form.channels.includes("Email") &&
+      form.messageType === "Personal" &&
+      (!selectedUser?.email || !isDeliverableEmail(selectedUser.email))
     ) {
-      alert("Select schedule date and time.");
+      alert("Selected recipient does not have a valid, deliverable email address. Please select a recipient with a valid email or send via In-App only.");
       return;
     }
 
-
-    // ========================================================
-    // PREVENT SCHEDULING IN THE PAST
-    // ========================================================
-
+    let validatedScheduledAt = null;
     if (form.delivery === "Schedule") {
-      const schedule = new Date(
-        `${form.scheduleDate}T${form.scheduleTime}`
-      );
-
-      if (
-        Number.isNaN(schedule.getTime()) ||
-        schedule.getTime() <= Date.now()
-      ) {
-        alert(
-          "Scheduled date and time must be in the future."
-        );
-
+      const check = validateSchedule(form.scheduleDate, form.scheduleTime);
+      if (!check.valid) {
+        alert(check.message);
         return;
       }
+      validatedScheduledAt = check.scheduleDateObj.toISOString();
     }
 
 
@@ -781,6 +959,7 @@ export default function AdminMessages() {
           : "Sent",
 
       createdBy: "Super Admin",
+      scheduledAt: validatedScheduledAt,
       scheduleDate:
         form.delivery === "Schedule"
           ? form.scheduleDate
@@ -799,6 +978,9 @@ export default function AdminMessages() {
           : null,
     };
 
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
     try {
       const res = await fetch("http://localhost:5000/api/admin/messages", {
         method: "POST",
@@ -813,13 +995,16 @@ export default function AdminMessages() {
           ...current,
         ]);
         closeCompose();
-        alert("Message created and dispatched successfully!");
+
+        alert(data.message || (form.delivery === "Schedule" ? "Message scheduled successfully." : "Message created successfully."));
       } else {
-        alert(data.message || data.error || "Failed to create message.");
+        alert(data.message || data.error || "Failed to create message. Please verify recipient and inputs.");
       }
     } catch (error) {
       console.error("Create Message Error:", error);
       alert("Failed to create message: " + error.message);
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -850,25 +1035,12 @@ export default function AdminMessages() {
       return;
     }
 
-    if (!form.scheduleDate || !form.scheduleTime) {
-      alert("Select schedule date and time.");
+    const check = validateSchedule(form.scheduleDate, form.scheduleTime);
+    if (!check.valid) {
+      alert(check.message);
       return;
     }
-
-    const schedule = new Date(
-      `${form.scheduleDate}T${form.scheduleTime}`
-    );
-
-    if (
-      Number.isNaN(schedule.getTime()) ||
-      schedule.getTime() <= Date.now()
-    ) {
-      alert(
-        "Scheduled date and time must be in the future."
-      );
-
-      return;
-    }
+    const validatedScheduledAt = check.scheduleDateObj.toISOString();
 
     const deliveryStatus = {};
 
@@ -882,8 +1054,11 @@ export default function AdminMessages() {
       channels: [...form.channels],
       deliveryStatus,
       status: "Scheduled",
+      scheduledAt: validatedScheduledAt,
       scheduledDate: form.scheduleDate,
       scheduledTime: form.scheduleTime,
+      scheduleDate: form.scheduleDate,
+      scheduleTime: form.scheduleTime,
     };
 
     try {
@@ -1060,7 +1235,7 @@ export default function AdminMessages() {
 
                 <p className="mt-1 text-sm text-[#718177]">
                   Send personal or bulk communication through
-                  In-App, Email and SMS.
+                  In-App and Email.
                 </p>
               </div>
 
@@ -1447,6 +1622,7 @@ export default function AdminMessages() {
           onClose={closeCompose}
           onSubmit={handleCreate}
           editing={false}
+          isSubmitting={isSubmitting}
         />
 
       )}
@@ -1542,6 +1718,7 @@ function MessageFormModal({
   onSubmit,
 
   editing,
+  isSubmitting = false,
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
@@ -1871,23 +2048,21 @@ function MessageFormModal({
 
 
                             <div className="text-right">
-
-                              <p className="text-xs text-[#617268]">
-                                {user.email}
+                              <p className="text-xs font-medium text-[#617268]">
+                                {user.email || "No email registered"}
                               </p>
 
-                              <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-[#8a978f]">
-
-                                <span>{user.phone}</span>
-
-                                {user.enabledChannels?.length > 0 && (
-                                  <span className="text-[#315c46]">
-                                    • [{user.enabledChannels.join(", ")}]
+                              <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px]">
+                                {isDeliverableEmail(user.email) ? (
+                                  <span className="rounded-full bg-[#dff2d2] px-2 py-0.5 font-bold text-[#315c46]">
+                                    ✓ Both Channels Available
+                                  </span>
+                                ) : (
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800">
+                                    ✓ In-App Only • Email Unavailable
                                   </span>
                                 )}
-
                               </div>
-
                             </div>
 
                           </button>
@@ -1897,7 +2072,9 @@ function MessageFormModal({
                       ) : (
 
                         <div className="p-4 text-center text-xs text-[#718177]">
-                          No users found.
+                          {form.channels.includes("Email")
+                            ? "No users found with valid deliverable email for Email channel."
+                            : "No matching users found."}
                         </div>
 
                       )}
@@ -1990,25 +2167,12 @@ function MessageFormModal({
                 }
               />
 
-
-              <ChannelOption
-                selected={
-                  form.channels.includes("SMS")
-                }
-                icon={Smartphone}
-                title="SMS"
-                description="Registered mobile"
-                onClick={() =>
-                  toggleChannel("SMS")
-                }
-              />
-
             </div>
 
             <p className="mt-2 text-[10px] leading-4 text-[#8a978f]">
               In-App messages are stored for the FinanceOS user
-              notification bell. Email and SMS are simulated
-              until backend services are connected.
+              notification bell. Email messages are delivered to
+              registered email addresses.
             </p>
 
           </div>
@@ -2072,46 +2236,109 @@ function MessageFormModal({
 
           {/* SCHEDULE */}
 
-          {(form.delivery === "Schedule" || editing) && (
+          {(form.delivery === "Schedule" || editing) && (() => {
+            const now = new Date();
+            const todayStr = getLocalDateString(now);
+            const currentTimeStr = getLocalTimeString(now);
+            const nextMinuteStr = getNextMinuteTimeString(now);
 
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            let scheduleValidation = null;
+            if (form.scheduleDate || form.scheduleTime) {
+              if (!form.scheduleDate || !form.scheduleTime) {
+                scheduleValidation = {
+                  type: "info",
+                  message: "Please select both date and time to schedule the message.",
+                };
+              } else if (form.scheduleDate < todayStr) {
+                scheduleValidation = {
+                  type: "error",
+                  message: "Previous dates cannot be scheduled.",
+                };
+              } else if (form.scheduleDate === todayStr && form.scheduleTime < currentTimeStr) {
+                scheduleValidation = {
+                  type: "error",
+                  message: "This time has already passed. Please select a future time.",
+                };
+              } else if (form.scheduleDate === todayStr && form.scheduleTime === currentTimeStr) {
+                scheduleValidation = {
+                  type: "error",
+                  message: "Please select a time later than the current time.",
+                };
+              } else {
+                const d = new Date(`${form.scheduleDate}T${form.scheduleTime}`);
+                if (Number.isNaN(d.getTime()) || d.getTime() <= now.getTime()) {
+                  scheduleValidation = {
+                    type: "error",
+                    message: "Scheduled time must be in the future.",
+                  };
+                } else {
+                  scheduleValidation = {
+                    type: "success",
+                    message: `Valid future schedule: ${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} at ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}.`,
+                  };
+                }
+              }
+            }
 
-              <div>
+            return (
+              <div className="mt-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <FieldLabel>
+                      Scheduled Date
+                    </FieldLabel>
 
-                <FieldLabel>
-                  Scheduled Date
-                </FieldLabel>
+                    <input
+                      type="date"
+                      name="scheduleDate"
+                      min={todayStr}
+                      value={form.scheduleDate}
+                      onChange={handleChange}
+                      className="w-full rounded-xl border border-[#dce4d8] bg-[#fbfcfa] px-4 py-3 text-sm outline-none focus:border-[#9fbd82]"
+                    />
+                  </div>
 
-                <input
-                  type="date"
-                  name="scheduleDate"
-                  value={form.scheduleDate}
-                  onChange={handleChange}
-                  className="w-full rounded-xl border border-[#dce4d8] bg-[#fbfcfa] px-4 py-3 text-sm outline-none focus:border-[#9fbd82]"
-                />
+                  <div>
+                    <FieldLabel>
+                      Scheduled Time
+                    </FieldLabel>
 
+                    <input
+                      type="time"
+                      name="scheduleTime"
+                      min={form.scheduleDate === todayStr ? nextMinuteStr : undefined}
+                      value={form.scheduleTime}
+                      onChange={handleChange}
+                      className="w-full rounded-xl border border-[#dce4d8] bg-[#fbfcfa] px-4 py-3 text-sm outline-none focus:border-[#9fbd82]"
+                    />
+                  </div>
+                </div>
+
+                {scheduleValidation && (
+                  <div
+                    className={`mt-3 flex items-center gap-2 rounded-xl border px-3.5 py-2.5 text-xs font-semibold ${
+                      scheduleValidation.type === "error"
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : scheduleValidation.type === "success"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}
+                  >
+                    {scheduleValidation.type === "error" && (
+                      <AlertTriangle size={15} className="shrink-0 text-rose-500" />
+                    )}
+                    {scheduleValidation.type === "success" && (
+                      <CheckCircle2 size={15} className="shrink-0 text-emerald-600" />
+                    )}
+                    {scheduleValidation.type === "info" && (
+                      <Clock3 size={15} className="shrink-0 text-slate-500" />
+                    )}
+                    <span>{scheduleValidation.message}</span>
+                  </div>
+                )}
               </div>
-
-
-              <div>
-
-                <FieldLabel>
-                  Scheduled Time
-                </FieldLabel>
-
-                <input
-                  type="time"
-                  name="scheduleTime"
-                  value={form.scheduleTime}
-                  onChange={handleChange}
-                  className="w-full rounded-xl border border-[#dce4d8] bg-[#fbfcfa] px-4 py-3 text-sm outline-none focus:border-[#9fbd82]"
-                />
-
-              </div>
-
-            </div>
-
-          )}
+            );
+          })()}
 
 
           {/* ACTIONS */}
@@ -2129,32 +2356,32 @@ function MessageFormModal({
 
             <button
               type="submit"
-              className="flex items-center gap-2 rounded-xl bg-[#dff3ad] px-5 py-2.5 text-sm font-bold text-[#173b2b]"
+              disabled={isSubmitting}
+              className={`flex items-center gap-2 rounded-xl bg-[#dff3ad] px-5 py-2.5 text-sm font-bold text-[#173b2b] transition-opacity ${
+                isSubmitting ? "cursor-not-allowed opacity-60" : "hover:bg-[#d4e99f]"
+              }`}
             >
-
-              {editing ? (
-
+              {isSubmitting ? (
+                <>
+                  <RefreshCw size={16} className="animate-spin" />
+                  {form.delivery === "Schedule" ? "Scheduling..." : "Sending..."}
+                </>
+              ) : editing ? (
                 <>
                   <Check size={16} />
                   Save Changes
                 </>
-
               ) : form.delivery === "Schedule" ? (
-
                 <>
                   <CalendarClock size={16} />
                   Schedule Message
                 </>
-
               ) : (
-
                 <>
                   <Send size={16} />
                   Send Message
                 </>
-
               )}
-
             </button>
 
           </div>
@@ -2672,10 +2899,6 @@ function ChannelBadge({ channel }) {
     Icon = Mail;
   }
 
-  if (channel === "SMS") {
-    Icon = Smartphone;
-  }
-
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f0f5ed] px-2.5 py-1 text-[9px] font-semibold text-[#526459]">
 
@@ -2693,29 +2916,32 @@ function ChannelBadge({ channel }) {
 // ============================================================
 
 function MiniStatus({ status }) {
-  let style =
-    "bg-[#edf6e7] text-[#57923d]";
+  let style = "bg-emerald-50 text-emerald-700 border border-emerald-200";
+  let icon = <CheckCircle2 size={10} className="shrink-0" />;
 
   if (status === "Scheduled") {
-    style =
-      "bg-[#fff6df] text-[#99701e]";
-  }
-
-  if (status === "Failed") {
-    style =
-      "bg-[#fff0ed] text-[#b45745]";
-  }
-
-  if (status === "Cancelled") {
-    style =
-      "bg-[#f1f1f1] text-[#777]";
+    style = "bg-amber-50 text-amber-700 border border-amber-200";
+    icon = <Clock3 size={10} className="shrink-0" />;
+  } else if (status === "Processing") {
+    style = "bg-blue-50 text-blue-700 border border-blue-200";
+    icon = <RefreshCw size={10} className="shrink-0 animate-spin" />;
+  } else if (status === "Partially Delivered") {
+    style = "bg-orange-50 text-orange-700 border border-orange-200";
+    icon = <AlertTriangle size={10} className="shrink-0" />;
+  } else if (status === "Failed") {
+    style = "bg-rose-50 text-rose-700 border border-rose-200";
+    icon = <XCircle size={10} className="shrink-0" />;
+  } else if (status === "Cancelled") {
+    style = "bg-slate-100 text-slate-600 border border-slate-200";
+    icon = <X size={10} className="shrink-0" />;
   }
 
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${style}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold ${style}`}
     >
-      {status || "—"}
+      {icon}
+      <span>{status || "—"}</span>
     </span>
   );
 }
@@ -2726,32 +2952,38 @@ function MiniStatus({ status }) {
 // ============================================================
 
 function StatusBadge({ status }) {
-  let style =
-    "bg-[#edf6e7] text-[#57923d]";
+  let style = "bg-emerald-50 text-emerald-700 border border-emerald-200";
+  let icon = <CheckCircle2 size={12} className="shrink-0 text-emerald-600" />;
+  let label = status || "Sent";
 
-  if (
-    status === "Scheduled" ||
-    status === "Partially Delivered"
-  ) {
-    style =
-      "bg-[#fff6df] text-[#99701e]";
-  }
-
-  if (status === "Failed") {
-    style =
-      "bg-[#fff0ed] text-[#b45745]";
-  }
-
-  if (status === "Cancelled") {
-    style =
-      "bg-[#f1f1f1] text-[#777]";
+  if (status === "Scheduled") {
+    style = "bg-amber-50 text-amber-700 border border-amber-200";
+    icon = <Clock3 size={12} className="shrink-0 text-amber-600" />;
+    label = "Scheduled";
+  } else if (status === "Processing") {
+    style = "bg-blue-50 text-blue-700 border border-blue-200";
+    icon = <RefreshCw size={12} className="shrink-0 text-blue-600 animate-spin" />;
+    label = "Processing";
+  } else if (status === "Partially Delivered") {
+    style = "bg-orange-50 text-orange-700 border border-orange-200";
+    icon = <AlertTriangle size={12} className="shrink-0 text-orange-600" />;
+    label = "Partially Delivered";
+  } else if (status === "Failed") {
+    style = "bg-rose-50 text-rose-700 border border-rose-200";
+    icon = <XCircle size={12} className="shrink-0 text-rose-600" />;
+    label = "Failed";
+  } else if (status === "Cancelled") {
+    style = "bg-slate-100 text-slate-600 border border-slate-200";
+    icon = <X size={12} className="shrink-0 text-slate-500" />;
+    label = "Cancelled";
   }
 
   return (
     <span
-      className={`inline-flex rounded-full px-3 py-1 text-[10px] font-semibold ${style}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-bold ${style}`}
     >
-      {status}
+      {icon}
+      <span>{label}</span>
     </span>
   );
 }

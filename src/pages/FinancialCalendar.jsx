@@ -1255,11 +1255,6 @@ function FinancialCalendar() {
                                     Email
                                   </span>
                                 )}
-                                {event.channels.sms && (
-                                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[9px] font-medium text-purple-800">
-                                    SMS
-                                  </span>
-                                )}
                               </div>
                             )}
 

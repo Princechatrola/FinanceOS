@@ -21,6 +21,16 @@ const logActivity = async (userId, description) => {
 
 const createInsurance = async (req, res) => {
   try {
+    if (
+      req.body.reminder?.premiumReminders?.channels?.sms === true ||
+      req.body.reminder?.expiryReminders?.channels?.sms === true ||
+      req.body.reminder?.maturityReminders?.channels?.sms === true
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "SMS notifications are not supported. FinanceOS supports only Email and In-App notifications.",
+      });
+    }
     const userId = req.user?.id || req.user?._id;
     const insuranceData = { ...req.body, user: userId };
     
@@ -32,6 +42,7 @@ const createInsurance = async (req, res) => {
       success: true,
       message: "Insurance created successfully.",
       insurance,
+      policy: insurance,
     });
   } catch (error) {
     console.error("Create Insurance:", error);
@@ -56,6 +67,16 @@ const getInsurances = async (req, res) => {
 
 const updateInsurance = async (req, res) => {
   try {
+    if (
+      req.body.reminder?.premiumReminders?.channels?.sms === true ||
+      req.body.reminder?.expiryReminders?.channels?.sms === true ||
+      req.body.reminder?.maturityReminders?.channels?.sms === true
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "SMS notifications are not supported. FinanceOS supports only Email and In-App notifications.",
+      });
+    }
     const userId = req.user?.id || req.user?._id;
     const insurance = await Insurance.findOneAndUpdate(
       { _id: req.params.id, user: userId },

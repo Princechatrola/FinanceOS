@@ -84,24 +84,40 @@ const messageSchema = new mongoose.Schema(
       default: null,
     },
     channels: {
-      type: [String],
+      type: [
+        {
+          type: String,
+          enum: ["In-App", "Email"],
+        },
+      ],
       required: true,
       default: ["In-App"],
     },
     deliveryStatus: {
-      type: Map,
-      of: String,
+      type: mongoose.Schema.Types.Mixed,
       default: {},
     },
     status: {
       type: String,
-      enum: ["Scheduled", "Sent", "Failed", "Partially Delivered", "Cancelled"],
+      enum: [
+        "Scheduled",
+        "Processing",
+        "Sent",
+        "Failed",
+        "Partially Delivered",
+        "Cancelled",
+      ],
       default: "Sent",
       index: true,
     },
     createdBy: {
       type: String,
       default: "Super Admin",
+    },
+    scheduledAt: {
+      type: Date,
+      default: null,
+      index: true,
     },
     scheduledDate: {
       type: String,
@@ -138,7 +154,7 @@ const messageSchema = new mongoose.Schema(
   }
 );
 
-// Map _id to id
+// Map _id to id for virtual conversion
 messageSchema.set("toJSON", {
   virtuals: true,
   transform: (doc, ret) => {

@@ -1,12 +1,11 @@
 // ============================================================
 // FINANCEOS - AUTH CONTROLLER
 // OTP BASED AUTHENTICATION 
-// ADMIN EMAIL:
-// princepatel0570@gmail.com
 // ============================================================
 
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
 const User = require("../models/User");
 const { logActivity } = require("../utils/activityLogger");
@@ -16,10 +15,9 @@ const { logActivity } = require("../utils/activityLogger");
 // ============================================================
 
 const ADMIN_EMAILS = [
-  "financeos.system@gmail.com",
-  "princepatel0570@gmail.com",
   "admin@financeos.com",
   ...(process.env.ADMIN_EMAIL ? [process.env.ADMIN_EMAIL.toLowerCase()] : []),
+  ...(process.env.EMAIL_USER ? [process.env.EMAIL_USER.toLowerCase()] : []),
 ];
 
 
@@ -82,13 +80,11 @@ transporter.verify((error) => {
 
 
 // ============================================================
-// GENERATE 6 DIGIT OTP
+// GENERATE 6 DIGIT OTP (CRYPTOGRAPHICALLY SECURE)
 // ============================================================
 
 function generateOTP() {
-  return Math.floor(
-    100000 + Math.random() * 900000
-  ).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 
@@ -232,12 +228,7 @@ const sendLoginOTP = async (req, res) => {
 
     // ========================================================
     // DETERMINE ROLE
-    //
-    // Admin email:
-    // princepatel0570@gmail.com
-    //
-    // Everyone else:
-    // user
+    // Admin emails configured via ADMIN_EMAILS or role in DB
     // ========================================================
 
     const role =
@@ -741,16 +732,7 @@ const verifyLoginOTP = async (req, res) => {
 
     // ========================================================
     // DETERMINE ROLE AFTER OTP VERIFICATION
-    //
-    // THIS IS THE IMPORTANT PART
-    //
-    // princepatel0570@gmail.com
-    //       ↓
-    //     ADMIN
-    //
-    // Every other email
-    //       ↓
-    //      USER
+    // Admin emails configured via ADMIN_EMAILS or role in DB
     // ========================================================
 
     const role =

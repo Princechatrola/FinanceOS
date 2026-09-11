@@ -49,7 +49,7 @@
 
 export const userData = {
   id: "user_001",
-  name: "Dip",
+  name: "User",
 };
 
 

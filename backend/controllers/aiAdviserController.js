@@ -28,16 +28,29 @@ const logActivity = async (userId, description) => {
 // POST /api/ai/generate
 // ============================================================
 
-const generateSuggestion = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: "User authentication required.",
-      });
-    }
+// Set to track active in-flight generations per user
+const activeGenerations = new Set();
 
+const generateSuggestion = async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      message: "User authentication required.",
+    });
+  }
+
+  // Concurrency guard: prevent duplicate simultaneous generation requests
+  if (activeGenerations.has(userId)) {
+    return res.status(429).json({
+      success: false,
+      message: "An AI recommendation is already being generated for your account. Please wait.",
+    });
+  }
+
+  activeGenerations.add(userId);
+
+  try {
     const { context = "plans_commitments", targetItem = null, selectedMonth = "" } = req.body || {};
 
     const suggestion = await aiAdviserService.generateUserRecommendation(userId, {
@@ -58,10 +71,19 @@ const generateSuggestion = async (req, res) => {
     });
   } catch (error) {
     console.error("Generate AI Suggestion Error:", error);
+    const isDbError =
+      error.name === "MongoError" ||
+      error.name === "MongooseError" ||
+      (error.message && error.message.toLowerCase().includes("mongo"));
+
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to generate AI recommendation.",
+      message: isDbError
+        ? "Unable to refresh your financial data. Please try again."
+        : error.message || "Failed to generate AI recommendation.",
     });
+  } finally {
+    activeGenerations.delete(userId);
   }
 };
 

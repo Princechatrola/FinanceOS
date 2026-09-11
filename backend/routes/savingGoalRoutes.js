@@ -59,6 +59,14 @@ router.post(
   addGoalContribution
 );
 
+// Record Goal Contribution (Alias)
+router.post(
+  "/:id/contribute",
+  authMiddleware,
+  addGoalContribution
+);
+
+
 // Update Goal Contribution
 router.put(
   "/:id/contribution/:contributionId",

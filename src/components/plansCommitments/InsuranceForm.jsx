@@ -116,7 +116,6 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
   const [premOnDue, setPremOnDue] = useState(editingPolicy?.reminder?.premiumReminders?.onDueDate ?? true);
   const [premInApp, setPremInApp] = useState(editingPolicy?.reminder?.premiumReminders?.channels?.inApp ?? true);
   const [premEmail, setPremEmail] = useState(editingPolicy?.reminder?.premiumReminders?.channels?.email ?? true);
-  const [premSms, setPremSms] = useState(editingPolicy?.reminder?.premiumReminders?.channels?.sms ?? false);
 
   const [exp2Months, setExp2Months] = useState(editingPolicy?.reminder?.expiryReminders?.twoMonthsBefore ?? false);
   const [exp1Month, setExp1Month] = useState(editingPolicy?.reminder?.expiryReminders?.oneMonthBefore ?? true);
@@ -124,7 +123,6 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
   const [expOnDate, setExpOnDate] = useState(editingPolicy?.reminder?.expiryReminders?.onExpiryDate ?? true);
   const [expInApp, setExpInApp] = useState(editingPolicy?.reminder?.expiryReminders?.channels?.inApp ?? true);
   const [expEmail, setExpEmail] = useState(editingPolicy?.reminder?.expiryReminders?.channels?.email ?? true);
-  const [expSms, setExpSms] = useState(editingPolicy?.reminder?.expiryReminders?.channels?.sms ?? false);
 
   const [matEnabled, setMatEnabled] = useState(editingPolicy?.reminder?.maturityReminders?.enabled ?? false);
   const [mat2Months, setMat2Months] = useState(editingPolicy?.reminder?.maturityReminders?.twoMonthsBefore ?? false);
@@ -132,7 +130,6 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
   const [matOnDate, setMatOnDate] = useState(editingPolicy?.reminder?.maturityReminders?.onMaturityDate ?? true);
   const [matInApp, setMatInApp] = useState(editingPolicy?.reminder?.maturityReminders?.channels?.inApp ?? true);
   const [matEmail, setMatEmail] = useState(editingPolicy?.reminder?.maturityReminders?.channels?.email ?? true);
-  const [matSms, setMatSms] = useState(editingPolicy?.reminder?.maturityReminders?.channels?.sms ?? false);
 
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -182,21 +179,21 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
           fiveDaysBefore: prem5Days,
           oneDayBefore: prem1Day,
           onDueDate: premOnDue,
-          channels: { inApp: premInApp, email: premEmail, sms: premSms }
+          channels: { inApp: premInApp, email: premEmail }
         },
         expiryReminders: {
           twoMonthsBefore: exp2Months,
           oneMonthBefore: exp1Month,
           sevenDaysBefore: exp7Days,
           onExpiryDate: expOnDate,
-          channels: { inApp: expInApp, email: expEmail, sms: expSms }
+          channels: { inApp: expInApp, email: expEmail }
         },
         maturityReminders: {
           enabled: matEnabled,
           twoMonthsBefore: mat2Months,
           oneMonthBefore: mat1Month,
           onMaturityDate: matOnDate,
-          channels: { inApp: matInApp, email: matEmail, sms: matSms }
+          channels: { inApp: matInApp, email: matEmail }
         }
       };
 
@@ -932,10 +929,6 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
                       <label className="flex items-center gap-1.5 cursor-pointer">
                         <input type="checkbox" checked={premEmail} onChange={(e) => setPremEmail(e.target.checked)} className="accent-[#315c46]" />
                         Email
-                      </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input type="checkbox" checked={premSms} onChange={(e) => setPremSms(e.target.checked)} className="accent-[#315c46]" />
-                        SMS
                       </label>
                     </div>
                   </div>

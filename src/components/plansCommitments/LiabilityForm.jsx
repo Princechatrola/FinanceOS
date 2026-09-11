@@ -221,7 +221,6 @@ export default function LiabilityForm({ editingLiability, onClose, onSuccess }) 
   const [onDueDate, setOnDueDate] = useState(editingLiability?.reminder?.daysBefore === 0);
   const [reminderInApp, setReminderInApp] = useState(editingLiability?.reminder?.channels?.inApp ?? true);
   const [reminderEmail, setReminderEmail] = useState(editingLiability?.reminder?.channels?.email ?? true);
-  const [reminderSms, setReminderSms] = useState(editingLiability?.reminder?.channels?.sms ?? false);
 
   // Type-specific details state
   // Home Loan details
@@ -307,7 +306,7 @@ export default function LiabilityForm({ editingLiability, onClose, onSuccess }) 
       if (!fiveDaysBefore && !oneDayBefore && !onDueDate) {
         return setError("Select at least one reminder timing.");
       }
-      if (!reminderInApp && !reminderEmail && !reminderSms) {
+      if (!reminderInApp && !reminderEmail) {
         return setError("Select at least one reminder channel.");
       }
     }
@@ -356,7 +355,6 @@ export default function LiabilityForm({ editingLiability, onClose, onSuccess }) 
           channels: {
             inApp: reminderInApp,
             email: reminderEmail,
-            sms: reminderSms
           }
         },
 
@@ -1038,7 +1036,6 @@ export default function LiabilityForm({ editingLiability, onClose, onSuccess }) 
                   <div className="space-y-2">
                     <CheckOption label="In-App Notifications" checked={reminderInApp} onChange={setReminderInApp} />
                     <CheckOption label="Email Alerts" checked={reminderEmail} onChange={setReminderEmail} />
-                    <CheckOption label="SMS Text Notifications" checked={reminderSms} onChange={setReminderSms} />
                   </div>
                 </div>
               </div>

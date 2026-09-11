@@ -228,7 +228,6 @@ const insuranceSchema = new mongoose.Schema(
         channels: {
           inApp: { type: Boolean, default: true },
           email: { type: Boolean, default: true },
-          sms: { type: Boolean, default: false },
         }
       },
       expiryReminders: {
@@ -239,7 +238,6 @@ const insuranceSchema = new mongoose.Schema(
         channels: {
           inApp: { type: Boolean, default: true },
           email: { type: Boolean, default: true },
-          sms: { type: Boolean, default: false },
         }
       },
       maturityReminders: {
@@ -250,7 +248,6 @@ const insuranceSchema = new mongoose.Schema(
         channels: {
           inApp: { type: Boolean, default: true },
           email: { type: Boolean, default: true },
-          sms: { type: Boolean, default: false },
         }
       }
     },

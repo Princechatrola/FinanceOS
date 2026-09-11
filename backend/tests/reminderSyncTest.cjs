@@ -48,7 +48,7 @@ async function runTest() {
       enabled: true,
       contributionDay: 10,
       notifyBefore: [5, 1],
-      channels: { inApp: true, email: true, sms: false },
+      channels: { inApp: true, email: true },
     },
   });
   console.log(`Created test investment: ${testInv._id}`);

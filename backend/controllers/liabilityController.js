@@ -21,6 +21,12 @@ const logActivity = async (userId, description) => {
 
 const createLiability = async (req, res) => {
   try {
+    if (req.body.reminder?.channels?.sms === true) {
+      return res.status(400).json({
+        success: false,
+        message: "SMS notifications are not supported. FinanceOS supports only Email and In-App notifications.",
+      });
+    }
     const userId = req.user?.id || req.user?._id;
     const liabilityData = { ...req.body, user: userId };
     
@@ -61,6 +67,12 @@ const getLiabilities = async (req, res) => {
 
 const updateLiability = async (req, res) => {
   try {
+    if (req.body.reminder?.channels?.sms === true) {
+      return res.status(400).json({
+        success: false,
+        message: "SMS notifications are not supported. FinanceOS supports only Email and In-App notifications.",
+      });
+    }
     const userId = req.user?.id || req.user?._id;
     const liability = await Liability.findOneAndUpdate(
       { _id: req.params.id, user: userId },

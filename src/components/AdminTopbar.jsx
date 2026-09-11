@@ -18,7 +18,6 @@ import {
   Mail,
   MessageSquare,
   ShieldCheck,
-  Smartphone,
   UserPlus,
   X,
 } from "lucide-react";
@@ -156,9 +155,7 @@ function buildMessageNotifications(
             type:
               channel === "Email"
                 ? "email"
-                : channel === "SMS"
-                  ? "sms"
-                  : "message",
+                : "message",
 
             title:
               `${channel} Delivery Failed`,
@@ -273,13 +270,7 @@ function NotificationIcon({
   }
 
 
-  if (
-    type === "sms"
-  ) {
-    return (
-      <Smartphone size={17} />
-    );
-  }
+
 
 
   if (

@@ -29,7 +29,6 @@
 // This utility does NOT:
 //
 // - Send email
-// - Send SMS
 // - Send browser notifications
 //
 // It only determines WHICH reminders should appear.

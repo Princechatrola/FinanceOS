@@ -12,7 +12,6 @@ import {
   FiAlertTriangle,
   FiCalendar,
   FiMail,
-  FiSmartphone,
   FiInfo,
 } from "react-icons/fi";
 import useFinance from "../../context/useFinance.js";
@@ -62,10 +61,10 @@ function ReminderConfigModal({
   const [date, setDate] = useState("");
   const [notifyOffsets, setNotifyOffsets] = useState([5, 1, 0]);
   const [customDays, setCustomDays] = useState("");
+  const [frequency, setFrequency] = useState("Monthly");
   const [channels, setChannels] = useState({
     inApp: true,
     email: true,
-    sms: false,
   });
   const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -84,6 +83,7 @@ function ReminderConfigModal({
       setTitle(initialData.cleanTitle || initialData.title || initialData.itemName || effectiveItemName);
       setDate(initialData.dueDate || initialData.date || effectiveDueDate || "");
       setEnabled(initialData.enabled !== false && initialData.status !== "Disabled");
+      setFrequency(initialData.frequency || "Monthly");
       setDescription(initialData.description || initialData.message || "");
 
       // Channels
@@ -91,7 +91,6 @@ function ReminderConfigModal({
         setChannels({
           inApp: initialData.channels.inApp !== false,
           email: Boolean(initialData.channels.email),
-          sms: Boolean(initialData.channels.sms),
         });
       }
 
@@ -110,7 +109,7 @@ function ReminderConfigModal({
       setDate(effectiveDueDate || "");
       setEnabled(true);
       setNotifyOffsets([5, 1, 0]);
-      setChannels({ inApp: true, email: true, sms: false });
+      setChannels({ inApp: true, email: true });
       setDescription("");
     }
   }, [isOpen, initialData, effectiveItemName, effectiveDueDate]);
@@ -162,12 +161,14 @@ function ReminderConfigModal({
       } else if (rawReminderId && !isPlanLinked) {
         // Update existing general reminder
         const res = await updateCustomReminder(rawReminderId, {
-          title,
-          dueDate: date,
+          title: title || effectiveItemName,
+          dueDate: date || effectiveDueDate,
+          scheduledDate: date || effectiveDueDate,
+          frequency,
           notifyBefore: notifyOffsets,
           channels,
-          enabled,
           message: description,
+          enabled,
         });
         if (res.success) {
           setFeedback({ type: "success", message: "Reminder updated!" });
@@ -181,6 +182,8 @@ function ReminderConfigModal({
         const res = await createCustomReminder({
           title: title || effectiveItemName,
           dueDate: date || effectiveDueDate,
+          scheduledDate: date || effectiveDueDate,
+          frequency,
           notifyBefore: notifyOffsets,
           channels,
           message: description,
@@ -488,18 +491,33 @@ function ReminderConfigModal({
                   <FiMail className="text-slate-400" />
                   <span>Email</span>
                 </label>
-
-                <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-[#fafcf9] cursor-pointer hover:bg-white text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={channels.sms}
-                    onChange={(e) => setChannels({ ...channels, sms: e.target.checked })}
-                    className="accent-[#315c46] rounded"
-                  />
-                  <FiSmartphone className="text-slate-400" />
-                  <span>SMS</span>
-                </label>
               </div>
+
+              {channels.email && (
+                <p className="mt-2 text-[11px] text-[#28553d] bg-[#eef6ec] p-2.5 rounded-lg flex items-center gap-1.5 border border-[#dcebd8]">
+                  <FiMail className="shrink-0 text-xs text-[#315c46]" />
+                  Email reminder will be sent to your registered email address.
+                </p>
+              )}
+            </div>
+
+            {/* Recurrence Frequency */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Recurrence Frequency
+              </label>
+              <select
+                value={frequency}
+                onChange={(e) => setFrequency(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-800 bg-white focus:border-[#315c46] focus:outline-none focus:ring-1 focus:ring-[#315c46]"
+              >
+                <option value="Once">One-time (Once)</option>
+                <option value="Daily">Daily</option>
+                <option value="Weekly">Weekly</option>
+                <option value="Monthly">Monthly</option>
+                <option value="Quarterly">Quarterly</option>
+                <option value="Yearly">Yearly</option>
+              </select>
             </div>
 
             {/* Notes / Message */}

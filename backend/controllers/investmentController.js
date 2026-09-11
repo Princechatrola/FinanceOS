@@ -60,6 +60,15 @@ function validateInvestmentPayload(payload) {
 
 const addInvestment = async (req, res) => {
   try {
+    if (
+      req.body.reminder?.channels?.sms === true ||
+      req.body.maturityReminder?.channels?.sms === true
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "SMS notifications are not supported. FinanceOS supports only Email and In-App notifications.",
+      });
+    }
     console.log("REQ.USER:", req.user);
     console.log("REQ.USER.ID:", req.user?.id);
     console.log("REQ.USER._ID:", req.user?._id);
@@ -161,6 +170,15 @@ const getInvestment = async (req, res) => {
 
 const updateInvestment = async (req, res) => {
   try {
+    if (
+      req.body.reminder?.channels?.sms === true ||
+      req.body.maturityReminder?.channels?.sms === true
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "SMS notifications are not supported. FinanceOS supports only Email and In-App notifications.",
+      });
+    }
     const investment = await Investment.findOneAndUpdate(
       {
         _id: req.params.id,

@@ -61,7 +61,7 @@ async function runComprehensiveTest() {
       enabled: true,
       contributionDay: 12,
       notifyBefore: [7, 3, 1],
-      channels: { inApp: true, email: true, sms: false },
+      channels: { inApp: true, email: true },
     },
   });
   console.log(`1. Created SIP investment: ID ${testInv._id}`);
@@ -81,13 +81,13 @@ async function runComprehensiveTest() {
   await updateSourcePlanReminder(user._id, "Investment", testInv._id, {
     enabled: true,
     notifyBefore: [5, 1, 0],
-    channels: { inApp: true, email: false, sms: true },
+    channels: { inApp: false, email: true },
   });
   invReminder = await Reminder.findOne({ _id: invReminder._id });
-  if (invReminder.notifyBefore.join(",") !== "5,1,0" || invReminder.channels.sms !== true) {
+  if (invReminder.notifyBefore.join(",") !== "5,1,0" || invReminder.channels.email !== true || invReminder.channels.inApp !== false) {
     throw new Error("Failed: Investment reminder update not reflected in collection!");
   }
-  console.log(`3. Updated offsets to [${invReminder.notifyBefore.join(", ")}] and SMS=true`);
+  console.log(`3. Updated offsets to [${invReminder.notifyBefore.join(", ")}] and inApp=false, email=true`);
 
   // Disable
   await disableSourcePlanReminder(user._id, "Investment", testInv._id);
@@ -128,7 +128,7 @@ async function runComprehensiveTest() {
     reminder: {
       enabled: true,
       notifyBefore: [10, 5, 1],
-      channels: { inApp: true, email: true, sms: false },
+      channels: { inApp: true, email: true },
     },
   });
   console.log(`1. Created Insurance policy: ID ${testPolicy._id}`);
@@ -168,7 +168,7 @@ async function runComprehensiveTest() {
       enabled: true,
       daysBefore: 3,
       notifyBefore: [5, 3, 1],
-      channels: { inApp: true, email: true, sms: false },
+      channels: { inApp: true, email: true },
     },
   });
   console.log(`1. Created Liability: ID ${testLiability._id}`);
@@ -207,7 +207,7 @@ async function runComprehensiveTest() {
       enabled: true,
       contributionDay: 15,
       notifyBefore: [3, 1],
-      channels: { inApp: true, email: true, sms: false },
+      channels: { inApp: true, email: true },
     },
   });
   console.log(`1. Created Saving Goal: ID ${testGoal._id}`);
@@ -244,7 +244,7 @@ async function runComprehensiveTest() {
     dueDate: "2026-09-25",
     scheduledDate: "2026-09-20",
     notifyBefore: [5, 2],
-    channels: { inApp: true, email: true, sms: false },
+    channels: { inApp: true, email: true },
     enabled: true,
     sourceType: "General",
   });

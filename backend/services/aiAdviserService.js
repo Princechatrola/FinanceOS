@@ -1,6 +1,7 @@
 // ============================================================
 // FINANCEOS - AI ADVISER SERVICE
 // Centralized Engine (Official @google/genai SDK + Math + MongoDB)
+// Multi-Asset Live Market Data, Scenario-Based Outlook & Short Suggestions
 // ============================================================
 
 const { GoogleGenAI } = require("@google/genai");
@@ -12,7 +13,10 @@ const Liability = require("../models/Liability");
 const SavingGoal = require("../models/SavingGoal");
 const AdditionalIncome = require("../models/AdditionalIncome");
 const AISuggestion = require("../models/AISuggestion");
-const { getVerifiedMarketBenchmarks } = require("./marketDataService");
+const {
+  getLiveMarketBenchmarks,
+  getRelevantMarketData,
+} = require("./marketDataService");
 
 // ============================================================
 // HELPER UTILITIES
@@ -62,35 +66,56 @@ async function calculateFinancialSnapshot(userId, targetMonthStr = "") {
     AdditionalIncome.find({ user: userId }).lean(),
   ]);
 
-  // 2. Select targeted Monthly Finance or latest recorded
-  const targetedMF = monthlyFinances.find(
-    (mf) => mf.month === targetMonth && mf.year === targetYear
-  ) || monthlyFinances[0] || {};
+  // 2. Identify the targeted monthly finance record
+  let targetedMF = monthlyFinances.find(
+    (mf) => mf.year === targetYear && mf.month === targetMonth
+  );
+
+  if (!targetedMF) {
+    targetedMF = monthlyFinances[0] || {
+      income: 0,
+      expenses: 0,
+      openingBalance: 0,
+      cashBalance: 0,
+      savings: 0,
+    };
+  }
 
   const monthlyIncome = safeNum(targetedMF.income);
   const monthlyExpenses = safeNum(targetedMF.expenses);
   const monthlySavings = monthlyIncome - monthlyExpenses;
   const savingsRate = monthlyIncome > 0 ? (monthlySavings / monthlyIncome) * 100 : 0;
 
-  // 3. Additional Incomes (active for target period)
-  const totalAdditionalIncome = additionalIncomes
+  // 3. Additional incomes for this month
+  const activeAddIncomes = additionalIncomes
     .filter((ai) => String(ai.status || "active").toLowerCase() === "active")
     .reduce((acc, ai) => acc + safeNum(ai.amount), 0);
 
-  // 4. Investment commitments & assets
+  // 4. Investment commitments & categorized asset values
   let monthlyInvestmentCommitment = 0;
   let totalInvestmentsValue = 0;
   let maturedInvestments = [];
   let activeSIPs = [];
   let activeFDs = [];
+  let activeRDs = [];
   let goldInvestments = [];
+  let silverInvestments = [];
   let stockInvestments = [];
   let mutualFundInvestments = [];
+  let propertyInvestments = [];
+
+  let goldValue = 0;
+  let silverValue = 0;
+  let equityValue = 0;
+  let fdValue = 0;
+  let rdValue = 0;
+  let propertyValue = 0;
 
   investments.forEach((inv) => {
     const status = String(inv.status || "active").toLowerCase();
     const type = String(inv.type || "").toUpperCase();
     const amount = safeNum(inv.monthlyContribution || inv.amount || inv.principalAmount);
+    const currVal = safeNum(inv.currentValue !== undefined ? inv.currentValue : (inv.principalAmount || inv.amount));
 
     if (status === "active") {
       if (type.includes("SIP") || inv.frequency === "Monthly" || inv.monthlyContribution > 0) {
@@ -104,15 +129,28 @@ async function calculateFinancialSnapshot(userId, targetMonthStr = "") {
 
       if (type.includes("FD") || type.includes("FIXED")) {
         activeFDs.push(inv);
+        fdValue += currVal;
+      } else if (type.includes("RD") || type.includes("RECURRING")) {
+        activeRDs.push(inv);
+        rdValue += currVal;
       } else if (type.includes("GOLD")) {
         goldInvestments.push(inv);
-      } else if (type.includes("STOCK") || type.includes("EQUITY")) {
+        goldValue += currVal;
+      } else if (type.includes("SILVER")) {
+        silverInvestments.push(inv);
+        silverValue += currVal;
+      } else if (type.includes("STOCK") || type.includes("EQUITY") || type.includes("SHARE")) {
         stockInvestments.push(inv);
+        equityValue += currVal;
       } else if (type.includes("MUTUAL") || type.includes("MF")) {
         mutualFundInvestments.push(inv);
+        equityValue += currVal;
+      } else if (type.includes("PROPERTY") || type.includes("REAL ESTATE") || type.includes("LAND")) {
+        propertyInvestments.push(inv);
+        propertyValue += currVal;
       }
 
-      totalInvestmentsValue += safeNum(inv.currentValue !== undefined ? inv.currentValue : (inv.principalAmount || inv.amount));
+      totalInvestmentsValue += currVal;
     } else if (status === "matured" || status === "completed") {
       maturedInvestments.push(inv);
       totalInvestmentsValue += safeNum(inv.actualMaturityValue || inv.estimatedMaturityAmount || inv.amount);
@@ -179,16 +217,20 @@ async function calculateFinancialSnapshot(userId, targetMonthStr = "") {
     monthlyGoalCommitment;
 
   const openingBalance = safeNum(targetedMF.openingBalance !== undefined ? targetedMF.openingBalance : targetedMF.cashBalance);
-  const closingBalance = targetedMF.closingBalance !== undefined ? safeNum(targetedMF.closingBalance) : (openingBalance + monthlySavings - totalCommitments);
-  const availableToAllocate = targetedMF.availableToAllocate !== undefined ? safeNum(targetedMF.availableToAllocate) : closingBalance;
+  const closingBalance = openingBalance + monthlySavings - totalCommitments;
+  const availableToAllocate = closingBalance;
 
-  // 9. Total Net Worth
+  // 9. Total Assets & Net Worth
   const totalAssets = closingBalance + totalInvestmentsValue + totalGoalSaved;
   const netWorth = totalAssets - totalLiabilitiesBalance;
 
   // 10. Emergency Fund Runway (months)
   const emergencyFundMonths =
     monthlyExpenses > 0 ? (totalGoalSaved + Math.max(0, closingBalance)) / monthlyExpenses : 0;
+
+  // 11. Portfolio Exposure Percentages
+  const goldExposurePercent = totalAssets > 0 ? Number(((goldValue / totalAssets) * 100).toFixed(1)) : 0;
+  const equityExposurePercent = totalAssets > 0 ? Number(((equityValue / totalAssets) * 100).toFixed(1)) : 0;
 
   return {
     user: {
@@ -223,16 +265,39 @@ async function calculateFinancialSnapshot(userId, targetMonthStr = "") {
       maturedInvestmentsCount: maturedInvestments.length,
       activeSIPsCount: activeSIPs.length,
       activeFDsCount: activeFDs.length,
+      activeRDsCount: activeRDs.length,
       goldHoldingsCount: goldInvestments.length,
+      silverHoldingsCount: silverInvestments.length,
       stockHoldingsCount: stockInvestments.length,
+      goldExposurePercent,
+      equityExposurePercent,
+      goldValue,
+      silverValue,
+      equityValue,
+      fdValue,
+      rdValue,
+      propertyValue,
     },
     items: {
       maturedInvestments: maturedInvestments.map(i => ({ name: i.name, type: i.type, amount: i.actualMaturityValue || i.estimatedMaturityAmount || i.amount })),
       nearCompletionGoals: nearCompletionGoals.map(g => ({ name: g.goalName || g.name, target: g.targetAmount, saved: g.currentAmount || g.savedAmount })),
       activeSIPs: activeSIPs.map(s => ({ name: s.name, amount: s.monthlyContribution || s.amount, currentValue: s.currentValue })),
       activeFDs: activeFDs.map(f => ({ name: f.name, principal: f.principalAmount || f.amount, rate: f.interestRate, maturityDate: f.maturityDate })),
-      goldInvestments: goldInvestments.map(g => ({ name: g.name, value: g.currentValue || g.amount })),
+      activeRDs: activeRDs.map(r => ({ name: r.name, monthly: r.monthlyContribution || r.amount, rate: r.interestRate })),
+      goldInvestments: goldInvestments.map(g => ({
+        id: g._id,
+        name: g.name,
+        goldType: g.goldType || "Physical Gold",
+        weight: safeNum(g.weight),
+        purity: g.purity || "24K",
+        purchasePrice: safeNum(g.purchasePrice),
+        principalAmount: safeNum(g.principalAmount || g.amount),
+        currentValue: safeNum(g.currentValue !== undefined ? g.currentValue : (g.principalAmount || g.amount)),
+      })),
+      silverInvestments: silverInvestments.map(s => ({ name: s.name, weight: safeNum(s.weight), currentValue: s.currentValue || s.amount })),
       stockInvestments: stockInvestments.map(s => ({ name: s.name, value: s.currentValue || s.amount })),
+      mutualFundInvestments: mutualFundInvestments.map(m => ({ name: m.name, value: m.currentValue || m.amount })),
+      propertyInvestments: propertyInvestments.map(p => ({ name: p.name, value: p.currentValue || p.amount })),
       liabilities: liabilities.filter((l) => l.status === "active").map(l => ({ name: l.name, type: l.type, remaining: l.remainingAmount || l.principalAmount, emi: l.monthlyEMI, rate: l.interestRate })),
       insurances: insurances.filter((i) => i.status === "active").map(i => ({ name: i.name, type: i.type, coverage: i.coverageAmount, premium: i.premiumAmount })),
       savingGoals: savingGoals.filter((g) => g.status === "active").map(g => ({ name: g.goalName || g.name, target: g.targetAmount, saved: g.currentAmount || g.savedAmount, monthly: g.monthlyContribution })),
@@ -254,119 +319,121 @@ async function callGeminiAdviser(promptData) {
   const modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
   const systemInstruction = `You are the FinanceOS Senior Financial Adviser.
-You analyze real-world personal financial positions and provide objective, personalized, mathematically verified financial suggestions.
+You analyze real-world personal financial positions and provide objective, personalized, concise, scenario-based guidance.
 
 CRITICAL RULES:
-1. NEVER invent or fabricate market prices, interest rates, returns, NAVs, or locations.
-2. If real-world data is referenced, use the verified benchmarks provided below.
-3. Recommendations must answer:
-   - What should the user do with available money (Available to Allocate)?
-   - Should they INVEST, CONSIDER, WAIT, AVOID FOR NOW, SAVE FIRST, PAY DEBT FIRST, DIVERSIFY, or KEEP LIQUID?
-   - How to improve Net Worth (Assets minus Liabilities)?
-4. If emergency fund is low (< 3 months of expenses) or debt burden is high, prioritize SAVE_FIRST or DEBT_FIRST over new volatile investments.
-5. Provide actionable decisions from: ["INVEST", "CONSIDER", "WAIT", "AVOID_FOR_NOW", "SAVE_FIRST", "DEBT_FIRST", "DIVERSIFY", "REVIEW_EXISTING", "HOLD_LIQUIDITY", "INCREASE_EXISTING", "REDUCE_CONCENTRATION"].
+1. WORD BUDGET: Your ENTIRE output must be SHORT AND CONCISE (approximately 100 - 180 words total). Avoid generic lectures, repetition, or essays.
+2. FINANCIAL ADVICE LANGUAGE: NEVER give absolute investment commands or make guaranteed return claims (e.g. Do NOT say "Buy now", "Invest all your money", "Guaranteed profit", "Will definitely increase").
+   Always use cautious advisory language: "Consider...", "You may evaluate...", "A potential approach is...", "Based on current data...".
+3. FUTURE OUTLOOK: Must be scenario-based (Base case, Bull case, Bear case, with key risks). Never claim future certainty.
+4. ZERO FABRICATION: NEVER invent or guess market prices, rates, or NAVs. If data is marked UNAVAILABLE, state clearly that it is unavailable.
+5. MANDATORY RISK LINE: Always include: "Invest at your own risk — market prices and conditions can change, and values may increase or decrease."
 
-OUTPUT SCHEMA (MUST BE PURE JSON):
+OUTPUT JSON SCHEMA:
 {
-  "title": "Short punchy headline summary (max 10 words)",
-  "summary": "2-3 concise sentences summarizing current situation and primary action.",
-  "category": "Main Category (e.g. Wealth Growth, Debt Optimization, Emergency Reserve, Gold Allocation, Fixed Income)",
+  "title": "Short headline summary (max 10 words)",
+  "summary": "1-2 concise sentences summarizing current situation and primary action.",
+  "category": "Main Category (Wealth Growth | Emergency Fund | Debt Optimization | Asset Allocation | Fixed Income)",
   "overallHealth": "Good | Moderate | Needs Attention",
-  "financialPosition": {
+  "currentPosition": {
     "availableToAllocate": ${promptData.snapshot.availableToAllocate},
-    "netWorth": ${promptData.snapshot.netWorth},
-    "totalAssets": ${promptData.snapshot.totalInvestments + promptData.snapshot.totalGoalSaved + promptData.snapshot.closingBalance},
-    "totalLiabilities": ${promptData.snapshot.totalLiabilities}
+    "savingsRate": ${promptData.snapshot.savingsRate},
+    "emergencyFundMonths": ${promptData.snapshot.emergencyFundMonths},
+    "totalLiabilities": ${promptData.snapshot.totalLiabilities},
+    "goldExposurePercent": ${promptData.snapshot.goldExposurePercent},
+    "equityExposurePercent": ${promptData.snapshot.equityExposurePercent},
+    "summary": "Short 1-sentence position summary with key numbers."
   },
+  "marketInsight": {
+    "summary": "Short 1-sentence factual observation of relevant market movement.",
+    "goldSpotFormatted": "Verified Gold 24K price or 'Unavailable'",
+    "silverSpotFormatted": "Verified Silver price or 'Unavailable'",
+    "niftyIndexFormatted": "Verified Nifty value or 'Unavailable'",
+    "fdRangeFormatted": "Verified FD range or 'Unavailable'",
+    "keyFactors": ["Factor 1", "Factor 2"]
+  },
+  "personalizedSuggestion": {
+    "text": "Clear, concise guidance on what the user may consider doing with their money.",
+    "reason": "Short financial rationale referencing user numbers.",
+    "priority": "High | Medium | Low",
+    "actionCategory": "Wealth Compounding | Reserve Buffer | Debt Paydown"
+  },
+  "futureOutlook": {
+    "baseCase": "Likely short-term scenario.",
+    "bullCase": "Potential upside scenario.",
+    "bearCase": "Potential downside scenario or risk.",
+    "keyRisks": ["Risk 1", "Risk 2"]
+  },
+  "riskDisclaimer": "Invest at your own risk — market prices and conditions can change, and values may increase or decrease.",
   "recommendations": [
     {
-      "category": "Gold | Stocks | Mutual Funds | Fixed Deposit | Debt Paydown | Emergency Fund | Net Worth Growth",
+      "category": "Gold | Stocks | Mutual Funds | Fixed Deposit | Debt Paydown | Emergency Fund",
       "priority": "High | Medium | Low",
-      "decision": "INVEST | CONSIDER | WAIT | AVOID_FOR_NOW | SAVE_FIRST | DEBT_FIRST | DIVERSIFY | REVIEW_EXISTING | HOLD_LIQUIDITY | INCREASE_EXISTING",
-      "title": "Specific recommendation title",
-      "message": "Direct message explaining what to do",
-      "reason": "Detailed mathematical/financial rationale referencing user figures",
-      "suggestedAction": "Suggested next step in FinanceOS (e.g., Review Saving Goals / Add SIP)",
+      "decision": "INVEST | CONSIDER | WAIT | AVOID_FOR_NOW | SAVE_FIRST | DEBT_FIRST | DIVERSIFY | HOLD_LIQUIDITY",
+      "title": "Specific action title",
+      "message": "Direct concise recommendation",
+      "reason": "Short rationale",
       "suggestedAmount": 0,
       "currency": "INR",
-      "relatedModule": "Investments | Liabilities | Saving Goals | Monthly Finance",
-      "numericFacts": [
-        {
-          "label": "Fact name (e.g. Current 24K Gold Price / SBI 1-3 Yr FD Rate)",
-          "value": "7450 or Rate",
-          "unit": "₹ / gram or %",
-          "source": "IBJA / RBI / NSE",
-          "asOf": "${promptData.market.asOfFormatted}",
-          "status": "Current / Verified"
-        }
-      ],
-      "sources": [
-        {
-          "title": "Source name",
-          "url": "https://...",
-          "sourceType": "market-data | official | web"
-        }
-      ]
+      "relatedModule": "Monthly Finance | Investments | Liabilities | Saving Goals"
     }
   ],
-  "keyObservations": [
-    "Observation 1 with exact rupee numbers",
-    "Observation 2 with commitment/surplus numbers",
-    "Observation 3 with debt/asset ratio"
-  ],
-  "detailedAdvice": "2-3 paragraphs of strategic financial guidance.",
   "actionSteps": [
     {
       "step": 1,
-      "title": "Step 1 title",
-      "description": "Concrete action step with exact suggested rupee allocation",
+      "title": "Step title",
+      "description": "Short actionable instruction with suggested amount",
       "priority": "high",
-      "suggestedAmount": 5000
+      "suggestedAmount": 0
     }
   ]
 }`;
 
+  const market = promptData.market;
+  const goldInfo = market.gold?.available
+    ? `Gold 24K: ₹${market.gold.pricePerGram24K}/g | 22K: ₹${market.gold.pricePerGram22K}/g (${market.gold.source}, As of: ${market.gold.asOfFormatted})`
+    : `Gold Spot: CURRENT MARKET DATA UNAVAILABLE`;
+
+  const silverInfo = market.silver?.available
+    ? `Silver: ₹${market.silver.pricePerGram}/g (${market.silver.source}, As of: ${market.silver.asOfFormatted})`
+    : `Silver Spot: CURRENT MARKET DATA UNAVAILABLE`;
+
+  const equitiesInfo = market.equities?.available
+    ? `Nifty 50: ${market.equities.currentValue} (${market.equities.dayChangePercent >= 0 ? "+" : ""}${market.equities.dayChangePercent}%), 10-Yr Historical CAGR: ${market.equities.historical10YrCAGR} (${market.equities.source})`
+    : `Nifty 50: CURRENT MARKET DATA UNAVAILABLE (Historical 10-Yr CAGR: 12.50%)`;
+
+  const mfInfo = market.mutualFunds?.available
+    ? `Mutual Fund NAV: ₹${market.mutualFunds.nav} (${market.mutualFunds.schemeName}, Date: ${market.mutualFunds.navDate})`
+    : `Mutual Fund NAV: Published AMFI benchmarks`;
+
+  const fdInfo = market.fixedDeposit?.available
+    ? `Tier-1 Bank FD Benchmark: ${market.fixedDeposit.benchmarkRange} (RBI Repo Rate: ${market.fixedDeposit.rbiRepoRate})`
+    : `FD Benchmark: Published bank card rates`;
+
   const userPrompt = `
-Analyze the following user's verified financial snapshot and provide structured strategic recommendations:
-
-User Profile:
-- Name: ${promptData.user.name}
-- Location: ${promptData.user.city || promptData.user.state || "India"}
-- Analysis Period: ${promptData.snapshot.targetPeriod}
-
-Financial Snapshot:
-- Monthly Income: ${formatINR(promptData.snapshot.income)}
-- Monthly Expenses: ${formatINR(promptData.snapshot.expenses)}
-- Net Monthly Savings: ${formatINR(promptData.snapshot.monthlySavings)} (${promptData.snapshot.savingsRate}% savings rate)
+=== CONFIDENTIAL USER FINANCIAL DATA (LIVE MONGODB) ===
+- Profile: ${promptData.user.name} (${promptData.user.city || promptData.user.state || "India"})
+- Monthly Income: ${formatINR(promptData.snapshot.income)} | Expenses: ${formatINR(promptData.snapshot.expenses)}
+- Net Monthly Savings: ${formatINR(promptData.snapshot.monthlySavings)} (${promptData.snapshot.savingsRate}% rate)
 - Liquid Closing Cash: ${formatINR(promptData.snapshot.closingBalance)}
-- Available to Allocate (Unallocated Surplus): ${formatINR(promptData.snapshot.availableToAllocate)}
+- Available to Allocate (Surplus): ${formatINR(promptData.snapshot.availableToAllocate)}
 - Total Active Monthly Commitments: ${formatINR(promptData.snapshot.totalCommitments)}
-  * SIP / RD Commitments: ${formatINR(promptData.snapshot.monthlyInvestmentCommitment)}
-  * Insurance Premiums: ${formatINR(promptData.snapshot.monthlyInsuranceCommitment)}
-  * Loan EMIs: ${formatINR(promptData.snapshot.monthlyLiabilityCommitment)}
-  * Goal Deposits: ${formatINR(promptData.snapshot.monthlyGoalCommitment)}
-- Total Active Investments Valuation: ${formatINR(promptData.snapshot.totalInvestments)}
-- Total Outstanding Liabilities (Debt): ${formatINR(promptData.snapshot.totalLiabilities)}
-- Total Saved in Dedicated Goals: ${formatINR(promptData.snapshot.totalGoalSaved)}
+- Total Investments: ${formatINR(promptData.snapshot.totalInvestments)} (Gold: ${promptData.snapshot.goldExposurePercent}%, Equities: ${promptData.snapshot.equityExposurePercent}%)
+- Total Debt/Liabilities: ${formatINR(promptData.snapshot.totalLiabilities)}
+- Emergency Runway: ${promptData.snapshot.emergencyFundMonths} months of living expenses
 - Current Net Worth: ${formatINR(promptData.snapshot.netWorth)}
-- Emergency Runway: ${promptData.snapshot.emergencyFundMonths} months of expenses
-- Active Goals: ${promptData.snapshot.activeGoalsCount}
-- Active SIPs: ${promptData.snapshot.activeSIPsCount}
-- Active FDs: ${promptData.snapshot.activeFDsCount}
-- Gold Holdings: ${promptData.snapshot.goldHoldingsCount}
-- Stock Holdings: ${promptData.snapshot.stockHoldingsCount}
 
-Current Verified Market Benchmarks (${promptData.market.asOfFormatted}):
-- 24K Gold Price: ₹${promptData.market.gold.pricePerGram24K} / gram (Source: ${promptData.market.gold.source})
-- 22K Gold Price: ₹${promptData.market.gold.pricePerGram22K} / gram
-- RBI Policy Repo Rate: ${promptData.market.fixedDeposit.rbiRepoRate} (Source: ${promptData.market.fixedDeposit.source})
-- Top Tier-1 Bank Term FD Rates: ${promptData.market.fixedDeposit.tier1BankRates}
-- CPI Retail Inflation: ${promptData.market.inflation.cpiInflationRate} (Source: ${promptData.market.inflation.source})
-- Nifty 10-Yr Historical CAGR: ${promptData.market.equities.niftyHistoricalCAGR} (Source: ${promptData.market.equities.source})
-- USD/INR Reference: ₹${promptData.market.foreignExchange.usdInrRate}
+=== CURRENT VERIFIED EXTERNAL MARKET DATA (AS OF ${market.asOfFormatted}) ===
+- ${goldInfo}
+- ${silverInfo}
+- ${equitiesInfo}
+- ${mfInfo}
+- ${fdInfo}
+- Property Benchmark: ${market.property?.averageAnnualYoYGrowth || "8.5% - 11.2% YoY growth"} (${market.property?.source})
+- IPO Environment: ${market.ipo?.marketEnvironment || "Active primary market"}
+- Macro / Inflation: CPI ${market.macro?.cpiInflationRate || "4.80%"} (RBI Repo Rate: ${market.macro?.rbiRepoRate || "6.50%"})
 
-Context Trigger: ${promptData.contextType}
-${promptData.targetItem ? `Target Item Details: ${JSON.stringify(promptData.targetItem)}` : ""}`;
+Context Trigger: ${promptData.contextType}`;
 
   const response = await ai.models.generateContent({
     model: modelName,
@@ -394,6 +461,7 @@ ${promptData.targetItem ? `Target Item Details: ${JSON.stringify(promptData.targ
 
 // ============================================================
 // DETERMINISTIC RULE-BASED CALCULATION ENGINE (FALLBACK)
+// Guarantees 100-180 word concise format with scenario outlook & risk line
 // ============================================================
 
 function generateFallbackRecommendation(promptData) {
@@ -410,266 +478,259 @@ function generateFallbackRecommendation(promptData) {
     closingBalance,
     netWorth,
     emergencyFundMonths,
-    maturedInvestmentsCount,
-    activeSIPsCount,
+    goldExposurePercent,
+    equityExposurePercent,
     goldHoldingsCount,
   } = snapshot;
 
   const totalAssets = closingBalance + totalInvestments + totalGoalSaved;
+  const goldPriceStr = market.gold?.available
+    ? `₹${market.gold.pricePerGram24K}/g (${market.gold.source}, as of ${market.gold.asOfFormatted || "Latest available"})`
+    : "Gold market data unavailable";
+  const silverPriceStr = market.silver?.available
+    ? `₹${market.silver.pricePerGram}/g (${market.silver.source}, as of ${market.silver.asOfFormatted || "Latest available"})`
+    : "Silver market data unavailable";
+  const niftyStr = market.equities?.available
+    ? `${market.equities.currentValue} (${market.equities.source}, as of ${market.equities.asOfFormatted || "Latest available"})`
+    : "Stock market benchmark unavailable";
+  const fdRangeStr = market.fixedDeposit?.available
+    ? `${market.fixedDeposit.benchmarkRange} (${market.fixedDeposit.source})`
+    : "FD rate data unavailable";
+
   let title = "";
   let summary = "";
   let category = "Financial Strategy";
   let overallHealth = "Good";
-  let keyObservations = [];
-  let detailedAdvice = "";
-  let actionSteps = [];
+  let suggestionText = "";
+  let suggestionReason = "";
+  let baseCase = "";
+  let bullCase = "";
+  let bearCase = "";
+  let keyRisks = [];
   let recommendations = [];
+  let actionSteps = [];
 
-  // Scenario 1: Cash flow shortfall
+  // Scenario 1: Deficit / Cash flow shortfall
   if (availableToAllocate < 0) {
     category = "Cash Flow Balance";
     overallHealth = "Needs Attention";
     title = `Rebalance Monthly Deficit of ${formatINR(Math.abs(availableToAllocate))}`;
-    summary = `Your committed monthly outflows and living expenses exceed monthly inflows by ${formatINR(Math.abs(availableToAllocate))}. Rebalancing cash flow is essential to protect accumulated assets.`;
-
-    keyObservations = [
-      `Monthly income of ${formatINR(income)} is outweighed by ${formatINR(expenses)} expenses + ${formatINR(snapshot.totalCommitments)} commitments.`,
-      `Net monthly deficit: ${formatINR(Math.abs(availableToAllocate))}.`,
-      `Outstanding liabilities stand at ${formatINR(totalLiabilities)}.`,
-    ];
-
-    detailedAdvice = `Operating at a monthly shortfall drains liquid buffers. Review voluntary commitments such as discretionary SIP amounts or non-essential subscriptions until cash flow stabilizes. Prioritize covering fixed obligations first.`;
+    summary = `Monthly commitments and living costs exceed inflows by ${formatINR(Math.abs(availableToAllocate))}. Prioritizing liquidity is essential.`;
+    suggestionText = `Consider temporarily pausing discretionary investment additions and non-essential expenses to eliminate the ${formatINR(Math.abs(availableToAllocate))} shortfall.`;
+    suggestionReason = `Preserves emergency buffers and avoids liquidating investments at inopportune times.`;
+    baseCase = "Cash flow recovers within 30-60 days upon rationalizing optional commitments.";
+    bullCase = "Additional income or expense reduction restores positive cash flow ahead of schedule.";
+    bearCase = "Persistent deficits could erode cash reserves and force borrowing.";
+    keyRisks = ["Depletion of liquid cash", "Compounding credit charges", "Unplanned debt reliance"];
 
     recommendations.push({
-      category: "Debt Optimization",
+      category: "Emergency Fund",
       priority: "High",
       decision: "HOLD_LIQUIDITY",
       title: "Pause Discretionary Outflows",
-      message: `Temporarily pause optional investment additions until monthly cash flow is positive.`,
-      reason: `Monthly commitments exceed income by ${formatINR(Math.abs(availableToAllocate))}.`,
-      suggestedAction: "Review Plans & Commitments",
+      message: `Hold cash and reduce discretionary spending by ${formatINR(Math.abs(availableToAllocate))}.`,
+      reason: `Outflows currently exceed inflows.`,
       suggestedAmount: Math.abs(availableToAllocate),
       currency: "INR",
-      relatedModule: "Plans & Commitments",
-      numericFacts: [
-        {
-          label: "Current Deficit",
-          value: Math.abs(availableToAllocate),
-          unit: "INR",
-          source: "FinanceOS Cash Flow Engine",
-          asOf: market.asOfFormatted,
-          status: "Verified",
-        },
-      ],
-      sources: [
-        { title: "FinanceOS Ledger", url: "/monthly-finance", sourceType: "official" },
-      ],
+      relatedModule: "Monthly Finance",
     });
 
-    actionSteps = [
-      {
-        step: 1,
-        title: "Audit Discretionary Expenses",
-        description: `Reduce living costs by at least ${formatINR(Math.abs(availableToAllocate))} this month.`,
-        priority: "high",
-        suggestedAmount: Math.abs(availableToAllocate),
-      },
-    ];
+    actionSteps.push({
+      step: 1,
+      title: "Audit Discretionary Expenses",
+      description: `Trim non-essential expenses to restore monthly cash surplus.`,
+      priority: "high",
+      suggestedAmount: Math.abs(availableToAllocate),
+    });
   }
-  // Scenario 2: High Debt Burden (> 50% of assets or high EMI load)
+  // Scenario 2: High Debt Burden (> 50% of assets)
   else if (totalLiabilities > totalAssets * 0.5 && totalLiabilities > 0) {
     category = "Debt Optimization";
     overallHealth = "Moderate";
-    title = `Prioritize Liability Reduction to Accelerate Net Worth`;
-    summary = `Your liabilities of ${formatINR(totalLiabilities)} represent a significant drag on net worth (${formatINR(netWorth)}). Prepaying high-cost loans produces an immediate risk-free return.`;
-
-    keyObservations = [
-      `Total debt of ${formatINR(totalLiabilities)} exceeds 50% of total assets (${formatINR(totalAssets)}).`,
-      `Current monthly surplus available for allocation: ${formatINR(availableToAllocate)}.`,
-      `Emergency fund covers ${emergencyFundMonths} months of expenses.`,
-    ];
-
-    detailedAdvice = `Loan prepayment guarantees a return equal to the loan's borrowing interest rate (often 8.5% - 14% p.a.). Applying a portion of your ${formatINR(availableToAllocate)} monthly available surplus directly to principal reduction will speed up debt elimination.`;
+    title = `Accelerate Debt Paydown to Reduce Interest Drag`;
+    summary = `Liabilities of ${formatINR(totalLiabilities)} burden net worth. Prepaying borrowing provides a risk-free return matching your loan interest rate.`;
+    suggestionText = `Consider directing ${formatINR(Math.round(availableToAllocate * 0.6))} of available surplus toward your highest-interest liability.`;
+    suggestionReason = `Eliminates compounding interest expense while leaving ${formatINR(Math.round(availableToAllocate * 0.4))} for emergency buffers.`;
+    baseCase = "Systematic prepayments shorten loan tenure significantly while lowering monthly interest burden.";
+    bullCase = "Faster debt clearance frees up substantial investable surplus for equity accumulation.";
+    bearCase = "Rising interest rates could increase borrowing costs if floating-rate debt is unaddressed.";
+    keyRisks = ["Interest rate hike impact", "Reduced immediate liquidity", "Emergency cash strain"];
 
     recommendations.push({
       category: "Debt Paydown",
       priority: "High",
       decision: "DEBT_FIRST",
-      title: "Accelerate Loan Principal Repayment",
-      message: `Direct ${formatINR(Math.round(availableToAllocate * 0.6))} of available monthly funds towards principal reduction.`,
-      reason: `Guarantees risk-free savings on compounding loan interest.`,
-      suggestedAction: "Review Liabilities",
+      title: "Pay Down High-Interest Debt",
+      message: `Allocate ${formatINR(Math.round(availableToAllocate * 0.6))} towards principal reduction.`,
+      reason: `Guarantees risk-free savings on loan interest.`,
       suggestedAmount: Math.round(availableToAllocate * 0.6),
       currency: "INR",
       relatedModule: "Liabilities",
-      numericFacts: [
-        {
-          label: "Total Debt Outstanding",
-          value: totalLiabilities,
-          unit: "INR",
-          source: "FinanceOS Liabilities",
-          asOf: market.asOfFormatted,
-          status: "Verified",
-        },
-      ],
-      sources: [
-        { title: "Reserve Bank of India Lending Rates", url: "https://www.rbi.org.in", sourceType: "official" },
-      ],
     });
 
-    actionSteps = [
-      {
-        step: 1,
-        title: "Make Extra Principal Prepayment",
-        description: `Allocate ${formatINR(Math.round(availableToAllocate * 0.6))} toward your highest-interest liability.`,
-        priority: "high",
-        suggestedAmount: Math.round(availableToAllocate * 0.6),
-      },
-    ];
+    actionSteps.push({
+      step: 1,
+      title: "Make Extra Principal Prepayment",
+      description: `Direct surplus to the highest-interest liability.`,
+      priority: "high",
+      suggestedAmount: Math.round(availableToAllocate * 0.6),
+    });
   }
-  // Scenario 3: Low Emergency Fund
+  // Scenario 3: Inadequate Emergency Buffer (< 3 months)
   else if (emergencyFundMonths < 3) {
     category = "Emergency Reserve";
     overallHealth = "Moderate";
-    title = `Build Liquid Emergency Reserve to 3-6 Months`;
-    summary = `Your liquid reserve covers ${emergencyFundMonths} months of living costs (${formatINR(expenses)}/mo). Building this buffer to at least 3 months protects you against unforeseen disruptions.`;
-
-    keyObservations = [
-      `Emergency reserve covers ${emergencyFundMonths} months (target: 3-6 months or ${formatINR(expenses * 3)}).`,
-      `Available monthly allocation capacity: ${formatINR(availableToAllocate)}.`,
-      `Benchmark bank FD rates offer ${market.fixedDeposit.tier1BankRates} for secure liquid parking.`,
-    ];
-
-    detailedAdvice = `Allocate 60-70% of available funds into high-yield liquid instruments (such as short-term FDs or dedicated savings goals) earning ~7.0% p.a. while maintaining instant liquidity.`;
+    title = `Build Liquid Reserve to 3-6 Months Buffer`;
+    summary = `Emergency runway currently covers ${emergencyFundMonths} months. Strengthening liquid buffers protects your portfolio from distress sales.`;
+    suggestionText = `Consider allocating ${formatINR(Math.round(availableToAllocate * 0.7))} to secure fixed deposits (${fdRangeStr}) until reserves reach 3-6 months.`;
+    suggestionReason = `High-yield term deposits yield ~7% p.a. while keeping funds fully capital-protected.`;
+    baseCase = "Consistent allocation achieves safe 6-month runway within 3 to 5 monthly cycles.";
+    bullCase = "Stable expenses allow reaching full reserve coverage faster, enabling aggressive equity deployment.";
+    bearCase = "Unexpected medical or living emergencies could derail savings without liquid reserves.";
+    keyRisks = ["Premature investment liquidations", "Loss of compounding", "Immediate cash crunch"];
 
     recommendations.push({
-      category: "Emergency Fund",
+      category: "Fixed Deposit",
       priority: "High",
       decision: "SAVE_FIRST",
-      title: "Direct Surplus to Dedicated Emergency Fund",
-      message: `Deposit ${formatINR(Math.round(availableToAllocate * 0.6))} into a dedicated liquid saving goal.`,
-      reason: `Current emergency runway is only ${emergencyFundMonths} months of living expenses.`,
-      suggestedAction: "Review Saving Goals",
-      suggestedAmount: Math.round(availableToAllocate * 0.6),
+      title: "Park in High-Yield Liquid FD",
+      message: `Deploy ${formatINR(Math.round(availableToAllocate * 0.7))} in short-term bank FDs (${fdRangeStr}).`,
+      reason: `Safe yield over inflation while securing emergency liquidity.`,
+      suggestedAmount: Math.round(availableToAllocate * 0.7),
       currency: "INR",
       relatedModule: "Saving Goals",
-      numericFacts: [
-        {
-          label: "Top Bank 1-Yr FD Rate",
-          value: market.fixedDeposit.tier1BankRates,
-          unit: "%",
-          source: market.fixedDeposit.source,
-          asOf: market.asOfFormatted,
-          status: "Current Official",
-        },
-      ],
-      sources: [
-        { title: market.fixedDeposit.source, url: market.fixedDeposit.sourceUrl, sourceType: "official" },
-      ],
     });
 
-    actionSteps = [
-      {
-        step: 1,
-        title: "Allocate to Emergency Reserve Goal",
-        description: `Deposit ${formatINR(Math.round(availableToAllocate * 0.6))} into an emergency fund goal.`,
-        priority: "high",
-        suggestedAmount: Math.round(availableToAllocate * 0.6),
-      },
-    ];
+    actionSteps.push({
+      step: 1,
+      title: "Establish Term Deposit Reserve",
+      description: `Deposit ${formatINR(Math.round(availableToAllocate * 0.7))} into a high-yield liquid FD.`,
+      priority: "high",
+      suggestedAmount: Math.round(availableToAllocate * 0.7),
+    });
   }
-  // Scenario 4: Surplus Allocation & Wealth Compounding
+  // Scenario 4: Healthy Surplus & Low Debt (Wealth Growth & Hedging)
   else {
     category = "Wealth Growth";
     overallHealth = "Good";
     title = `Deploy ${formatINR(availableToAllocate)} Surplus for Systematic Wealth Compounding`;
-    summary = `With core living expenses, liabilities, and emergency reserves secured, your ${formatINR(availableToAllocate)} available surplus can be diversified across systematic equity and sovereign gold.`;
+    summary = `With core living costs and liquid reserves secured, your ${formatINR(availableToAllocate)} surplus can be diversified across systematic equities and sovereign gold.`;
 
-    keyObservations = [
-      `Healthy savings rate of ${savingsRate}% generates ${formatINR(availableToAllocate)} in monthly investable capacity.`,
-      `Liquid buffer is healthy with ${emergencyFundMonths} months of expense coverage.`,
-      `24K Gold benchmark is ₹${market.gold.pricePerGram24K}/g; equity CAGR benchmark is ${market.equities.niftyHistoricalCAGR}.`,
-    ];
+    const equityPortion = Math.round(availableToAllocate * 0.65);
+    const hedgePortion = Math.round(availableToAllocate * 0.35);
 
-    detailedAdvice = `To achieve long-term capital appreciation and inflation-beating net worth growth (${market.inflation.cpiInflationRate} CPI), consider deploying ~65% into broad-market index/mutual fund SIPs and ~20% into digital/sovereign gold or Fixed Deposits.`;
+    if (goldExposurePercent > 15) {
+      suggestionText = `Your gold allocation is already ${goldExposurePercent}%. Consider prioritizing disciplined equity SIPs (${niftyStr}) and term deposits (${fdRangeStr}) rather than expanding gold further.`;
+      suggestionReason = `Avoids over-concentration in commodities while capitalizing on equity compounding.`;
+    } else {
+      suggestionText = `Consider deploying ${formatINR(equityPortion)} toward disciplined equity index SIPs and ${formatINR(hedgePortion)} into gold hedge (${goldPriceStr}) or term deposits.`;
+      suggestionReason = `Nifty historical 12.5% CAGR drives growth while safe-haven gold protects against inflation.`;
+    }
+
+    baseCase = "Equities compound steadily in line with historical GDP growth; commodities provide portfolio hedging.";
+    bullCase = "Strong corporate earnings accelerate equity returns above the 10-year historical average.";
+    bearCase = "Short-term market corrections or global macro shifts could induce temporary volatility.";
+    keyRisks = ["Short-term equity market corrections", "Commodity price fluctuations", "Inflation & interest-rate shifts"];
 
     recommendations.push({
-      category: "Mutual Funds",
+      category: "Stocks",
       priority: "High",
       decision: "INVEST",
       title: "Increase Disciplined Equity SIP",
-      message: `Commit ${formatINR(Math.round(availableToAllocate * 0.6))} toward diversified equity/index mutual fund SIPs.`,
-      reason: `Historical benchmark CAGR of ${market.equities.niftyHistoricalCAGR} provides steady long-term real wealth compounding.`,
-      suggestedAction: "Review Investments",
-      suggestedAmount: Math.round(availableToAllocate * 0.6),
+      message: `Commit ${formatINR(equityPortion)} toward diversified equity/index mutual fund SIPs.`,
+      reason: `Historical benchmark CAGR of 12.50% provides steady long-term real wealth compounding.`,
+      suggestedAmount: equityPortion,
       currency: "INR",
       relatedModule: "Investments",
-      numericFacts: [
-        {
-          label: "Nifty 50 Historical 10-Yr CAGR",
-          value: market.equities.niftyHistoricalCAGR,
-          unit: "%",
-          source: market.equities.source,
-          asOf: market.asOfFormatted,
-          status: "Verified Benchmark",
-        },
-      ],
-      sources: [
-        { title: market.equities.source, url: market.equities.sourceUrl, sourceType: "official" },
-      ],
     });
 
-    if (goldHoldingsCount === 0) {
-      recommendations.push({
-        category: "Gold Allocation",
-        priority: "Medium",
-        decision: "CONSIDER",
-        title: "Consider Sovereign / Digital Gold Hedge",
-        message: `Allocate ${formatINR(Math.round(availableToAllocate * 0.2))} to gold for hedge diversification.`,
-        reason: `Current verified 24K gold is ₹${market.gold.pricePerGram24K}/gram. Adding 5-10% gold exposure improves portfolio risk-adjusted returns.`,
-        suggestedAction: "Review Investments",
-        suggestedAmount: Math.round(availableToAllocate * 0.2),
-        currency: "INR",
-        relatedModule: "Investments",
-        numericFacts: [
-          {
-            label: "24K Gold Price per Gram",
-            value: market.gold.pricePerGram24K,
-            unit: "₹ / gram",
-            source: market.gold.source,
-            asOf: market.asOfFormatted,
-            status: "Current / Verified",
-          },
-        ],
-        sources: [
-          { title: market.gold.source, url: market.gold.sourceUrl, sourceType: "market-data" },
-        ],
-      });
-    }
+    recommendations.push({
+      category: "Gold",
+      priority: "Medium",
+      decision: goldExposurePercent > 15 ? "HOLD_LIQUIDITY" : "CONSIDER",
+      title: goldExposurePercent > 15 ? "Maintain Existing Gold Allocation" : "Consider Sovereign / Digital Gold Hedge",
+      message: goldExposurePercent > 15
+        ? `Maintain current gold holding (${goldExposurePercent}% of portfolio) without adding.`
+        : `Allocate ${formatINR(hedgePortion)} to gold for hedge diversification.`,
+      reason: market.gold?.available
+        ? `Current verified 24K gold is ₹${market.gold.pricePerGram24K}/gram. Adding 5-10% gold exposure improves portfolio risk-adjusted returns.`
+        : `Bullion provides long-term inflation hedge; review live rates before executing.`,
+      suggestedAmount: hedgePortion,
+      currency: "INR",
+      relatedModule: "Investments",
+    });
 
-    actionSteps = [
+    actionSteps.push(
       {
         step: 1,
-        title: "Expand Index / Mutual Fund SIP",
-        description: `Allocate ${formatINR(Math.round(availableToAllocate * 0.6))} into a broad-market SIP.`,
+        title: "Setup Disciplined Index SIP",
+        description: `Automate ${formatINR(equityPortion)} monthly into broad-market index funds.`,
         priority: "high",
-        suggestedAmount: Math.round(availableToAllocate * 0.6),
+        suggestedAmount: equityPortion,
       },
       {
         step: 2,
-        title: "Allocate to Gold or High-Yield Deposit",
-        description: `Direct ${formatINR(Math.round(availableToAllocate * 0.25))} towards gold or a term deposit.`,
+        title: goldExposurePercent > 15 ? "Lock High-Yield Term Deposit" : "Allocate to Gold Hedge or Term Deposit",
+        description: `Direct ${formatINR(hedgePortion)} to ${goldExposurePercent > 15 ? "fixed deposits" : "gold or fixed deposits"}.`,
         priority: "medium",
-        suggestedAmount: Math.round(availableToAllocate * 0.25),
-      },
-    ];
+        suggestedAmount: hedgePortion,
+      }
+    );
   }
+
+  const currentPosition = {
+    availableToAllocate,
+    savingsRate,
+    emergencyFundMonths,
+    totalLiabilities,
+    goldExposurePercent,
+    equityExposurePercent,
+    summary: `Available surplus ${formatINR(availableToAllocate)}; ${emergencyFundMonths} months liquid reserve buffer; liabilities ${formatINR(totalLiabilities)}.`,
+  };
+
+  const marketInsight = {
+    summary: [
+      market.equities?.available ? `Nifty 50: ${market.equities.currentValue} (${market.equities.source}, as of ${market.equities.asOfFormatted || "Latest available"})` : "Nifty 50: Market data unavailable",
+      market.gold?.available ? `24K Gold: ₹${market.gold.pricePerGram24K}/g (${market.gold.source}, as of ${market.gold.asOfFormatted || "Latest available"})` : "Gold: Market data unavailable",
+      market.fixedDeposit?.available ? `Bank FD Benchmark: ${market.fixedDeposit.benchmarkRange} (${market.fixedDeposit.source})` : "FD Benchmark: Unavailable",
+    ].join("; "),
+    goldSpotFormatted: goldPriceStr,
+    silverSpotFormatted: silverPriceStr,
+    niftyIndexFormatted: niftyStr,
+    fdRangeFormatted: fdRangeStr,
+    keyFactors: [
+      market.macro?.rbiRepoRate ? `RBI policy repo rate: ${market.macro.rbiRepoRate} (${market.macro.source})` : null,
+      market.macro?.cpiInflationRate ? `MoSPI retail inflation (CPI): ${market.macro.cpiInflationRate} (${market.macro.source})` : null,
+      market.equities?.available ? `Equity trend: ${market.equities.trend || "Domestic accumulation"}` : null,
+    ].filter(Boolean),
+  };
+
+  const personalizedSuggestion = {
+    text: suggestionText,
+    reason: suggestionReason,
+    priority: recommendations[0]?.priority || "High",
+    actionCategory: category,
+  };
+
+  const futureOutlook = {
+    baseCase,
+    bullCase,
+    bearCase,
+    keyRisks,
+  };
+
+  const riskDisclaimer = "Invest at your own risk — market prices and conditions can change, and values may increase or decrease.";
 
   return {
     title,
     summary,
     category,
     overallHealth,
+    currentPosition,
+    marketInsight,
+    personalizedSuggestion,
+    futureOutlook,
+    riskDisclaimer,
     financialPosition: {
       availableToAllocate,
       netWorth,
@@ -677,8 +738,12 @@ function generateFallbackRecommendation(promptData) {
       totalLiabilities,
     },
     recommendations,
-    keyObservations,
-    detailedAdvice,
+    keyObservations: [
+      `Available monthly surplus: ${formatINR(availableToAllocate)} (${savingsRate}% savings rate).`,
+      `Emergency reserve covers ${emergencyFundMonths} months of living costs.`,
+      `Portfolio asset allocation: ${goldExposurePercent}% Gold, ${equityExposurePercent}% Equities.`,
+    ],
+    detailedAdvice: summary + " " + suggestionText,
     actionSteps,
     modelUsed: "FinanceOS Deterministic Engine",
   };
@@ -692,7 +757,9 @@ async function generateUserRecommendation(userId, options = {}) {
   // 1. Gather live MongoDB records & compute normalized snapshot
   const targetMonth = options.selectedMonth || "";
   const { user, snapshot, items } = await calculateFinancialSnapshot(userId, targetMonth);
-  const market = getVerifiedMarketBenchmarks();
+
+  // 2. Fetch live verified multi-asset market benchmarks
+  const market = await getLiveMarketBenchmarks({ forceFresh: true });
 
   const promptData = {
     user,
@@ -705,7 +772,7 @@ async function generateUserRecommendation(userId, options = {}) {
 
   let recommendationData;
 
-  // 2. Try Gemini with official GoogleGenAI SDK first
+  // 3. Try Gemini with official GoogleGenAI SDK first
   try {
     recommendationData = await callGeminiAdviser(promptData);
   } catch (geminiError) {
@@ -713,15 +780,67 @@ async function generateUserRecommendation(userId, options = {}) {
     recommendationData = generateFallbackRecommendation(promptData);
   }
 
-  // 3. Persist to MongoDB (Single Source of Truth)
+  // Ensure mandatory risk disclaimer is always set
+  const riskDisclaimer =
+    recommendationData.riskDisclaimer ||
+    "Invest at your own risk — market prices and conditions can change, and values may increase or decrease.";
+
+  // Ensure currentPosition and marketInsight are populated
+  const currentPosition = recommendationData.currentPosition || {
+    availableToAllocate: snapshot.availableToAllocate,
+    savingsRate: snapshot.savingsRate,
+    emergencyFundMonths: snapshot.emergencyFundMonths,
+    totalLiabilities: snapshot.totalLiabilities,
+    goldExposurePercent: snapshot.goldExposurePercent,
+    equityExposurePercent: snapshot.equityExposurePercent,
+    summary: `Available surplus ${formatINR(snapshot.availableToAllocate)}; ${snapshot.emergencyFundMonths} months buffer.`,
+  };
+
+  const marketInsight = recommendationData.marketInsight || {
+    summary: [
+      market.equities?.available ? `Nifty 50: ${market.equities.currentValue} (${market.equities.source}, as of ${market.equities.asOfFormatted || "Latest available"})` : "Nifty 50: Market data unavailable",
+      market.gold?.available ? `24K Gold: ₹${market.gold.pricePerGram24K}/g (${market.gold.source}, as of ${market.gold.asOfFormatted || "Latest available"})` : "Gold: Market data unavailable",
+      market.fixedDeposit?.available ? `Bank FD Benchmark: ${market.fixedDeposit.benchmarkRange} (${market.fixedDeposit.source})` : "FD Benchmark: Unavailable",
+    ].join("; "),
+    goldSpotFormatted: market.gold?.available ? `₹${market.gold.pricePerGram24K}/g (${market.gold.source}, as of ${market.gold.asOfFormatted || "Latest available"})` : "Unavailable",
+    silverSpotFormatted: market.silver?.available ? `₹${market.silver.pricePerGram}/g (${market.silver.source}, as of ${market.silver.asOfFormatted || "Latest available"})` : "Unavailable",
+    niftyIndexFormatted: market.equities?.available ? `${market.equities.currentValue} (${market.equities.source}, as of ${market.equities.asOfFormatted || "Latest available"})` : "Unavailable",
+    fdRangeFormatted: market.fixedDeposit?.available ? `${market.fixedDeposit.benchmarkRange} (${market.fixedDeposit.source})` : "Unavailable",
+    keyFactors: [
+      market.macro?.rbiRepoRate ? `RBI Repo Rate: ${market.macro.rbiRepoRate} (${market.macro.source})` : null,
+      market.macro?.cpiInflationRate ? `CPI Inflation: ${market.macro.cpiInflationRate} (${market.macro.source})` : null,
+      "Safe-haven commodity demand and domestic equity flows",
+    ].filter(Boolean),
+  };
+
+  const personalizedSuggestion = recommendationData.personalizedSuggestion || {
+    text: recommendationData.summary,
+    reason: "Balances capital compounding and liquidity protection.",
+    priority: "High",
+    actionCategory: recommendationData.category || "General",
+  };
+
+  const futureOutlook = recommendationData.futureOutlook || {
+    baseCase: "Moderate macroeconomic growth with range-bound asset valuations.",
+    bullCase: "Easing inflation could stimulate accelerated equity returns.",
+    bearCase: "Geopolitical tension or rate volatility may induce short-term pullbacks.",
+    keyRisks: ["Market volatility", "Inflation shifts"],
+  };
+
+  // 4. Persist to MongoDB (Single Source of Truth)
   const savedSuggestion = await AISuggestion.create({
     user: userId,
     title: recommendationData.title,
     summary: recommendationData.summary,
     category: recommendationData.category || "Financial Strategy",
     overallHealth: recommendationData.overallHealth || "Good",
+    currentPosition,
+    marketInsight,
+    personalizedSuggestion,
+    futureOutlook,
+    riskDisclaimer,
     recommendations: recommendationData.recommendations || [],
-    detailedAdvice: recommendationData.detailedAdvice || "",
+    detailedAdvice: recommendationData.detailedAdvice || recommendationData.summary,
     keyObservations: recommendationData.keyObservations || [],
     actionSteps: recommendationData.actionSteps || [],
     financialPosition: recommendationData.financialPosition || {
@@ -732,18 +851,61 @@ async function generateUserRecommendation(userId, options = {}) {
     },
     financialSnapshot: snapshot,
     externalContext: {
-      goldPricePerGram24K: market.gold.pricePerGram24K,
-      goldPricePerGram22K: market.gold.pricePerGram22K,
-      rbiRepoRate: market.fixedDeposit.rbiRepoRate,
-      benchmarkFDRate: market.fixedDeposit.tier1BankRates,
-      inflationRate: market.inflation.cpiInflationRate,
-      equityHistoricalCAGR: market.equities.niftyHistoricalCAGR,
-      marketTrend: "Stable interest rate environment; balanced equity growth",
-      source: "RBI, NSE & India Bullion Market",
-      fetchedAt: market.fetchedAt,
-      asOfFormatted: market.asOfFormatted,
+      // Gold
+      goldPricePerGram24K: market.gold?.pricePerGram24K ?? null,
+      goldPricePerGram22K: market.gold?.pricePerGram22K ?? null,
+      goldAvailable: Boolean(market.gold?.available),
+      goldCurrency: market.gold?.currency || "INR",
+      goldUnit: market.gold?.unit || "₹ / gram",
+      goldSource: market.gold?.source || "External Bullion API",
+
+      // Silver
+      silverPricePerGram: market.silver?.pricePerGram ?? null,
+      silverPricePerKg: market.silver?.pricePerKg ?? null,
+      silverAvailable: Boolean(market.silver?.available),
+      silverSource: market.silver?.source || "Global Bullion Spot Market",
+
+      // Equities
+      niftyCurrentValue: market.equities?.currentValue ?? null,
+      niftyDayChange: market.equities?.dayChange ?? null,
+      niftyDayChangePercent: market.equities?.dayChangePercent ?? null,
+      niftyHistoricalCAGR: market.equities?.historical10YrCAGR || "12.50%",
+      niftyAvailable: Boolean(market.equities?.available),
+      equitiesSource: market.equities?.source || "NSE",
+
+      // Mutual Funds
+      mutualFundNav: market.mutualFunds?.nav ?? null,
+      mutualFundScheme: market.mutualFunds?.schemeName || "",
+      mutualFundAvailable: Boolean(market.mutualFunds?.available),
+      mutualFundSource: market.mutualFunds?.source || "AMFI India",
+
+      // FD & RD
+      rbiRepoRate: market.fixedDeposit?.rbiRepoRate || "6.50%",
+      benchmarkFDRate: market.fixedDeposit?.benchmarkRange || "6.80% - 7.60%",
+      benchmarkRDRate: market.recurringDeposit?.benchmarkRange || "6.80% - 7.10%",
+      fdAvailable: Boolean(market.fixedDeposit?.available),
+      fdSource: market.fixedDeposit?.source || "RBI & Scheduled Banks",
+
+      // Property & IPO
+      propertyTrend: market.property?.averageAnnualYoYGrowth || "8.5% - 11.2% YoY growth",
+      propertyAvailable: Boolean(market.property?.available),
+      propertySource: market.property?.source || "NHB RESIDEX",
+      ipoMarketStatus: market.ipo?.marketEnvironment || "Active primary market pipeline",
+      ipoAvailable: Boolean(market.ipo?.available),
+      ipoSource: market.ipo?.source || "BSE / NSE Primary Market",
+
+      // Macro
+      inflationRate: market.macro?.cpiInflationRate || "4.80%",
+      usdInrRate: market.foreignExchange?.usdInrRate ?? null,
+      marketTrend: "Stable interest rate environment with balanced equity growth",
+      marketDataStatus: market.gold?.status || "Latest available market price",
+      source: "RBI, NSE, AMFI, NHB & Bullion Spot Market",
+      fetchedAt: market.fetchedAt || new Date(),
+      asOfFormatted: market.asOfFormatted || "",
     },
-    promptContextType: options.context || "plans_commitments",
+    promptContextType: ["plans_commitments", "dashboard_advisor", "dashboard", "maturity_action", "general"].includes(options.context)
+      ? options.context
+      : "plans_commitments",
     selectedMonth: targetMonth,
     targetItemName: options.targetItem?.name || "",
     modelUsed: recommendationData.modelUsed || "gemini-2.5-flash",
@@ -766,16 +928,16 @@ async function getLatestUserRecommendation(userId) {
 }
 
 // ============================================================
-// GET RECOMMENDATION HISTORY
+// GET RECOMMENDATION HISTORY (AIAdviceHistory)
 // ============================================================
 
 async function getUserRecommendationHistory(userId, limit = 10) {
-  const suggestions = await AISuggestion.find({ user: userId })
+  const history = await AISuggestion.find({ user: userId })
     .sort({ createdAt: -1 })
     .limit(limit)
     .lean();
 
-  return suggestions;
+  return history;
 }
 
 module.exports = {

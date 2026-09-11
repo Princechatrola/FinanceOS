@@ -256,7 +256,6 @@ function InvestmentForm({ onClose, onSuccess }) {
 
   const [inAppReminder, setInAppReminder] = useState(true);
   const [emailReminder, setEmailReminder] = useState(true);
-  const [smsReminder, setSmsReminder] = useState(false);
 
   const [maturityReminderEnabled, setMaturityReminderEnabled] = useState(false);
   const [twoMonthsBefore, setTwoMonthsBefore] = useState(true);
@@ -266,7 +265,6 @@ function InvestmentForm({ onClose, onSuccess }) {
 
   const [maturityInApp, setMaturityInApp] = useState(true);
   const [maturityEmail, setMaturityEmail] = useState(true);
-  const [maturitySms, setMaturitySms] = useState(false);
 
   const [mfFundName, setMfFundName] = useState("");
   const [mfUnits, setMfUnits] = useState("");
@@ -520,8 +518,7 @@ function InvestmentForm({ onClose, onSuccess }) {
     if (
       effectiveReminderEnabled &&
       !inAppReminder &&
-      !emailReminder &&
-      !smsReminder
+      !emailReminder
     ) {
       setError("Select at least one contribution reminder channel.");
       setIsSubmitting(false);
@@ -549,8 +546,7 @@ function InvestmentForm({ onClose, onSuccess }) {
     if (
       maturityReminderEnabled &&
       !maturityInApp &&
-      !maturityEmail &&
-      !maturitySms
+      !maturityEmail
     ) {
       setError("Select at least one maturity reminder channel.");
       setIsSubmitting(false);
@@ -674,7 +670,6 @@ function InvestmentForm({ onClose, onSuccess }) {
         channels: {
           inApp: effectiveReminderEnabled && inAppReminder,
           email: effectiveReminderEnabled && emailReminder,
-          sms: effectiveReminderEnabled && smsReminder,
         },
       },
       maturityReminder: {
@@ -687,7 +682,6 @@ function InvestmentForm({ onClose, onSuccess }) {
         channels: {
           inApp: maturityReminderEnabled && maturityInApp,
           email: maturityReminderEnabled && maturityEmail,
-          sms: maturityReminderEnabled && maturitySms,
         },
       },
       afterMaturityAction: maturityDate ? afterMaturityAction : "MANUAL_DECIDE",
@@ -1271,7 +1265,7 @@ function InvestmentForm({ onClose, onSuccess }) {
                           setUpiId(e.target.value);
                           setError("");
                         }}
-                        placeholder="Example: dip@upi"
+                        placeholder="Example: user@upi"
                         className={inputClass}
                       />
                     </label>
@@ -1440,7 +1434,7 @@ function InvestmentForm({ onClose, onSuccess }) {
                                       setAutoPayUpiId(event.target.value);
                                       setError("");
                                     }}
-                                    placeholder="Example: dip@okhdfcbank"
+                                    placeholder="Example: user@okhdfcbank"
                                     className={inputClass}
                                   />
                                 </label>
@@ -1655,14 +1649,9 @@ function InvestmentForm({ onClose, onSuccess }) {
                         checked={emailReminder}
                         onChange={setEmailReminder}
                       />
-                      <CheckOption
-                        label="SMS"
-                        checked={smsReminder}
-                        onChange={setSmsReminder}
-                      />
                     </div>
                     <p className="mt-3 text-[10px] leading-4 text-slate-400">
-                      In-App reminders appear in the FinanceOS notification bell. Email and SMS use the user's registered contact information.
+                      In-App reminders appear in the FinanceOS notification bell. Email uses the user's registered contact information.
                     </p>
                   </div>
                 </div>
@@ -1744,11 +1733,6 @@ function InvestmentForm({ onClose, onSuccess }) {
                       label="Email"
                       checked={maturityEmail}
                       onChange={setMaturityEmail}
-                    />
-                    <CheckOption
-                      label="SMS"
-                      checked={maturitySms}
-                      onChange={setMaturitySms}
                     />
                   </div>
                   <p className="mt-3 text-[10px] leading-4 text-slate-400">

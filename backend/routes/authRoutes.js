@@ -88,7 +88,7 @@ async function generateUserId() {
 // ============================================================
 
 router.post(
-  "/signup",
+  ["/signup", "/register"],
   async (req, res) => {
     try {
 

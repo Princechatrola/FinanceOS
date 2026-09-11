@@ -162,8 +162,10 @@ app.use((req, res) => {
   });
 });
 
-const { startScheduler } = require("./utils/schedulerService");
+const { startScheduler } = require("./services/schedulerService");
+const { verifyTransporter } = require("./services/emailService");
 const { migrateRecurringSchedules } = require("./utils/migrateDueDates");
+const { cleanupLegacySmsPreferences } = require("./utils/cleanupLegacySms");
 
 // ============================================================
 // MONGODB
@@ -176,8 +178,14 @@ mongoose
       "MongoDB connected successfully"
     );
 
+    // Verify SMTP configuration safely without logging secrets
+    await verifyTransporter();
+
     // Safely migrate any existing plans to recurring schedule model
     await migrateRecurringSchedules();
+
+    // Safely remove legacy SMS preference fields from existing documents without altering financial data
+    await cleanupLegacySmsPreferences();
 
     // Start background scheduler worker
     startScheduler();

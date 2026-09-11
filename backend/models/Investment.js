@@ -478,7 +478,6 @@ const investmentSchema = new mongoose.Schema(
       channels: {
         inApp: Boolean,
         email: Boolean,
-        sms: Boolean,
       },
     },
     maturityReminder: {
@@ -489,7 +488,6 @@ const investmentSchema = new mongoose.Schema(
       channels: {
         inApp: Boolean,
         email: Boolean,
-        sms: Boolean,
       },
     },
     // Generic field to store type‑specific metadata (e.g., MF holdings, gold weight, stock ticker)

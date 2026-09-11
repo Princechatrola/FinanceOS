@@ -17,8 +17,8 @@ const createDefaultMonthlyFinance = () => ({
     enabled: true,
     options: [],
     channels: {
+      inApp: true,
       email: true,
-      sms: false,
     },
   },
 });
@@ -234,6 +234,7 @@ function FinanceProvider({ children }) {
   // AI Suggestion State
   const [latestAISuggestion, setLatestAISuggestion] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiLoadingMessage, setAiLoadingMessage] = useState("Analyzing latest data...");
   const [aiError, setAiError] = useState(null);
 
   // Selected Dashboard View Month State (?month=YYYY-MM)
@@ -3128,10 +3129,22 @@ function FinanceProvider({ children }) {
     }
   };
 
-  // Generate new AI recommendation (Gemini + latest MongoDB financial data)
+  // Generate new AI recommendation (Gemini/engine + latest MongoDB financial data + live external market data)
   const generateAISuggestion = async (options = {}) => {
+    if (aiLoading) {
+      console.warn("AI generation already in progress. Ignoring duplicate click.");
+      return latestAISuggestion;
+    }
+
     setAiLoading(true);
+    setAiLoadingMessage("Refreshing financial and market data...");
     setAiError(null);
+
+    // Progressive transition to phase 2 message
+    const phase2Timer = setTimeout(() => {
+      setAiLoadingMessage("Analyzing your latest financial position...");
+    }, 1100);
+
     try {
       const token =
         localStorage.getItem("financeos_token") ||
@@ -3152,23 +3165,30 @@ function FinanceProvider({ children }) {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
         },
         body: JSON.stringify(payload),
       });
 
       const data = await response.json();
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Failed to generate AI suggestion.");
+        throw new Error(data.message || "AI analysis is temporarily unavailable. Please try again.");
       }
 
       setLatestAISuggestion(data.data);
       return data.data;
     } catch (error) {
       console.error("Generate AI Suggestion Error:", error);
-      setAiError(error.message || "Failed to generate AI suggestion.");
+      const friendlyMsg = error.message?.toLowerCase().includes("failed to fetch")
+        ? "AI analysis is temporarily unavailable. Please check your connection and try again."
+        : (error.message || "AI analysis is temporarily unavailable. Please try again.");
+      setAiError(friendlyMsg);
       throw error;
     } finally {
+      clearTimeout(phase2Timer);
       setAiLoading(false);
+      setAiLoadingMessage("Refreshing financial and market data...");
     }
   };
 
@@ -3865,6 +3885,7 @@ function FinanceProvider({ children }) {
     // AI Adviser
     latestAISuggestion,
     aiLoading,
+    aiLoadingMessage,
     aiError,
     fetchLatestAISuggestion,
     generateAISuggestion,

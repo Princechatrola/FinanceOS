@@ -248,7 +248,8 @@ router.put(
       const calculatedClosing =
         numericOpening + numericIncome - numericExpenses - numericCommitments;
 
-      const parsedUpdateDate = new Date(updateDate);
+      const rawUpdateDate = updateDate || new Date();
+      const parsedUpdateDate = new Date(rawUpdateDate);
       if (isNaN(parsedUpdateDate.getTime())) {
         return res.status(400).json({
           success: false,

@@ -125,6 +125,7 @@ function PlansCommitments() {
     // AI Adviser
     latestAISuggestion,
     aiLoading,
+    aiLoadingMessage,
     aiError,
     generateAISuggestion,
   } = useFinance();
@@ -1393,7 +1394,7 @@ function PlansCommitments() {
                 title="Run Live AI Financial Analysis"
               >
                 <FiZap className={`text-base ${aiLoading ? "animate-spin text-amber-600" : "text-[#315c46]"}`} />
-                <span>{aiLoading ? "Analyzing Situation..." : "Get AI Suggestion"}</span>
+                <span>{aiLoading ? (aiLoadingMessage || "Analyzing Situation...") : "Get AI Suggestion"}</span>
               </button>
 
               <button
@@ -4372,10 +4373,10 @@ function PlansCommitments() {
                   <div className="flex flex-col items-center justify-center py-6 text-center">
                     <FiRefreshCw className="h-8 w-8 animate-spin text-[#315c46]" />
                     <p className="mt-3 text-sm font-bold text-[#18392c]">
-                      Analyzing your finances with Gemini AI...
+                      {aiLoadingMessage || "Analyzing your finances..."}
                     </p>
                     <p className="mt-1 max-w-md text-xs leading-5 text-[#61766a]">
-                      Evaluating your monthly income, recurring commitments, emergency fund, and real-time market benchmark rates.
+                      Refreshing your latest financial records from MongoDB and fetching live market rates to build a fresh recommendation.
                     </p>
                   </div>
                 ) : latestAISuggestion ? (
@@ -4400,10 +4401,10 @@ function PlansCommitments() {
                         type="button"
                         onClick={handleGetAISuggestion}
                         disabled={aiLoading}
-                        className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[#cbdac8] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#315c46] shadow-sm transition hover:bg-[#edf4ea] disabled:opacity-50"
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[#cbdac8] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#315c46] shadow-sm transition hover:bg-[#edf4ea] disabled:opacity-50 cursor-pointer"
                       >
                         <FiRefreshCw size={12} className={aiLoading ? "animate-spin" : ""} />
-                        Re-analyze
+                        <span>{aiLoading ? "Analyzing..." : "Re-analyze"}</span>
                       </button>
                     </div>
 
@@ -4482,10 +4483,36 @@ function PlansCommitments() {
                       </div>
                     )}
 
+                    {/* Future Outlook (Scenario-based) */}
+                    {latestAISuggestion.futureOutlook && (
+                      <div className="rounded-xl border border-[#dce7d9] bg-white/80 p-3 space-y-1.5 text-xs text-[#2c4739]">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-[#315c46]">
+                            Future Outlook (Scenarios & Risks)
+                          </p>
+                          <span className="text-[9px] text-slate-400 font-semibold">Non-Guaranteed</span>
+                        </div>
+                        <p className="text-xs text-slate-600 leading-relaxed">
+                          <strong>Base Case:</strong> {latestAISuggestion.futureOutlook.baseCase || "Moderate growth with range-bound asset valuations in the short term."}
+                        </p>
+                        {Array.isArray(latestAISuggestion.futureOutlook.keyRisks) && latestAISuggestion.futureOutlook.keyRisks.length > 0 && (
+                          <p className="text-[11px] text-slate-500">
+                            <strong>Key Risks:</strong> {latestAISuggestion.futureOutlook.keyRisks.join(" • ")}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Mandatory One-Line Risk Disclaimer */}
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3.5 py-2 text-xs font-semibold text-amber-900 leading-snug flex items-center gap-2">
+                      <span>⚠️</span>
+                      <span>{latestAISuggestion.riskDisclaimer || "Invest at your own risk — market prices and conditions can change, and values may increase or decrease."}</span>
+                    </div>
+
                     {/* Footer / Timestamp */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[10px] text-[#6c8b72]">
-                      <span>
-                        Generated: {new Date(latestAISuggestion.createdAt || Date.now()).toLocaleDateString("en-IN", {
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#dce7d9] text-[10px] text-[#6c8b72]">
+                      <span className="font-semibold text-[#18392c]">
+                        Last analyzed: {new Date(latestAISuggestion.createdAt || Date.now()).toLocaleDateString("en-IN", {
                           day: "numeric",
                           month: "short",
                           year: "numeric",
@@ -4493,8 +4520,13 @@ function PlansCommitments() {
                           minute: "2-digit",
                         })}
                       </span>
+                      {latestAISuggestion.externalContext?.asOfFormatted && (
+                        <span>
+                          Market Data: {latestAISuggestion.externalContext.goldPricePerGram24K ? `24K Gold ₹${Number(latestAISuggestion.externalContext.goldPricePerGram24K).toLocaleString("en-IN")}/g (${latestAISuggestion.externalContext.goldSource || "Bullion Feeds"} as of ${latestAISuggestion.externalContext.asOfFormatted})` : `As of ${latestAISuggestion.externalContext.asOfFormatted}`}
+                        </span>
+                      )}
                       <span>
-                        Model / Source: {latestAISuggestion.modelUsed || "Gemini AI Adviser"}
+                        Engine: {latestAISuggestion.modelUsed ? `Gemini (${latestAISuggestion.modelUsed})` : "FinanceOS AI Adviser"}
                       </span>
                     </div>
                   </div>
@@ -4574,9 +4606,10 @@ function PlansCommitments() {
                         transition
                         hover:bg-[#18392c]
                         disabled:opacity-60
+                        cursor-pointer
                       "
                     >
-                      Get AI Suggestions
+                      {aiLoading ? (aiLoadingMessage || "Analyzing...") : "Get AI Suggestions"}
                     </button>
                   </div>
                 )}
@@ -4775,6 +4808,8 @@ function PlansCommitments() {
         isOpen={isAISuggestionModalOpen}
         suggestion={latestAISuggestion}
         onClose={() => setIsAISuggestionModalOpen(false)}
+        onRefresh={handleGetAISuggestion}
+        aiLoading={aiLoading}
       />
 
     </div>
