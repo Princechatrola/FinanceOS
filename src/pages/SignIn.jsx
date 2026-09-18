@@ -34,6 +34,7 @@ function SignIn() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [loginError, setLoginError] = useState("");
+  const [otpNotice, setOtpNotice] = useState("");
 
   const [formData, setFormData] = useState({
     email: "",
@@ -293,7 +294,7 @@ function SignIn() {
         if (response.status === 404) {
           setLoginError(
             data.message ||
-              "Authentication service endpoint is unavailable."
+              "No FinanceOS account was found for this email address."
           );
         } else if (response.status === 429) {
           setLoginError(
@@ -329,6 +330,15 @@ function SignIn() {
       setOtpDigits(["", "", "", "", "", ""]);
 
       startOtpTimer();
+
+      if (data.emailSent === false) {
+        setOtpNotice(
+          data.message ||
+            "OTP generated. Email delivery failed. Development terminal OTP is available."
+        );
+      } else {
+        setOtpNotice("");
+      }
 
     } catch (error) {
       console.error(
@@ -591,6 +601,7 @@ function SignIn() {
     setOtpTimer(0);
 
     setLoginError("");
+    setOtpNotice("");
   };
 
   // ==========================================================
@@ -1044,6 +1055,17 @@ function SignIn() {
                     </div>
 
                   </div>
+
+                  {/* OTP NOTICE (DEVELOPMENT / TERMINAL NOTICE) */}
+
+                  {otpNotice && (
+                    <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                      <span className="text-amber-600 text-sm">ℹ️</span>
+                      <p className="text-xs font-medium leading-5 text-amber-800">
+                        {otpNotice}
+                      </p>
+                    </div>
+                  )}
 
                   {/* ERROR */}
 

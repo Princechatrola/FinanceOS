@@ -188,6 +188,11 @@ app.get("/api/health", (req, res) => {
       process.env.SHOW_OTP_IN_TERMINAL === "true"
         ? "enabled"
         : "disabled",
+    devAuthBypass:
+      process.env.NODE_ENV === "development" &&
+      process.env.DEV_AUTH_BYPASS === "true"
+        ? "enabled"
+        : "disabled",
     uptime: Math.floor(process.uptime()) + "s",
   });
 });
@@ -325,6 +330,14 @@ mongoose
         `OTP terminal mode: ${
           process.env.NODE_ENV !== "production" &&
           process.env.SHOW_OTP_IN_TERMINAL === "true"
+            ? "ENABLED (development only)"
+            : "disabled"
+        }`
+      );
+      console.log(
+        `Dev Login mode:    ${
+          process.env.NODE_ENV === "development" &&
+          process.env.DEV_AUTH_BYPASS === "true"
             ? "ENABLED (development only)"
             : "disabled"
         }`

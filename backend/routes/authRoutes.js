@@ -18,6 +18,7 @@ console.log(
 const {
   sendLoginOTP,
   verifyLoginOTP,
+  devLogin,
 } = require("../controllers/authController");
 
 const router = express.Router();
@@ -25,6 +26,7 @@ const router = express.Router();
 console.log("AUTH ROUTES LOADED");
 console.log("POST /api/auth/send-otp");
 console.log("POST /api/auth/verify-otp");
+console.log("POST /api/auth/dev-login");
 
 
 // ============================================================
@@ -49,6 +51,19 @@ router.post(
   "/verify-otp",
   verifyLoginOTP
 );
+
+
+// ============================================================
+// DEVELOPMENT LOGIN FALLBACK (EXAM/DEMO ONLY)
+//
+// POST /api/auth/dev-login
+// ============================================================
+
+router.post(
+  "/dev-login",
+  devLogin
+);
+
 
 
 // ============================================================

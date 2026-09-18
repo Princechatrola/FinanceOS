@@ -36,52 +36,14 @@ console.log("=================================");
 
 
 // ============================================================
-// NODEMAILER TRANSPORTER (POOLED + SECURE DIRECT TLS)
+// CENTRALIZED EMAIL SERVICE
 // ============================================================
 
-// Normalize app password: strip spaces for reliability
-const normalizedEmailPassword = (process.env.EMAIL_PASSWORD || "")
-  .toString()
-  .replace(/\s+/g, "");
-
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-  pool: true,
-  maxConnections: 5,
-  maxMessages: 100,
-  rateDelta: 1000,
-  rateLimit: 5,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: normalizedEmailPassword,
-  },
-  connectionTimeout: 8000,
-  greetingTimeout: 4000,
-  socketTimeout: 8000,
-});
+const { sendOTPEmail, verifyTransporter } = require("../services/emailService");
 
 // IN-FLIGHT REQUEST SET (PREVENTS DUPLICATE CONCURRENT SENDS)
 const inflightOtpRequests = new Set();
 
-
-// ============================================================
-// VERIFY EMAIL CONNECTION
-// ============================================================
-
-transporter.verify((error) => {
-  if (error) {
-    console.error(
-      "Email transporter error:",
-      error.message
-    );
-  } else {
-    console.log(
-      "FinanceOS email server is ready."
-    );
-  }
-});
 
 
 // ============================================================
@@ -372,185 +334,82 @@ const sendLoginOTP = async (req, res) => {
 
 
     // ========================================================
-    // EMAIL OPTIONS
+    // ATTEMPT EMAIL DISPATCH VIA CENTRALIZED SERVICE
+    //
+    // In development mode, an email failure does NOT destroy
+    // the legitimate generated OTP from MongoDB.
+    // The developer can use the OTP printed to the terminal.
     // ========================================================
 
-    const mailOptions = {
+    let emailSent = false;
+    let emailErrorMsg = null;
 
-      from:
-        `"FinanceOS" <${process.env.EMAIL_USER}>`,
+    try {
+      const emailResult = await sendOTPEmail(normalizedEmail, otp);
+      emailSent = emailResult && emailResult.success === true;
+      if (!emailSent) {
+        emailErrorMsg = emailResult?.error || "SMTP delivery failure";
+      }
+    } catch (mailErr) {
+      emailSent = false;
+      emailErrorMsg = mailErr.message || "Email service exception";
+    }
 
-      to:
-        normalizedEmail,
+    if (emailSent) {
+      console.log(`[AUTH] OTP email successfully delivered to ${normalizedEmail}`);
+      console.log("Assigned role:", role);
+      console.log("=================================");
 
-      subject:
-        "FinanceOS - Your Login OTP",
+      return res.status(200).json({
+        success: true,
+        emailSent: true,
+        message: "OTP sent successfully to your email.",
+      });
+    }
 
-
-      // ======================================================
-      // PLAIN TEXT EMAIL
-      // ======================================================
-
-      text: `
-Hello ${user.name || "User"},
-
-Your FinanceOS login OTP is:
-
-${otp}
-
-This OTP will expire in 5 minutes.
-
-If you did not request this OTP, please ignore this email.
-
-Regards,
-FinanceOS Team
-      `,
-
-
-      // ======================================================
-      // HTML EMAIL
-      // ======================================================
-
-      html: `
-        <div style="
-          font-family: Arial, sans-serif;
-          max-width: 600px;
-          margin: 30px auto;
-          padding: 30px;
-          border: 1px solid #e1e7dc;
-          border-radius: 15px;
-          background-color: #ffffff;
-        ">
-
-          <h2 style="
-            color: #43822e;
-            margin-bottom: 10px;
-          ">
-            FinanceOS
-          </h2>
-
-
-          <p>
-            Hello ${user.name || "User"},
-          </p>
-
-
-          <p>
-            Your FinanceOS login OTP is:
-          </p>
-
-
-          <div style="
-            font-size: 32px;
-            font-weight: bold;
-            letter-spacing: 8px;
-            color: #173b2b;
-            background: #edf5e8;
-            padding: 20px;
-            text-align: center;
-            border-radius: 10px;
-            margin: 20px 0;
-          ">
-            ${otp}
-          </div>
-
-
-          <p>
-            This OTP will expire in
-            <strong>5 minutes</strong>.
-          </p>
-
-
-          <p style="
-            color: #777;
-          ">
-            If you did not request this OTP,
-            please ignore this email.
-          </p>
-
-
-          <hr />
-
-
-          <p style="
-            font-size: 12px;
-            color: #888;
-          ">
-            FinanceOS - Manage Today, Secure Tomorrow
-          </p>
-
-        </div>
-      `,
-    };
-
-
-    // ========================================================
-    // SEND EMAIL
-    // ========================================================
-
-    await transporter.sendMail(
-      mailOptions
+    // Email delivery failed
+    console.error(
+      `[AUTH] Send OTP email failed for ${normalizedEmail}:`,
+      emailErrorMsg
     );
 
+    if (process.env.NODE_ENV !== "production") {
+      // DEVELOPMENT / EXAM DEMO MODE:
+      // The OTP was generated and saved to MongoDB. The terminal displays it.
+      // Do NOT roll back the OTP in development!
+      console.log(
+        `[AUTH] Development mode active: OTP preserved in database. Use terminal OTP to log in.`
+      );
 
-    // ========================================================
-    // SUCCESS LOG
-    // ========================================================
+      return res.status(200).json({
+        success: true,
+        emailSent: false,
+        message:
+          "OTP generated. Email delivery failed. Development terminal OTP is available.",
+      });
+    }
 
-    console.log(
-      "OTP email sent successfully."
-    );
+    // PRODUCTION MODE: Roll back OTP if email delivery failed
+    try {
+      await User.findByIdAndUpdate(user._id, {
+        $set: { otp: null, otpExpiresAt: null },
+      });
+    } catch (_) {}
 
-    console.log(
-      "Assigned role:",
-      role
-    );
-
-    console.log(
-      "================================="
-    );
-
-
-    // ========================================================
-    // RESPONSE
-    // ========================================================
-
-    return res.status(200).json({
-
-      success: true,
-
-      message:
-        "OTP sent successfully to your email.",
-
+    return res.status(500).json({
+      success: false,
+      message: "Unable to send OTP email. Please try again.",
     });
 
-
   } catch (error) {
-
     console.error(
-      "Send Login OTP Error:",
+      "[AUTH] Send Login OTP unexpected error:",
       error.message || error
     );
 
-    // Rollback OTP in database if email dispatch failed
-    try {
-      const email = req.body?.email;
-      if (email) {
-        const normalized = String(email).trim().toLowerCase();
-        await User.findOneAndUpdate(
-          { email: normalized },
-          { $set: { otp: null, otpExpiresAt: null } }
-        );
-      }
-    } catch (_) { }
-
     return res.status(500).json({
-
       success: false,
-
-      message:
-        "Unable to send OTP. Please try again.",
-
+      message: "Internal server error while processing OTP request.",
     });
 
   } finally {
@@ -950,6 +809,119 @@ const verifyLoginOTP = async (req, res) => {
 
 
 // ============================================================
+// DEVELOPMENT LOGIN FALLBACK (EXAM/DEMO ONLY)
+//
+// POST /api/auth/dev-login
+// Strictly gated by:
+// 1. NODE_ENV === "development"
+// 2. DEV_AUTH_BYPASS === "true"
+// Uses real MongoDB user and authentic role.
+// ============================================================
+
+const devLogin = async (req, res) => {
+  try {
+    // 1. Strictly verify development environment and explicit bypass flag
+    if (
+      process.env.NODE_ENV !== "development" ||
+      process.env.DEV_AUTH_BYPASS !== "true"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Development login is disabled.",
+      });
+    }
+
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email address is required.",
+      });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    // 2. Verify real MongoDB user exists (no fake data or arbitrary accounts)
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No FinanceOS account was found for this email.",
+      });
+    }
+
+    if (user.status !== "Active") {
+      return res.status(403).json({
+        success: false,
+        message: "Your account is inactive.",
+      });
+    }
+
+    // 3. Resolve role from real user data
+    const role = getUserRole(normalizedEmail, user);
+
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        success: false,
+        message: "Server authentication configuration is missing.",
+      });
+    }
+
+    // 4. Issue standard authenticated JWT token
+    const token = jwt.sign(
+      {
+        id: user._id.toString(),
+        userId: user.userId,
+        email: user.email,
+        role: role,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
+
+    await logActivity({
+      userId: user._id,
+      userName: user.name,
+      userEmail: user.email,
+      type: "Sign In",
+      description: "Signed in via development fallback",
+    });
+
+    console.log(`[AUTH] Dev login successful for ${normalizedEmail} (Role: ${role})`);
+
+    return res.status(200).json({
+      success: true,
+      message: "Development login successful.",
+      token,
+      user: {
+        _id: user._id,
+        userId: user.userId,
+        name: user.name || user.fullName,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender,
+        phone: user.phone || user.mobileNumber,
+        city: user.city,
+        state: user.state,
+        email: user.email,
+        role: role,
+        status: user.status,
+      },
+    });
+  } catch (error) {
+    console.error("[AUTH] Dev login error:", error.message || error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to process development login.",
+    });
+  }
+};
+
+
+// ============================================================
 // EXPORT
 // ============================================================
 
@@ -959,4 +931,6 @@ module.exports = {
 
   verifyLoginOTP,
 
-};
+  devLogin,
+
+};
