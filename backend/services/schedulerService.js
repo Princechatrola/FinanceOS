@@ -632,9 +632,17 @@ function startScheduler() {
   });
 
   // Run every 10 seconds
-  schedulerTimer = setInterval(() => {
-    processScheduledMessages();
-    processScheduledReminders();
+  schedulerTimer = setInterval(async () => {
+    try {
+      await processScheduledMessages();
+    } catch (err) {
+      console.error("[Scheduler] Tick error (messages):", err.message);
+    }
+    try {
+      await processScheduledReminders();
+    } catch (err) {
+      console.error("[Scheduler] Tick error (reminders):", err.message);
+    }
   }, 10000);
 
   console.log(

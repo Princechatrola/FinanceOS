@@ -262,7 +262,7 @@ function SignIn() {
       // ======================================================
 
       const response = await fetch(
-        "http://localhost:5000/api/auth/send-otp",
+        "/api/auth/send-otp",
         {
           method: "POST",
 
@@ -380,7 +380,7 @@ function SignIn() {
       // ======================================================
 
       const response = await fetch(
-        "http://localhost:5000/api/auth/verify-otp",
+        "/api/auth/verify-otp",
         {
           method: "POST",
 

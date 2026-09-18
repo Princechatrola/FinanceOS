@@ -312,6 +312,32 @@ const sendLoginOTP = async (req, res) => {
 
 
     // ========================================================
+    // DEVELOPMENT ONLY — DISPLAY OTP IN TERMINAL
+    //
+    // This block prints the OTP to the backend terminal so the
+    // developer can complete login without phone access during
+    // local development and demos.
+    //
+    // SECURITY: Automatically disabled in production even if
+    // SHOW_OTP_IN_TERMINAL is set to true.
+    //
+    // The email is STILL sent normally via Nodemailer.
+    // ========================================================
+
+    if (
+      process.env.NODE_ENV !== "production" &&
+      process.env.SHOW_OTP_IN_TERMINAL === "true"
+    ) {
+      console.log("==================================================");
+      console.log("[FINANCEOS OTP - DEVELOPMENT ONLY]");
+      console.log(`Email: ${normalizedEmail}`);
+      console.log(`OTP: ${otp}`);
+      console.log("Expires: 5 minutes");
+      console.log("==================================================");
+    }
+
+
+    // ========================================================
     // OTP EXPIRATION
     //
     // OTP valid for 5 minutes
