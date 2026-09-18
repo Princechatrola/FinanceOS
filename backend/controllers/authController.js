@@ -39,6 +39,11 @@ console.log("=================================");
 // NODEMAILER TRANSPORTER (POOLED + SECURE DIRECT TLS)
 // ============================================================
 
+// Normalize app password: strip spaces for reliability
+const normalizedEmailPassword = (process.env.EMAIL_PASSWORD || "")
+  .toString()
+  .replace(/\s+/g, "");
+
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 465,
@@ -50,7 +55,7 @@ const transporter = nodemailer.createTransport({
   rateLimit: 5,
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
+    pass: normalizedEmailPassword,
   },
   connectionTimeout: 8000,
   greetingTimeout: 4000,
@@ -537,7 +542,7 @@ FinanceOS Team
           { $set: { otp: null, otpExpiresAt: null } }
         );
       }
-    } catch (_) {}
+    } catch (_) { }
 
     return res.status(500).json({
 
@@ -555,7 +560,7 @@ FinanceOS Team
         const normalized = String(email).trim().toLowerCase();
         inflightOtpRequests.delete(normalized);
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 };
 
