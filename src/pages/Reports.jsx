@@ -31,6 +31,7 @@ import Sidebar from "../components/layout/Sidebar.jsx";
 import Topbar from "../components/layout/Topbar.jsx";
 import useFinance from "../context/useFinance.js";
 import { generateFinancialReport } from "../utils/generateFinancialReport.js";
+import CenteredModal from "../components/common/CenteredModal.jsx";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -93,11 +94,57 @@ export default function Reports() {
   }
 
   // Filter States
-  const [duration, setDuration] = useState("monthly"); // monthly | quarterly | halfYear | yearly
+  const [duration, setDuration] = useState("monthly"); // monthly | quarterly | halfYear | yearly | custom
   const [selectedYear, setSelectedYear] = useState(defaultYear);
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
   const [selectedQuarter, setSelectedQuarter] = useState(Math.ceil(defaultMonth / 3));
   const [selectedHalf, setSelectedHalf] = useState(defaultMonth <= 6 ? 1 : 2);
+
+  // Custom Date Range State
+  const [startYear, setStartYear] = useState(defaultYear);
+  const [startMonth, setStartMonth] = useState(1);
+  const [endYear, setEndYear] = useState(defaultYear);
+  const [endMonth, setEndMonth] = useState(defaultMonth);
+
+  // Saved Months List
+  const [savedMonthsList, setSavedMonthsList] = useState([]);
+
+  // Centered Alert/Modal State
+  const [modalState, setModalState] = useState({
+    isOpen: false,
+    title: "No Data",
+    message: "",
+    iconType: "info",
+  });
+
+  // Load Saved Months for authenticated user
+  const loadSavedMonths = useCallback(async () => {
+    try {
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
+      if (!token) return;
+      const res = await fetch("http://localhost:5000/api/reports/saved-months", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.savedMonths)) {
+          setSavedMonthsList(data.savedMonths);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to load saved months:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSavedMonths();
+  }, [loadSavedMonths]);
+
+  const savedMonthKeys = useMemo(() => {
+    return new Set(savedMonthsList.map((sm) => `${sm.year}-${sm.month}`));
+  }, [savedMonthsList]);
 
   useEffect(() => {
     if (activeMonthParam && /^\d{4}-\d{1,2}$/.test(activeMonthParam)) {
@@ -115,16 +162,33 @@ export default function Reports() {
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
 
   // Available Years
   const availableYears = useMemo(() => {
     const currentY = new Date().getFullYear();
-    const years = [currentY, currentY - 1, currentY - 2, currentY - 3];
+    const years = [currentY, currentY - 1, currentY - 2, currentY - 3, currentY - 4];
     return [...new Set(years)].sort((a, b) => b - a);
   }, []);
 
   // Fetch Report from Backend API
   const fetchReport = useCallback(async () => {
+    // 1. Client-Side Chronological Range Validation for Custom Duration
+    if (duration === "custom") {
+      if (startYear > endYear || (startYear === endYear && startMonth > endMonth)) {
+        setLoading(false);
+        setModalState({
+          isOpen: true,
+          title: "Invalid Date Range",
+          message: "Start period must be before or equal to end period. Please choose a valid date range.",
+          iconType: "warning",
+        });
+        setError("Start period must be before or equal to end period.");
+        return;
+      }
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -140,6 +204,12 @@ export default function Reports() {
       if (duration === "monthly") params.append("month", String(selectedMonth));
       if (duration === "quarterly") params.append("quarter", String(selectedQuarter));
       if (duration === "halfYear") params.append("half", String(selectedHalf));
+      if (duration === "custom") {
+        params.append("startYear", String(startYear));
+        params.append("startMonth", String(startMonth));
+        params.append("endYear", String(endYear));
+        params.append("endMonth", String(endMonth));
+      }
 
       const res = await fetch(`http://localhost:5000/api/reports?${params.toString()}`, {
         headers: {
@@ -148,26 +218,181 @@ export default function Reports() {
       });
 
       const data = await res.json();
+
       if (!res.ok || !data.success) {
-        throw new Error(data.message || "Failed to load financial report.");
+        if (data.noData || res.status === 404) {
+          const msg = data.message || (
+            duration === "monthly"
+              ? `No data saved in ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}. Please choose a month with saved data.`
+              : duration === "custom"
+              ? "No financial data found for the selected period. Please choose a period containing saved data."
+              : `No financial data found for ${duration}. Please choose a period containing saved data.`
+          );
+          setModalState({
+            isOpen: true,
+            title: "No Data",
+            message: msg,
+            iconType: "info",
+          });
+          setReportData(null);
+          setError(msg);
+          return;
+        }
+
+        const errMsg = data.message || "Failed to load financial report.";
+        setModalState({
+          isOpen: true,
+          title: res.status === 400 ? "Invalid Date Range" : "Report Error",
+          message: errMsg,
+          iconType: "error",
+        });
+        setError(errMsg);
+        setReportData(null);
+        return;
       }
 
       setReportData(data.report);
     } catch (err) {
       console.error("Report Fetch Error:", err);
-      setError(err.message || "Failed to generate report.");
+      const errMsg = err.message || "Failed to generate report.";
+      setError(errMsg);
+      setModalState({
+        isOpen: true,
+        title: "Report Generation Error",
+        message: errMsg,
+        iconType: "error",
+      });
     } finally {
       setLoading(false);
     }
-  }, [duration, selectedYear, selectedMonth, selectedQuarter, selectedHalf]);
+  }, [duration, selectedYear, selectedMonth, selectedQuarter, selectedHalf, startYear, startMonth, endYear, endMonth]);
 
   useEffect(() => {
     fetchReport();
   }, [fetchReport]);
 
-  const handleDownloadPDF = () => {
-    if (!reportData) return;
-    generateFinancialReport(reportData);
+  const handleDownloadPDF = async () => {
+    if (!reportData) {
+      setModalState({
+        isOpen: true,
+        title: "No Data",
+        message: duration === "monthly"
+          ? `No data saved in ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}. Please choose a month with saved data.`
+          : "No financial data found for the selected period. Please choose a period containing saved data.",
+        iconType: "warning",
+      });
+      return;
+    }
+    setIsGeneratingPdf(true);
+    try {
+      await generateFinancialReport(reportData);
+      setModalState({
+        isOpen: true,
+        title: "Report Generated Successfully",
+        message: `The ${duration.toUpperCase()} financial report PDF has been generated and downloaded.`,
+        iconType: "success",
+      });
+    } catch (err) {
+      console.error("PDF Generation Error:", err);
+      setModalState({
+        isOpen: true,
+        title: "Download Failed",
+        message: "An error occurred while generating the PDF. Please try again.",
+        iconType: "error",
+      });
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleDownloadCSV = async () => {
+    if (!reportData) {
+      setModalState({
+        isOpen: true,
+        title: "No Data",
+        message: duration === "monthly"
+          ? `No data saved in ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}. Please choose a month with saved data.`
+          : "No financial data found for the selected period. Please choose a period containing saved data.",
+        iconType: "warning",
+      });
+      return;
+    }
+
+    setIsExportingCsv(true);
+    try {
+      const rows = [];
+      rows.push(["FINANCEOS FINANCIAL REPORT", reportData?.header?.title || ""]);
+      rows.push(["Period", reportData?.header?.periodRangeLabel || ""]);
+      rows.push([]);
+      rows.push(["--- FINANCIAL SUMMARY ---"]);
+      rows.push(["Metric", "Amount (INR)"]);
+      rows.push(["Total Income / Inflow", fs.totalIncome ?? 0]);
+      rows.push(["Total Expenses", fs.totalExpenses ?? 0]);
+      rows.push(["Committed Outflows", fs.totalCommittedOutflows ?? 0]);
+      rows.push(["Total Outflow", fs.totalOutflow ?? 0]);
+      rows.push(["Net Savings", fs.netSavings ?? 0]);
+      rows.push(["Savings Rate (%)", fs.savingsRate ?? 0]);
+      rows.push(["Closing Balance", fs.closingBalance ?? 0]);
+      rows.push(["Available to Allocate", fs.availableToAllocate ?? 0]);
+      rows.push([]);
+      rows.push(["--- MONTH DETAILS ---"]);
+      rows.push(["Month", "Status", "Opening", "Income", "Expenses", "Savings", "Outflows", "Closing", "Available Capacity"]);
+      monthDetails.forEach((m) => {
+        rows.push([
+          m.monthName || m.monthLabel || "",
+          m.hasRecord ? "Recorded" : "No Data Saved",
+          m.hasRecord ? (m.openingBalance ?? 0) : "",
+          m.hasRecord ? (m.totalIncome ?? 0) : "",
+          m.hasRecord ? (m.expenses ?? 0) : "",
+          m.hasRecord ? (m.savings ?? 0) : "",
+          m.hasRecord ? (m.totalCommitments ?? 0) : "",
+          m.hasRecord ? (m.closingBalance ?? 0) : "",
+          m.hasRecord ? (m.availableToAllocate ?? 0) : "",
+        ]);
+      });
+      rows.push([]);
+      rows.push(["--- TRANSACTIONS LEDGER ---"]);
+      rows.push(["Date", "Type", "Category", "Description", "Amount", "Source"]);
+      ledger.forEach((t) => {
+        rows.push([
+          t.date || "",
+          t.type || "",
+          t.category || "",
+          t.description || "",
+          t.amount ?? 0,
+          t.source || t.paymentMode || "",
+        ]);
+      });
+
+      const csvContent = "data:text/csv;charset=utf-8," + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      const filename = duration === "custom"
+        ? `FinanceOS_Custom_Report_${startYear}_${startMonth}_to_${endYear}_${endMonth}.csv`
+        : `FinanceOS_${duration}_Report_${selectedYear}.csv`;
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setModalState({
+        isOpen: true,
+        title: "Report Generated Successfully",
+        message: `The ${duration.toUpperCase()} financial report CSV has been exported and downloaded.`,
+        iconType: "success",
+      });
+    } catch (err) {
+      console.error("CSV Export Error:", err);
+      setModalState({
+        isOpen: true,
+        title: "Download Failed",
+        message: "An error occurred while exporting the CSV. Please try again.",
+        iconType: "error",
+      });
+    } finally {
+      setIsExportingCsv(false);
+    }
   };
 
   const fs = reportData?.financialSummary || {};
@@ -206,6 +431,7 @@ export default function Reports() {
                 {duration === "quarterly" && "Quarterly Financial Review"}
                 {duration === "halfYear" && "Half-Yearly Financial Audit"}
                 {duration === "yearly" && "Annual Financial Statement"}
+                {duration === "custom" && "Custom Period Financial Statement"}
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
                 Full-spectrum analysis of cash flow, asset valuations, debt amortization, and financial health.
@@ -213,7 +439,7 @@ export default function Reports() {
             </div>
 
             {/* ACTION BUTTONS */}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={fetchReport}
@@ -226,12 +452,22 @@ export default function Reports() {
               </button>
               <button
                 type="button"
-                onClick={handleDownloadPDF}
-                disabled={loading || !reportData}
-                className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-xl bg-[#18392c] hover:bg-[#254635] text-white shadow-xs transition-all cursor-pointer"
+                onClick={handleDownloadCSV}
+                disabled={loading || !reportData || isExportingCsv || isGeneratingPdf}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold rounded-xl border border-[#dce5da] bg-white hover:bg-[#f4f7f2] text-[#18392c] transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                title="Download CSV Spreadsheet"
               >
                 <FiDownload className="text-sm" />
-                <span>Download {duration.toUpperCase()} PDF</span>
+                <span>{isExportingCsv ? "Exporting..." : "Download CSV"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadPDF}
+                disabled={loading || !reportData || isGeneratingPdf || isExportingCsv}
+                className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-xl bg-[#18392c] hover:bg-[#254635] text-white shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              >
+                <FiDownload className="text-sm" />
+                <span>{isGeneratingPdf ? "Generating..." : `Download ${duration.toUpperCase()} PDF`}</span>
               </button>
             </div>
           </div>
@@ -241,18 +477,19 @@ export default function Reports() {
              ====================================================== */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-[#e2e8dc] shadow-xs">
             {/* DURATION TABS */}
-            <div className="flex items-center bg-[#f0f4ee] p-1 rounded-xl">
+            <div className="flex flex-wrap items-center bg-[#f0f4ee] p-1 rounded-xl">
               {[
                 { id: "monthly", label: "Monthly" },
                 { id: "quarterly", label: "Quarterly" },
                 { id: "halfYear", label: "Half-Yearly" },
                 { id: "yearly", label: "Yearly" },
+                { id: "custom", label: "Custom Range" },
               ].map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => setDuration(tab.id)}
-                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                     duration === tab.id
                       ? "bg-white text-[#18392c] shadow-xs"
                       : "text-slate-600 hover:text-[#18392c]"
@@ -265,21 +502,23 @@ export default function Reports() {
 
             {/* PERIOD PICKERS */}
             <div className="flex flex-wrap items-center gap-3">
-              {/* YEAR SELECTOR */}
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                <span>Year:</span>
-                <select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(Number(e.target.value))}
-                  className="bg-[#f8faf8] border border-[#dce5da] rounded-lg px-3 py-1.5 font-bold text-[#18392c] text-xs focus:outline-none focus:ring-1 focus:ring-[#315c46]"
-                >
-                  {availableYears.map((yr) => (
-                    <option key={yr} value={yr}>
-                      {yr}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* YEAR SELECTOR FOR STANDARD PERIODS */}
+              {duration !== "custom" && (
+                <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                  <span>Year:</span>
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(Number(e.target.value))}
+                    className="bg-[#f8faf8] border border-[#dce5da] rounded-lg px-3 py-1.5 font-bold text-[#18392c] text-xs focus:outline-none focus:ring-1 focus:ring-[#315c46]"
+                  >
+                    {availableYears.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* MONTH SELECTOR */}
               {duration === "monthly" && (
@@ -290,11 +529,15 @@ export default function Reports() {
                     onChange={(e) => setSelectedMonth(Number(e.target.value))}
                     className="bg-[#f8faf8] border border-[#dce5da] rounded-lg px-3 py-1.5 font-bold text-[#18392c] text-xs focus:outline-none focus:ring-1 focus:ring-[#315c46]"
                   >
-                    {MONTH_NAMES.map((name, idx) => (
-                      <option key={name} value={idx + 1}>
-                        {name}
-                      </option>
-                    ))}
+                    {MONTH_NAMES.map((name, idx) => {
+                      const mNum = idx + 1;
+                      const hasData = savedMonthKeys.has(`${selectedYear}-${mNum}`);
+                      return (
+                        <option key={name} value={mNum}>
+                          {name} {hasData ? "✓" : "(No Data)"}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               )}
@@ -334,6 +577,65 @@ export default function Reports() {
                   </select>
                 </div>
               )}
+
+              {/* CUSTOM DATE RANGE PICKER */}
+              {duration === "custom" && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                    <span className="font-semibold text-slate-700">From:</span>
+                    <select
+                      value={startMonth}
+                      onChange={(e) => setStartMonth(Number(e.target.value))}
+                      className="bg-[#f8faf8] border border-[#dce5da] rounded-lg px-2.5 py-1.5 font-bold text-[#18392c] text-xs focus:outline-none focus:ring-1 focus:ring-[#315c46]"
+                    >
+                      {MONTH_NAMES.map((name, idx) => (
+                        <option key={`start-m-${name}`} value={idx + 1}>
+                          {name.slice(0, 3)}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={startYear}
+                      onChange={(e) => setStartYear(Number(e.target.value))}
+                      className="bg-[#f8faf8] border border-[#dce5da] rounded-lg px-2.5 py-1.5 font-bold text-[#18392c] text-xs focus:outline-none focus:ring-1 focus:ring-[#315c46]"
+                    >
+                      {availableYears.map((yr) => (
+                        <option key={`start-y-${yr}`} value={yr}>
+                          {yr}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <span className="text-slate-300 font-bold">→</span>
+
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                    <span className="font-semibold text-slate-700">To:</span>
+                    <select
+                      value={endMonth}
+                      onChange={(e) => setEndMonth(Number(e.target.value))}
+                      className="bg-[#f8faf8] border border-[#dce5da] rounded-lg px-2.5 py-1.5 font-bold text-[#18392c] text-xs focus:outline-none focus:ring-1 focus:ring-[#315c46]"
+                    >
+                      {MONTH_NAMES.map((name, idx) => (
+                        <option key={`end-m-${name}`} value={idx + 1}>
+                          {name.slice(0, 3)}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={endYear}
+                      onChange={(e) => setEndYear(Number(e.target.value))}
+                      className="bg-[#f8faf8] border border-[#dce5da] rounded-lg px-2.5 py-1.5 font-bold text-[#18392c] text-xs focus:outline-none focus:ring-1 focus:ring-[#315c46]"
+                    >
+                      {availableYears.map((yr) => (
+                        <option key={`end-y-${yr}`} value={yr}>
+                          {yr}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -347,10 +649,23 @@ export default function Reports() {
               <p className="text-xs text-slate-400">Aggregating MongoDB cash balances, investment yields, and liability commitments.</p>
             </div>
           ) : error ? (
-            <div className="p-8 bg-white rounded-2xl border border-red-200 text-center space-y-2">
-              <FiAlertCircle className="mx-auto text-3xl text-red-500" />
-              <h3 className="text-base font-bold text-red-700">Unable to generate report</h3>
-              <p className="text-xs text-red-500">{error}</p>
+            <div className="p-12 bg-white rounded-2xl border border-[#e2e8dc] text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-[#edf6e8] text-[#315c46] flex items-center justify-center mx-auto">
+                <FiInfo size={24} />
+              </div>
+              <h3 className="text-base font-bold text-[#18392c]">No Financial Report Available</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">{error}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setDuration("monthly");
+                  setSelectedMonth(defaultMonth);
+                  setSelectedYear(defaultYear);
+                }}
+                className="mt-2 inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl bg-[#18392c] text-white hover:bg-[#254635] transition cursor-pointer"
+              >
+                Reset to Current Month
+              </button>
             </div>
           ) : (
             <>
@@ -726,20 +1041,32 @@ export default function Reports() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#edf1ea]">
-                      {monthDetails.map((m) => (
-                        <tr key={m.month} className="hover:bg-[#fbfcf9] transition">
-                          <td className="px-5 py-3.5 font-bold text-[#18392c]">{m.monthName}</td>
-                          <td className="px-4 py-3.5">{m.hasRecord || m.openingBalance > 0 ? fmtINR(m.openingBalance) : "—"}</td>
-                          <td className="px-4 py-3.5 font-semibold text-emerald-700">{m.totalIncome > 0 ? fmtINR(m.totalIncome) : "—"}</td>
-                          <td className="px-4 py-3.5">{m.expenses > 0 ? fmtINR(m.expenses) : "—"}</td>
-                          <td className={`px-4 py-3.5 font-semibold ${m.savings >= 0 ? "text-emerald-700" : "text-red-600"}`}>
-                            {m.hasRecord || m.totalIncome > 0 ? fmtINR(m.savings) : "—"}
-                          </td>
-                          <td className="px-4 py-3.5">{m.totalCommitments > 0 ? fmtINR(m.totalCommitments) : "—"}</td>
-                          <td className="px-4 py-3.5 font-bold text-[#315c46]">{m.hasRecord || m.closingBalance > 0 ? fmtINR(m.closingBalance) : "—"}</td>
-                          <td className="px-4 py-3.5 font-semibold text-blue-700">{m.hasRecord || m.availableToAllocate > 0 ? fmtINR(m.availableToAllocate) : "—"}</td>
-                        </tr>
-                      ))}
+                      {monthDetails.map((m) => {
+                        const periodKey = `${m.year || selectedYear}-${m.month}`;
+                        return (
+                          <tr key={periodKey} className="hover:bg-[#fbfcf9] transition">
+                            <td className="px-5 py-3.5 font-bold text-[#18392c]">
+                              <div className="flex items-center gap-2">
+                                <span>{m.monthName} {duration === "custom" ? m.year : ""}</span>
+                                {!m.hasRecord && (
+                                  <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-400">
+                                    No Data Saved
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3.5">{m.hasRecord ? fmtINR(m.openingBalance) : "—"}</td>
+                            <td className="px-4 py-3.5 font-semibold text-emerald-700">{m.hasRecord ? fmtINR(m.totalIncome) : "—"}</td>
+                            <td className="px-4 py-3.5">{m.hasRecord ? fmtINR(m.expenses) : "—"}</td>
+                            <td className={`px-4 py-3.5 font-semibold ${m.hasRecord && m.savings < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                              {m.hasRecord ? fmtINR(m.savings) : "—"}
+                            </td>
+                            <td className="px-4 py-3.5">{m.hasRecord ? fmtINR(m.totalCommitments) : "—"}</td>
+                            <td className="px-4 py-3.5 font-bold text-[#315c46]">{m.hasRecord ? fmtINR(m.closingBalance) : "—"}</td>
+                            <td className="px-4 py-3.5 font-semibold text-blue-700">{m.hasRecord ? fmtINR(m.availableToAllocate) : "—"}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -996,6 +1323,18 @@ export default function Reports() {
             </>
           )}
         </div>
+
+        <CenteredModal
+          isOpen={modalState.isOpen}
+          onClose={() => setModalState((prev) => ({ ...prev, isOpen: false }))}
+          title={modalState.title || "No Data"}
+          message={modalState.message}
+          type="alert"
+          iconType={modalState.iconType || "info"}
+          confirmText="OK"
+          confirmVariant="primary"
+          onConfirm={() => setModalState((prev) => ({ ...prev, isOpen: false }))}
+        />
       </main>
     </div>
   );

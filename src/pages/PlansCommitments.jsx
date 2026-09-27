@@ -37,6 +37,7 @@ import {
   FiArrowRight,
   FiCheck,
   FiInfo,
+  FiEdit2,
   FiBell,
 } from "react-icons/fi";
 import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../utils/dueDateSchedule.js";
@@ -80,6 +81,8 @@ import SIPContributionModal
 
 import ReminderConfigModal
   from "../components/reminders/ReminderConfigModal.jsx";
+import CenteredModal
+  from "../components/common/CenteredModal.jsx";
 
 
 // ============================================================
@@ -223,6 +226,8 @@ function PlansCommitments() {
     setSIPContributionInvestment,
   ] = useState(null);
 
+  const [editingInvestment, setEditingInvestment] = useState(null);
+
   const [selectedInsurance, setSelectedInsurance] = useState(null);
   const [editingInsurance, setEditingInsurance] = useState(null);
 
@@ -356,6 +361,7 @@ function PlansCommitments() {
         total +
         Number(
           investment.monthlyContribution ||
+          (investment.type === "SIP" ? investment.amount : 0) ||
           0
         ),
       0
@@ -537,144 +543,327 @@ function PlansCommitments() {
 
 
   // ==========================================================
+  // COMMON FINANCEOS CENTERED ACTION MODAL SYSTEM
+  // ==========================================================
+
+  const [actionModal, setActionModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "info",
+    confirmText: "OK",
+    cancelText: "Cancel",
+    confirmVariant: "primary",
+    onConfirm: null,
+  });
+
+  const handlePausePlan = (item, type) => {
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to pause this plan?",
+      message: `You are pausing "${item.name || item.policyName || item.title || "this plan"}". You can resume it at any time.`,
+      type: "confirm",
+      confirmText: "Pause",
+      cancelText: "Cancel",
+      confirmVariant: "primary",
+      onConfirm: async () => {
+        try {
+          if (type === "investment") {
+            await updateInvestmentStatus(item.id || item._id, "Paused");
+          } else if (type === "insurance") {
+            await updateInsuranceStatus(item.id || item._id, "Paused");
+          } else if (type === "liability") {
+            await updateLiabilityStatus(item._id || item.id, "Paused");
+          }
+          setActionModal({
+            isOpen: true,
+            title: "Plan Paused Successfully",
+            message: "The plan has been paused.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Unable to pause the plan. Please try again.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        }
+      },
+    });
+  };
+
+  const handleResumePlan = (item, type) => {
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to resume this plan?",
+      message: `You are resuming "${item.name || item.policyName || item.title || "this plan"}".`,
+      type: "confirm",
+      confirmText: "Resume",
+      cancelText: "Cancel",
+      confirmVariant: "primary",
+      onConfirm: async () => {
+        try {
+          if (type === "investment") {
+            await updateInvestmentStatus(item.id || item._id, "Active");
+          } else if (type === "insurance") {
+            await updateInsuranceStatus(item.id || item._id, "Active");
+          } else if (type === "liability") {
+            await updateLiabilityStatus(item._id || item.id, "Active");
+          }
+          setActionModal({
+            isOpen: true,
+            title: "Plan Resumed Successfully",
+            message: "The plan has been resumed.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Unable to resume the plan. Please try again.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        }
+      },
+    });
+  };
+
+  const handleMarkMatured = (investment) => {
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to mark this plan as matured?",
+      message: `Marking "${investment.name || "this plan"}" as matured will update its lifecycle status.`,
+      type: "confirm",
+      confirmText: "Mark Matured",
+      cancelText: "Cancel",
+      confirmVariant: "primary",
+      onConfirm: async () => {
+        try {
+          const res = await updateInvestmentStatus(investment.id || investment._id, "Matured");
+          if (!res?.success) throw new Error(res?.message || "Failed to mark matured.");
+          setActionModal({
+            isOpen: true,
+            title: "Plan Marked as Matured",
+            message: "The plan status has been updated successfully.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Unable to update the plan. Please try again.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        }
+      },
+    });
+  };
+
+  const handleCloseLiability = (liability) => {
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to close this liability?",
+      message: `Close "${liability.name}"? Its remaining balance will stay in the record, but it will no longer count as an active monthly commitment.`,
+      type: "confirm",
+      confirmText: "Close Liability",
+      cancelText: "Cancel",
+      confirmVariant: "primary",
+      onConfirm: async () => {
+        try {
+          await updateLiabilityStatus(liability._id || liability.id, "Closed");
+          setActionModal({
+            isOpen: true,
+            title: "Liability Closed Successfully",
+            message: "The liability has been closed.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Unable to close liability. Please try again.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        }
+      },
+    });
+  };
+
+  // ==========================================================
   // DELETE INVESTMENT
   // ==========================================================
 
-  const handleDeleteInvestment = async (
-    investment
-  ) => {
+  const handleDeleteInvestment = (investment) => {
+    const investmentId = investment?.id ?? investment?._id;
 
-    console.log(
-      "DELETE INVESTMENT OBJECT:",
-      investment
-    );
-
-    console.log(
-      "DELETE INVESTMENT ID:",
-      investment?.id,
-      investment?._id
-    );
-
-    const confirmed =
-      window.confirm(
-        `Delete "${investment.name}"? This action cannot be undone.`
-      );
-
-    if (!confirmed) {
+    if (!investmentId) {
+      setActionModal({
+        isOpen: true,
+        title: "Something went wrong",
+        message: "Investment ID is missing.",
+        type: "error",
+        confirmText: "OK",
+        onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+      });
       return;
     }
 
-
-    // --------------------------------------------------------
-    // GET NUMERIC INVESTMENT ID
-    // --------------------------------------------------------
-
-    const investmentId =
-      investment.id ??
-      investment._id;
-
-
-    // --------------------------------------------------------
-    // VALIDATE ID
-    // --------------------------------------------------------
-
-    if (
-      investmentId === undefined ||
-      investmentId === null ||
-      investmentId === ""
-    ) {
-
-      console.error(
-        "Delete Investment: Missing ID",
-        investment
-      );
-
-      alert(
-        "Investment ID is missing."
-      );
-
-      return;
-    }
-
-
-    // --------------------------------------------------------
-    // DELETE
-    // --------------------------------------------------------
-
-    const result =
-      await deleteInvestment(
-        investmentId
-      );
-
-
-    // --------------------------------------------------------
-    // ERROR
-    // --------------------------------------------------------
-
-    if (
-      !result?.success
-    ) {
-
-      alert(
-        result?.message ||
-        "Failed to delete investment."
-      );
-
-      return;
-    }
-
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to delete?",
+      message: "This action cannot be undone.",
+      type: "confirm",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        try {
+          const result = await deleteInvestment(investmentId);
+          if (!result?.success) {
+            throw new Error(result?.message || "Failed to delete investment.");
+          }
+          setActionModal({
+            isOpen: true,
+            title: "Deleted Successfully",
+            message: "The plan has been deleted successfully.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Unable to delete the plan. Please try again.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        }
+      },
+    });
   };
-
 
   // ==========================================================
   // DELETE INSURANCE
   // ==========================================================
 
-  const handleDeleteInsurance = (
-    policy
-  ) => {
+  const handleDeleteInsurance = (policy) => {
+    const policyId = policy?.id ?? policy?._id;
+    if (!policyId) return;
 
-    const confirmed =
-      window.confirm(
-        `Delete "${policy.name}"? This action cannot be undone.`
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    deleteInsurancePolicy(
-      policy.id
-    );
-
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to delete?",
+      message: "This action cannot be undone.",
+      type: "confirm",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await deleteInsurancePolicy(policyId);
+          setActionModal({
+            isOpen: true,
+            title: "Deleted Successfully",
+            message: "The plan has been deleted successfully.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Unable to delete policy. Please try again.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        }
+      },
+    });
   };
-
 
   // ==========================================================
   // DELETE LIABILITY
   // ==========================================================
 
-  const handleDeleteLiability = async (
-    liability
-  ) => {
+  const handleDeleteLiability = (liability) => {
+    const liabilityId = liability?._id ?? liability?.id;
+    if (!liabilityId) return;
 
-    const confirmed =
-      window.confirm(
-        `Delete "${liability.name}"? This action cannot be undone.`
-      );
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to delete?",
+      message: "This action cannot be undone.",
+      type: "confirm",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await deleteLiability(liabilityId);
+          setActionModal({
+            isOpen: true,
+            title: "Deleted Successfully",
+            message: "The plan has been deleted successfully.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Failed to delete liability.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        }
+      },
+    });
+  };
 
-    if (!confirmed) {
-      return;
-    }
+  // ==========================================================
+  // FORM SUCCESS HANDLER
+  // ==========================================================
 
-    try {
-      await deleteLiability(
-        liability._id || liability.id
-      );
-    } catch (err) {
-      alert(err.message || "Failed to delete liability.");
-    }
+  const handleFormSuccess = (options = {}) => {
+    closeForm();
+    setEditingInvestment(null);
+    setEditingInsurance(null);
+    setEditingLiability(null);
+    setSelectedInsurance(null);
+    setSelectedLiability(null);
 
+    const isEdit = Boolean(options?.isEdit);
+    setActionModal({
+      isOpen: true,
+      title: isEdit ? "Updated Successfully" : "Plan Added Successfully",
+      message: isEdit ? "Your plan has been updated successfully." : "Your plan has been saved successfully.",
+      type: "success",
+      confirmText: "OK",
+      onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+    });
   };
 
 
@@ -770,6 +959,14 @@ function PlansCommitments() {
         amount
       );
       closePaymentModal();
+      setActionModal({
+        isOpen: true,
+        title: "Payment Recorded Successfully",
+        message: `₹${formatMoney(amount)} has been recorded successfully.`,
+        type: "success",
+        confirmText: "OK",
+        onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+      });
     } catch (err) {
       setPaymentError(err.message || "Failed to record payment.");
     }
@@ -1625,6 +1822,15 @@ function PlansCommitments() {
                             updateStatus={
                               updateInvestmentStatus
                             }
+                            onPause={(item) =>
+                              handlePausePlan(item, "investment")
+                            }
+                            onResume={(item) =>
+                              handleResumePlan(item, "investment")
+                            }
+                            onMarkMatured={(item) =>
+                              handleMarkMatured(item)
+                            }
                             deleteItem={
                               handleDeleteInvestment
                             }
@@ -1643,6 +1849,7 @@ function PlansCommitments() {
                             onManageReminder={(item) =>
                               setReminderTarget({ item, type: "Investment" })
                             }
+                            onEdit={(item) => setEditingInvestment(item)}
                           />
 
                         )
@@ -1691,6 +1898,12 @@ function PlansCommitments() {
                             }
                             updateStatus={
                               updateInsuranceStatus
+                            }
+                            onPause={(item) =>
+                              handlePausePlan(item, "insurance")
+                            }
+                            onResume={(item) =>
+                              handleResumePlan(item, "insurance")
                             }
                             deleteItem={
                               handleDeleteInsurance
@@ -1749,6 +1962,15 @@ function PlansCommitments() {
                             updateStatus={
                               updateLiabilityStatus
                             }
+                            onPause={(item) =>
+                              handlePausePlan(item, "liability")
+                            }
+                            onResume={(item) =>
+                              handleResumePlan(item, "liability")
+                            }
+                            onCloseLiability={(item) =>
+                              handleCloseLiability(item)
+                            }
                             deleteItem={
                               handleDeleteLiability
                             }
@@ -1803,18 +2025,17 @@ function PlansCommitments() {
           INVESTMENT FORM
          ====================================================== */}
 
-      {selectedPlanType ===
-        "investment" && (
-
+      {(selectedPlanType === "investment" || editingInvestment) && (
         <InvestmentForm
-          onClose={
-            closeForm
-          }
-          onSuccess={
-            closeForm
-          }
+          editingInvestment={editingInvestment}
+          onClose={() => {
+            closeForm();
+            setEditingInvestment(null);
+          }}
+          onSuccess={(opts) => {
+            handleFormSuccess(opts);
+          }}
         />
-
       )}
 
 
@@ -1830,10 +2051,8 @@ function PlansCommitments() {
             closeForm();
             setEditingInsurance(null);
           }}
-          onSuccess={() => {
-            closeForm();
-            setEditingInsurance(null);
-            setSelectedInsurance(null);
+          onSuccess={(opts) => {
+            handleFormSuccess(opts);
           }}
         />
 
@@ -1897,10 +2116,8 @@ function PlansCommitments() {
             closeForm();
             setEditingLiability(null);
           }}
-          onSuccess={() => {
-            closeForm();
-            setEditingLiability(null);
-            setSelectedLiability(null);
+          onSuccess={(opts) => {
+            handleFormSuccess(opts);
           }}
         />
 
@@ -2869,9 +3086,7 @@ function PlansCommitments() {
                           text-[#315c46]
                         "
                       >
-                        <FiDollarSign
-                          size={18}
-                        />
+                        <span className="font-bold text-base">₹</span>
                       </div>
 
                       <div>
@@ -4812,6 +5027,19 @@ function PlansCommitments() {
         aiLoading={aiLoading}
       />
 
+      {/* ACTION MODAL */}
+      <CenteredModal
+        isOpen={actionModal.isOpen}
+        title={actionModal.title}
+        message={actionModal.message}
+        type={actionModal.type}
+        confirmText={actionModal.confirmText}
+        cancelText={actionModal.cancelText}
+        confirmVariant={actionModal.confirmVariant}
+        onConfirm={actionModal.onConfirm}
+        onClose={() => setActionModal((prev) => ({ ...prev, isOpen: false }))}
+      />
+
     </div>
 
   );
@@ -4909,12 +5137,16 @@ function InvestmentCard({
   investment,
   formatMoney,
   updateStatus,
+  onPause,
+  onResume,
+  onMarkMatured,
   deleteItem,
   recordFDInterest,
   recordSIPContribution,
   openMaturityActionModal,
   openRecordMaturityModal,
   onManageReminder,
+  onEdit,
 }) {
 
   const status =
@@ -4941,7 +5173,7 @@ function InvestmentCard({
 
 
   // ==========================================================
-  // FIXED DEPOSIT CHECK
+  // TYPE CHECKS
   // ==========================================================
 
   const investmentType =
@@ -4963,27 +5195,33 @@ function InvestmentCard({
 
 
   const isFixedDeposit =
-    investmentType ===
-    "fixed deposit";
-
+    investmentType === "fixed deposit" || investmentType === "fd";
 
   const isPayoutFD =
-    interestMethod ===
-    "payout";
-
+    interestMethod === "payout";
 
   const canRecordFDInterest =
     isFixedDeposit &&
     isPayoutFD &&
     isActive;
 
-
   const isSIP =
     investmentType === "sip";
 
+  const isRD =
+    investmentType === "rd" || investmentType === "recurring deposit";
 
-  const canRecordSIPContribution =
-    isSIP &&
+  const isGold =
+    investmentType === "gold";
+
+  const isMutualFund =
+    investmentType === "mutual fund";
+
+  const isStocks =
+    investmentType === "stocks";
+
+  const canRecordContribution =
+    !isFixedDeposit &&
     isActive;
 
 
@@ -5001,24 +5239,90 @@ function InvestmentCard({
       0
     );
 
-  let sipProgress = 0;
-  if (isSIP) {
-    let targetAmount = Number(investment.estimatedMaturityAmount || 0);
+  const isMatured =
+    status === "matured" ||
+    investment.status?.toLowerCase() === "matured" ||
+    investment.maturityAllocationStatus === "Fully Allocated" ||
+    (Number(investment.maturityAllocatedAmount) > 0 && Number(investment.maturityRemainingAmount) <= 0);
 
-    if (targetAmount === 0 && investment.startDate && investment.maturityDate && investment.monthlyContribution) {
-      const start = new Date(investment.startDate);
-      const end = new Date(investment.maturityDate);
+  // 1. Authoritative Target / Committed Amount
+  let targetAmount = Number(investment.estimatedMaturityAmount || 0);
+
+  if (targetAmount === 0 && investment.startDate && investment.maturityDate && investment.monthlyContribution) {
+    const start = new Date(investment.startDate);
+    const end = new Date(investment.maturityDate);
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
       const months = (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
       if (months > 0) {
         targetAmount = months * Number(investment.monthlyContribution);
       }
     }
-    
+  }
+
+  if (targetAmount === 0) {
+    targetAmount = Number(
+      investment.targetAmount ||
+      investment.actualMaturityValue ||
+      investment.currentValue ||
+      investment.amount ||
+      investment.principalAmount ||
+      0
+    );
+  }
+
+  // 2. Authoritative Contributed / Allocated Amount
+  const paidSipContribs = (investment.sipContributions || [])
+    .filter((c) => c.status === "Paid")
+    .reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+
+  let contributedAmount = 0;
+  if (isMatured) {
+    contributedAmount = targetAmount > 0 ? targetAmount : Number(investment.actualMaturityValue || investment.amount || investment.principalAmount || 0);
+  } else if (isFixedDeposit || investment.contributionType === "One Time") {
+    contributedAmount = Number(investment.principalAmount || investment.amount || 0);
+  } else if (paidSipContribs > 0) {
+    contributedAmount = paidSipContribs;
+  } else if (Number(investment.totalContributions) > 0) {
+    contributedAmount = Number(investment.totalContributions);
+  } else if (Number(investment.totalInvested) > 0) {
+    contributedAmount = Number(investment.totalInvested);
+  } else {
+    // For active recurring commitments with zero recorded contributions, contributed is strictly 0!
+    contributedAmount = 0;
+  }
+
+  // 3. Authoritative Remaining & Progress Percentage
+  let remainingContribution = 0;
+  let progressPercentage = 0;
+
+  if (isMatured) {
+    progressPercentage = 100;
+    remainingContribution = 0;
+    if (contributedAmount <= 0) contributedAmount = targetAmount;
+  } else if (isFixedDeposit || investment.contributionType === "One Time") {
+    progressPercentage = 100;
+    remainingContribution = 0;
+  } else {
     if (targetAmount > 0) {
-      sipProgress = Math.min((principalAmount / targetAmount) * 100, 100);
+      progressPercentage = Math.min(100, Math.max(0, (contributedAmount / targetAmount) * 100));
+      remainingContribution = Math.max(0, targetAmount - contributedAmount);
+    } else if (contributedAmount > 0) {
+      progressPercentage = 100;
+      targetAmount = contributedAmount;
+      remainingContribution = 0;
+    } else {
+      progressPercentage = 0;
+      remainingContribution = targetAmount;
     }
   }
 
+  if (!Number.isFinite(progressPercentage)) {
+    progressPercentage = 0;
+  }
+
+  const monthlyEquivalent = isFixedDeposit || investment.contributionType === "One Time"
+    ? 0
+    : Number(investment.monthlyContribution || (isSIP ? investment.amount : 0) || 0);
 
   return (
 
@@ -5065,7 +5369,7 @@ function InvestmentCard({
         <InfoBox
           label="Monthly Equivalent"
           value={`₹${formatMoney(
-            investment.monthlyContribution
+            monthlyEquivalent
           )}`}
         />
 
@@ -5082,22 +5386,98 @@ function InvestmentCard({
 
 
       {/* ======================================================
-          SIP PROGRESS
+          CONTRIBUTION PROGRESS (FOR NON-FD)
          ====================================================== */}
 
-      {isSIP && (
+      {!isFixedDeposit && targetAmount > 0 && (
         <div className="mt-4">
           <div className="flex items-center justify-between">
             <p className="text-[10px] text-slate-400">Contribution Progress</p>
             <p className="text-[10px] font-semibold text-[#52665b]">
-              {sipProgress.toFixed(0)}%
+              {progressPercentage.toFixed(0)}%
             </p>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8da]">
             <div
-              className="h-full rounded-full bg-[#315c46] transition-all"
-              style={{ width: `${sipProgress}%` }}
+              className="h-full rounded-full bg-[#315c46] transition-all duration-300"
+              style={{ width: `${progressPercentage.toFixed(0)}%` }}
             />
+          </div>
+          <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
+            <span>Contributed: <strong className="text-[#18392c]">₹{formatMoney(contributedAmount)}</strong></span>
+            <span>Remaining: <strong className="text-[#18392c]">₹{formatMoney(remainingContribution)}</strong></span>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================
+          GOLD DETAILS
+         ====================================================== */}
+
+      {isGold && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
+            Gold Details
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-slate-700 font-medium">
+            {(investment.purity || investment.customDetails?.purity) && (
+              <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-900">
+                Purity: {investment.purity || investment.customDetails?.purity}
+              </span>
+            )}
+            {(investment.weight || investment.customDetails?.weight) && (
+              <span>Weight: <strong className="text-[#18392c]">{investment.weight || investment.customDetails?.weight}g</strong></span>
+            )}
+            {(investment.goldType || investment.customDetails?.goldType) && (
+              <span>Type: <strong className="text-[#18392c]">{investment.goldType || investment.customDetails?.goldType}</strong></span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================
+          STOCKS DETAILS
+         ====================================================== */}
+
+      {isStocks && (
+        <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/50 p-3 text-xs">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-sky-800">
+            Stock Holding Info
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-slate-700 font-medium">
+            {(investment.symbol || investment.ticker || investment.customDetails?.symbol || investment.customDetails?.ticker) && (
+              <span className="rounded-md bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-900">
+                {investment.symbol || investment.ticker || investment.customDetails?.symbol || investment.customDetails?.ticker}
+              </span>
+            )}
+            {(investment.quantity || investment.customDetails?.quantity) && (
+              <span>Qty: <strong className="text-[#18392c]">{investment.quantity || investment.customDetails?.quantity}</strong></span>
+            )}
+            {(investment.purchasePrice || investment.customDetails?.purchasePrice) && (
+              <span>Avg Buy: <strong className="text-[#18392c]">₹{formatMoney(investment.purchasePrice || investment.customDetails?.purchasePrice)}</strong></span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================
+          MUTUAL FUND DETAILS
+         ====================================================== */}
+
+      {isMutualFund && (
+        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 text-xs">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+            Mutual Fund Scheme
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-slate-700 font-medium">
+            {(investment.schemeName || investment.fundName || investment.customDetails?.schemeName || investment.customDetails?.fundName) && (
+              <span className="font-semibold text-[#18392c]">
+                {investment.schemeName || investment.fundName || investment.customDetails?.schemeName || investment.customDetails?.fundName}
+              </span>
+            )}
+            {(investment.units || investment.customDetails?.units) && (
+              <span>Units: <strong className="text-[#18392c]">{investment.units || investment.customDetails?.units}</strong></span>
+            )}
           </div>
         </div>
       )}
@@ -5388,7 +5768,7 @@ function InvestmentCard({
 
           <ActionButton
             icon={
-              <FiDollarSign />
+              <span className="font-bold text-xs">₹</span>
             }
             text="Record Interest"
             primary
@@ -5402,23 +5782,33 @@ function InvestmentCard({
         )}
 
 
-        {/* RECORD SIP CONTRIBUTION */}
-
-        {canRecordSIPContribution && (
-
+        {/* EDIT INVESTMENT */}
+        {onEdit && (
           <ActionButton
-            icon={
-              <FiDollarSign />
-            }
-            text="Record Contribution"
-            primary
-            onClick={() =>
-              recordSIPContribution(
-                investment
-              )
-            }
+            icon={<FiEdit2 />}
+            text="Edit"
+            onClick={() => onEdit(investment)}
           />
+        )}
 
+        {/* RECORD CONTRIBUTION */}
+        {canRecordContribution && (
+          <ActionButton
+            icon={<span className="font-bold text-xs">₹</span>}
+            text={
+              isSIP
+                ? "Record Contribution"
+                : isRD
+                ? "Record Installment"
+                : isGold
+                ? "Add Gold / Payment"
+                : isStocks
+                ? "Add Stock / Purchase"
+                : "Record Contribution"
+            }
+            primary
+            onClick={() => recordSIPContribution(investment)}
+          />
         )}
 
 
@@ -5432,7 +5822,7 @@ function InvestmentCard({
             }
             text="Pause"
             onClick={() =>
-              updateStatus(
+              onPause ? onPause(investment) : updateStatus(
                 investment.id,
                 "Paused"
               )
@@ -5452,7 +5842,7 @@ function InvestmentCard({
             }
             text="Resume"
             onClick={() =>
-              updateStatus(
+              onResume ? onResume(investment) : updateStatus(
                 investment.id,
                 "Active"
               )
@@ -5472,7 +5862,7 @@ function InvestmentCard({
             }
             text="Mark Matured"
             onClick={() =>
-              openRecordMaturityModal(
+              onMarkMatured ? onMarkMatured(investment) : openRecordMaturityModal(
                 investment
               )
             }
@@ -5547,6 +5937,8 @@ function InsuranceCard({
   policy,
   formatMoney,
   updateStatus,
+  onPause,
+  onResume,
   deleteItem,
   onViewDetails,
   onManageReminder,
@@ -5735,7 +6127,7 @@ function InsuranceCard({
             }
             text="Pause"
             onClick={() =>
-              updateStatus(
+              onPause ? onPause(policy) : updateStatus(
                 policy.id,
                 "Paused"
               )
@@ -5753,7 +6145,7 @@ function InsuranceCard({
             }
             text="Resume"
             onClick={() =>
-              updateStatus(
+              onResume ? onResume(policy) : updateStatus(
                 policy.id,
                 "Active"
               )
@@ -5813,6 +6205,9 @@ function LiabilityCard({
   liability,
   formatMoney,
   updateStatus,
+  onPause,
+  onResume,
+  onCloseLiability,
   deleteItem,
   recordPayment,
   onViewDetails,
@@ -5823,33 +6218,17 @@ function LiabilityCard({
     Number(
       liability.originalAmount ||
       liability.principalAmount ||
+      liability.amount ||
+      liability.totalAmount ||
       0
     );
 
   const remaining =
     Number(
-      liability.remainingAmount ||
-      0
+      liability.remainingAmount !== undefined && liability.remainingAmount !== null
+        ? liability.remainingAmount
+        : Math.max(0, original - (liability.paidAmount || 0))
     );
-
-  const paid =
-    Math.max(
-      original - remaining,
-      0
-    );
-
-
-  const paidPercentage =
-    original > 0
-      ? Math.min(
-          (
-            paid /
-            original
-          ) * 100,
-          100
-        )
-      : 0;
-
 
   const isActive =
     liability.status === "Active";
@@ -5862,6 +6241,29 @@ function LiabilityCard({
 
   const isClosed =
     liability.status === "Closed";
+
+  const isFinished = isCompleted || isClosed;
+
+  const paid =
+    isFinished
+      ? original
+      : Math.max(
+          original - remaining,
+          0
+        );
+
+  const paidPercentage =
+    isFinished
+      ? 100
+      : (original > 0
+          ? Math.min(
+              (
+                paid /
+                original
+              ) * 100,
+              100
+            )
+          : 0);
 
 
   return (
@@ -6037,7 +6439,7 @@ function LiabilityCard({
 
           <ActionButton
             icon={
-              <FiDollarSign />
+              <span className="font-bold text-xs">₹</span>
             }
             text="Record Payment"
             primary
@@ -6059,7 +6461,7 @@ function LiabilityCard({
             }
             text="Pause"
             onClick={() =>
-              updateStatus(
+              onPause ? onPause(liability) : updateStatus(
                 liability._id || liability.id,
                 "Paused"
               )
@@ -6077,7 +6479,7 @@ function LiabilityCard({
             }
             text="Resume"
             onClick={() =>
-              updateStatus(
+              onResume ? onResume(liability) : updateStatus(
                 liability._id || liability.id,
                 "Active"
               )
@@ -6096,21 +6498,14 @@ function LiabilityCard({
             }
             text="Close"
             onClick={() => {
-
-              const confirmed =
-                window.confirm(
-                  `Close "${liability.name}"? Its remaining balance will stay in the record, but it will no longer count as an active monthly commitment.`
-                );
-
-              if (confirmed) {
-
+              if (onCloseLiability) {
+                onCloseLiability(liability);
+              } else {
                 updateStatus(
                   liability._id || liability.id,
                   "Closed"
                 );
-
               }
-
             }}
           />
 

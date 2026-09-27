@@ -5,6 +5,7 @@
 import { useMemo, useState } from "react";
 import { FiX, FiTrendingUp, FiCalendar, FiBell, FiDollarSign, FiCheck, FiRefreshCw, FiCreditCard, FiBarChart2 } from "react-icons/fi";
 import useFinance from "../../context/useFinance.js";
+import CenteredModal from "../common/CenteredModal.jsx";
 
 // ============================================================
 // INPUT STYLE
@@ -197,94 +198,147 @@ function preventWheelChange(event) {
 // MAIN COMPONENT
 // ============================================================
 
-function InvestmentForm({ onClose, onSuccess }) {
+function InvestmentForm({ onClose, onSuccess, editingInvestment = null }) {
   const finance = useFinance();
   const addInvestment = finance?.addInvestment;
+  const updateInvestment = finance?.updateInvestment;
   const availableToAllocate = safeNumber(finance?.availableToAllocate);
+  const isEdit = !!editingInvestment;
 
   const today = formatDateInput(new Date());
 
-  const [investmentType, setInvestmentType] = useState("SIP");
+  const [investmentType, setInvestmentType] = useState(editingInvestment?.type || "SIP");
   const handleInvestmentTypeChange = (event) => {
     const val = event.target.value;
     setInvestmentType(val);
-    setMfFundName("");
-    setMfUnits("");
-    setGoldWeight("");
-    setGoldPurity("");
-    setStockTicker("");
-    setStockQuantity("");
-    setStockPurchasePrice("");
+    if (!isEdit) {
+      setMfFundName("");
+      setMfUnits("");
+      setGoldWeight("");
+      setGoldPurity("24K / 999");
+      setStockTicker("");
+      setStockQuantity("");
+      setStockPurchasePrice("");
+    }
   };
-  const [investmentName, setInvestmentName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [contributionAmount, setContributionAmount] = useState("");
-  const [contributionType, setContributionType] = useState("Recurring");
+  const [investmentName, setInvestmentName] = useState(editingInvestment?.name || "");
+  const [amount, setAmount] = useState(
+    editingInvestment?.amount !== undefined ? String(editingInvestment.amount) : ""
+  );
+  const [contributionAmount, setContributionAmount] = useState(
+    editingInvestment?.monthlyContribution !== undefined
+      ? String(editingInvestment.monthlyContribution)
+      : editingInvestment?.amount !== undefined
+      ? String(editingInvestment.amount)
+      : ""
+  );
+  const [contributionType, setContributionType] = useState(editingInvestment?.contributionType || "Recurring");
 
-  const [paymentSource, setPaymentSource] = useState("");
-  const [bankName, setBankName] = useState("");
-  const [accountLast4, setAccountLast4] = useState("");
-  const [upiId, setUpiId] = useState("");
-  const [otherPaymentDetails, setOtherPaymentDetails] = useState("");
-  const [contributionNote, setContributionNote] = useState("");
+  const [paymentSource, setPaymentSource] = useState(editingInvestment?.paymentSource || "Cash");
+  const [bankName, setBankName] = useState(editingInvestment?.paymentSourceDetails?.bankName || "");
+  const [accountLast4, setAccountLast4] = useState(editingInvestment?.paymentSourceDetails?.accountLast4 || "");
+  const [upiId, setUpiId] = useState(editingInvestment?.paymentSourceDetails?.upiId || "");
+  const [otherPaymentDetails, setOtherPaymentDetails] = useState(editingInvestment?.paymentSourceDetails?.otherDetails || "");
+  const [contributionNote, setContributionNote] = useState(editingInvestment?.contributionNote || "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const [autoPayEnabled, setAutoPayEnabled] = useState(false);
-  const [autoPayPaymentMethod, setAutoPayPaymentMethod] = useState("");
-  const [autoPayBankName, setAutoPayBankName] = useState("");
-  const [autoPayAccountLast4, setAutoPayAccountLast4] = useState("");
-  const [autoPayUpiApp, setAutoPayUpiApp] = useState("");
-  const [autoPayUpiId, setAutoPayUpiId] = useState("");
+  const [autoPayEnabled, setAutoPayEnabled] = useState(editingInvestment?.autoPay?.enabled || false);
+  const [autoPayPaymentMethod, setAutoPayPaymentMethod] = useState(editingInvestment?.autoPay?.paymentMethod || "");
+  const [autoPayBankName, setAutoPayBankName] = useState(editingInvestment?.autoPay?.bankName || "");
+  const [autoPayAccountLast4, setAutoPayAccountLast4] = useState(editingInvestment?.autoPay?.accountLast4 || "");
+  const [autoPayUpiApp, setAutoPayUpiApp] = useState(editingInvestment?.autoPay?.upiApp || "");
+  const [autoPayUpiId, setAutoPayUpiId] = useState(editingInvestment?.autoPay?.upiId || "");
 
-  const [investmentStatus, setInvestmentStatus] = useState("Active");
-  const [frequency, setFrequency] = useState("Monthly");
+  const [investmentStatus, setInvestmentStatus] = useState(editingInvestment?.status || "Active");
+  const [frequency, setFrequency] = useState(editingInvestment?.frequency || "Monthly");
 
-  const [institution, setInstitution] = useState("");
-  const [interestRate, setInterestRate] = useState("");
-  const [interestMethod, setInterestMethod] = useState("Payout");
-  const [interestPayoutFrequency, setInterestPayoutFrequency] = useState("Quarterly");
-  const [compoundingFrequency, setCompoundingFrequency] = useState("Quarterly");
+  const [institution, setInstitution] = useState(editingInvestment?.institution || "");
+  const [interestRate, setInterestRate] = useState(
+    editingInvestment?.interestRate !== undefined ? String(editingInvestment.interestRate) : ""
+  );
+  const [interestMethod, setInterestMethod] = useState(editingInvestment?.interestMethod || "Payout");
+  const [interestPayoutFrequency, setInterestPayoutFrequency] = useState(editingInvestment?.interestPayoutFrequency || "Quarterly");
+  const [compoundingFrequency, setCompoundingFrequency] = useState(editingInvestment?.compoundingFrequency || "Quarterly");
 
-  const [startDate, setStartDate] = useState(today);
-  const [contributionDay, setContributionDay] = useState("5");
-  const [maturityDate, setMaturityDate] = useState("");
+  const [startDate, setStartDate] = useState(
+    editingInvestment?.startDate ? formatDateInput(new Date(editingInvestment.startDate)) : today
+  );
+  const [contributionDay, setContributionDay] = useState(
+    editingInvestment?.dueDay ? String(editingInvestment.dueDay) : "5"
+  );
+  const [maturityDate, setMaturityDate] = useState(
+    editingInvestment?.maturityDate ? formatDateInput(new Date(editingInvestment.maturityDate)) : ""
+  );
 
-  const [reminderEnabled, setReminderEnabled] = useState(false);
-  const [fiveDaysBefore, setFiveDaysBefore] = useState(false);
-  const [oneDayBefore, setOneDayBefore] = useState(true);
-  const [onDueDate, setOnDueDate] = useState(true);
+  const [reminderEnabled, setReminderEnabled] = useState(editingInvestment?.reminder?.enabled || false);
+  const [fiveDaysBefore, setFiveDaysBefore] = useState(editingInvestment?.reminder?.notifyBefore?.includes(5) || false);
+  const [oneDayBefore, setOneDayBefore] = useState(editingInvestment?.reminder?.notifyBefore?.includes(1) ?? true);
+  const [onDueDate, setOnDueDate] = useState(editingInvestment?.reminder?.notifyBefore?.includes(0) ?? true);
 
-  const [inAppReminder, setInAppReminder] = useState(true);
-  const [emailReminder, setEmailReminder] = useState(true);
+  const [inAppReminder, setInAppReminder] = useState(editingInvestment?.reminder?.channels?.inApp ?? true);
+  const [emailReminder, setEmailReminder] = useState(editingInvestment?.reminder?.channels?.email ?? true);
 
-  const [maturityReminderEnabled, setMaturityReminderEnabled] = useState(false);
-  const [twoMonthsBefore, setTwoMonthsBefore] = useState(true);
-  const [oneMonthBefore, setOneMonthBefore] = useState(true);
-  const [sevenDaysBeforeMaturity, setSevenDaysBeforeMaturity] = useState(true);
-  const [onMaturityDate, setOnMaturityDate] = useState(true);
+  const [maturityReminderEnabled, setMaturityReminderEnabled] = useState(editingInvestment?.maturityReminder?.enabled || false);
+  const [twoMonthsBefore, setTwoMonthsBefore] = useState(editingInvestment?.maturityReminder?.notifyBeforeMonths?.includes(2) ?? true);
+  const [oneMonthBefore, setOneMonthBefore] = useState(editingInvestment?.maturityReminder?.notifyBeforeMonths?.includes(1) ?? true);
+  const [sevenDaysBeforeMaturity, setSevenDaysBeforeMaturity] = useState(editingInvestment?.maturityReminder?.notifyBeforeDays?.includes(7) ?? true);
+  const [onMaturityDate, setOnMaturityDate] = useState(editingInvestment?.maturityReminder?.onMaturityDate ?? true);
 
-  const [maturityInApp, setMaturityInApp] = useState(true);
-  const [maturityEmail, setMaturityEmail] = useState(true);
+  const [maturityInApp, setMaturityInApp] = useState(editingInvestment?.maturityReminder?.channels?.inApp ?? true);
+  const [maturityEmail, setMaturityEmail] = useState(editingInvestment?.maturityReminder?.channels?.email ?? true);
 
-  const [mfFundName, setMfFundName] = useState("");
-  const [mfUnits, setMfUnits] = useState("");
-  const [goldWeight, setGoldWeight] = useState("");
-  const [goldPurity, setGoldPurity] = useState("");
-  const [stockTicker, setStockTicker] = useState("");
-  const [stockQuantity, setStockQuantity] = useState("");
-  const [stockPurchasePrice, setStockPurchasePrice] = useState("");
-  const [afterMaturityAction, setAfterMaturityAction] = useState("MANUAL_DECIDE");
-  const [afterMaturityBankName, setAfterMaturityBankName] = useState("");
-  const [afterMaturityAccountLast4, setAfterMaturityAccountLast4] = useState("");
-  const [afterMaturityNote, setAfterMaturityNote] = useState("");
+  const [mfFundName, setMfFundName] = useState(
+    editingInvestment?.schemeName || editingInvestment?.customDetails?.fundName || ""
+  );
+  const [mfUnits, setMfUnits] = useState(
+    editingInvestment?.units !== undefined
+      ? String(editingInvestment.units)
+      : editingInvestment?.customDetails?.units !== undefined
+      ? String(editingInvestment.customDetails.units)
+      : ""
+  );
+  const [goldType, setGoldType] = useState(editingInvestment?.goldType || "Physical Gold");
+  const [goldWeight, setGoldWeight] = useState(
+    editingInvestment?.weight !== undefined
+      ? String(editingInvestment.weight)
+      : editingInvestment?.customDetails?.weight !== undefined
+      ? String(editingInvestment.customDetails.weight)
+      : ""
+  );
+  const [goldPurity, setGoldPurity] = useState(
+    editingInvestment?.purity || editingInvestment?.customDetails?.purity || "24K / 999"
+  );
+  const [stockTicker, setStockTicker] = useState(
+    editingInvestment?.symbol || editingInvestment?.customDetails?.ticker || ""
+  );
+  const [stockQuantity, setStockQuantity] = useState(
+    editingInvestment?.quantity !== undefined
+      ? String(editingInvestment.quantity)
+      : editingInvestment?.customDetails?.quantity !== undefined
+      ? String(editingInvestment.customDetails.quantity)
+      : ""
+  );
+  const [stockPurchasePrice, setStockPurchasePrice] = useState(
+    editingInvestment?.purchasePrice !== undefined
+      ? String(editingInvestment.purchasePrice)
+      : editingInvestment?.customDetails?.purchasePrice !== undefined
+      ? String(editingInvestment.customDetails.purchasePrice)
+      : ""
+  );
+  const [afterMaturityAction, setAfterMaturityAction] = useState(editingInvestment?.afterMaturityAction || "MANUAL_DECIDE");
+  const [afterMaturityBankName, setAfterMaturityBankName] = useState(editingInvestment?.afterMaturityDetails?.bankName || "");
+  const [afterMaturityAccountLast4, setAfterMaturityAccountLast4] = useState(editingInvestment?.afterMaturityDetails?.accountLast4 || "");
+  const [afterMaturityNote, setAfterMaturityNote] = useState(editingInvestment?.afterMaturityDetails?.note || "");
   const [error, setError] = useState("");
+  const [showUpdateConfirmModal, setShowUpdateConfirmModal] = useState(false);
+  const [pendingInvestmentData, setPendingInvestmentData] = useState(null);
 
   const isFixedDeposit = investmentType === "Fixed Deposit";
   const isRecurringDeposit = investmentType === "Recurring Deposit";
   const isSIP = investmentType === "SIP";
-  const effectiveContributionType = (isFixedDeposit || isRecurringDeposit) ? "One Time" : contributionType;
+  const effectiveContributionType = isFixedDeposit ? "One Time" : (isRecurringDeposit ? "Recurring" : contributionType);
   const effectiveReminderEnabled =
-    !isFixedDeposit && !isRecurringDeposit && effectiveContributionType === "Recurring" && reminderEnabled;
+    !isFixedDeposit && effectiveContributionType === "Recurring" && reminderEnabled;
 
   const amountNumber = safeNumber(amount);
   const contributionAmountNumber = safeNumber(contributionAmount);
@@ -577,9 +631,18 @@ function InvestmentForm({ onClose, onSuccess }) {
       // due date for each month (e.g., dueDay=10 → 10 Mar 2026).
       // --------------------------------------------------------
       dueDay: effectiveContributionType === "Recurring" ? Number(contributionDay) : null,
-      monthlyContribution: (isFixedDeposit || isRecurringDeposit) ? 0 : monthlyContribution,
+      monthlyContribution: isFixedDeposit ? 0 : (isRecurringDeposit ? amountNumber : monthlyContribution),
       paymentSource: paymentSource || undefined,
       contributionNote: contributionNote.trim(),
+      weight: investmentType === "Gold" ? safeNumber(goldWeight) : undefined,
+      purity: investmentType === "Gold" ? goldPurity : undefined,
+      goldType: investmentType === "Gold" ? goldType : undefined,
+      schemeName: investmentType === "Mutual Fund" ? mfFundName.trim() : undefined,
+      units: investmentType === "Mutual Fund" ? safeNumber(mfUnits) : undefined,
+      symbol: investmentType === "Stocks" ? stockTicker.trim() : undefined,
+      companyName: investmentType === "Stocks" ? investmentName.trim() : undefined,
+      quantity: investmentType === "Stocks" ? safeNumber(stockQuantity) : undefined,
+      purchasePrice: investmentType === "Stocks" ? safeNumber(stockPurchasePrice) : undefined,
       customDetails: (() => {
         const cd = {};
         if (investmentType === "Mutual Fund") {
@@ -587,7 +650,7 @@ function InvestmentForm({ onClose, onSuccess }) {
           cd.units = safeNumber(mfUnits);
         } else if (investmentType === "Gold") {
           cd.weight = safeNumber(goldWeight);
-          cd.purity = safeNumber(goldPurity);
+          cd.purity = goldPurity;
         } else if (investmentType === "Stocks") {
           cd.ticker = stockTicker.trim();
           cd.quantity = safeNumber(stockQuantity);
@@ -636,7 +699,7 @@ function InvestmentForm({ onClose, onSuccess }) {
             : "",
       },
       startDate,
-      nextContributionDate: (isFixedDeposit || isRecurringDeposit) ? null : nextContributionDate,
+      nextContributionDate: isFixedDeposit ? null : nextContributionDate,
       maturityDate: maturityDate || null,
       status: investmentStatus,
       ...((isFixedDeposit || isRecurringDeposit)
@@ -657,8 +720,8 @@ function InvestmentForm({ onClose, onSuccess }) {
             estimatedMaturityAmount: isFixedDeposit
               ? fdDetails.estimatedMaturityAmount
               : rdDetails.estimatedMaturityAmount,
-            totalInterestReceived: 0,
-            interestTransactions: [],
+            totalInterestReceived: editingInvestment?.totalInterestReceived || 0,
+            interestTransactions: editingInvestment?.interestTransactions || [],
             renewedFromId: null,
             renewedToId: null,
           }
@@ -700,8 +763,14 @@ function InvestmentForm({ onClose, onSuccess }) {
         : {},
     };
 
-    const result = await addInvestment(investmentData);
+    if (isEdit) {
+      setIsSubmitting(false);
+      setPendingInvestmentData(investmentData);
+      setShowUpdateConfirmModal(true);
+      return;
+    }
 
+    const result = await addInvestment(investmentData);
     if (result?.success === false) {
       setError(result.message || "Unable to add the investment.");
       setIsSubmitting(false);
@@ -710,7 +779,7 @@ function InvestmentForm({ onClose, onSuccess }) {
     setIsSubmitting(false);
 
     if (typeof onSuccess === "function") {
-      onSuccess(result);
+      onSuccess({ isEdit: false, result });
     }
 
     if (typeof onClose === "function") {
@@ -718,8 +787,41 @@ function InvestmentForm({ onClose, onSuccess }) {
     }
   }
 
+  async function executeUpdate() {
+    if (!pendingInvestmentData) return;
+    setIsSubmitting(true);
+    setShowUpdateConfirmModal(false);
+
+    try {
+      if (typeof updateInvestment !== "function") {
+        setError("Update service is not available.");
+        setIsSubmitting(false);
+        return;
+      }
+      const result = await updateInvestment(editingInvestment.id || editingInvestment._id, pendingInvestmentData);
+      if (result?.success === false) {
+        setError(result.message || "Unable to update investment.");
+        setIsSubmitting(false);
+        return;
+      }
+      setIsSubmitting(false);
+
+      if (typeof onSuccess === "function") {
+        onSuccess({ isEdit: true, result });
+      }
+
+      if (typeof onClose === "function") {
+        onClose();
+      }
+    } catch (err) {
+      setError(err.message || "Failed to update investment.");
+      setIsSubmitting(false);
+    }
+  }
+
   return (
-    <div
+    <>
+      <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && typeof onClose === "function") {
@@ -734,10 +836,10 @@ function InvestmentForm({ onClose, onSuccess }) {
               FinanceOS
             </p>
             <h2 className="mt-1 text-lg font-bold text-[#18392c]">
-              Add Investment
+              {isEdit ? "Edit Investment" : "Add Investment"}
             </h2>
             <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-400">
-              Add investment details, contribution schedule, reminders and maturity information.
+              {isEdit ? "Modify investment details and configuration." : "Add investment details, contribution schedule, reminders and maturity information."}
             </p>
           </div>
           <button
@@ -859,14 +961,54 @@ function InvestmentForm({ onClose, onSuccess }) {
                     </div>
                   )}
                   {investmentType === "Gold" && (
-                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
                       <label className="block">
-                        <span className="text-xs font-medium text-[#52665b]">Weight (grams)</span>
-                        <MoneyInput value={goldWeight} onChange={setGoldWeight} placeholder="10"/>
+                        <span className="text-xs font-medium text-[#52665b]">Gold Type</span>
+                        <select
+                          value={goldType}
+                          onChange={(e) => {
+                            setGoldType(e.target.value);
+                            setError("");
+                          }}
+                          className={inputClass}
+                        >
+                          <option value="Physical Gold">Physical Gold</option>
+                          <option value="Digital Gold">Digital Gold</option>
+                          <option value="Gold ETF">Gold ETF</option>
+                          <option value="Sovereign Gold Bond">Sovereign Gold Bond</option>
+                        </select>
                       </label>
                       <label className="block">
-                        <span className="text-xs font-medium text-[#52665b]">Purity (%)</span>
-                        <MoneyInput value={goldPurity} onChange={setGoldPurity} placeholder="99.9"/>
+                        <span className="text-xs font-medium text-[#52665b]">Weight (grams) *</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={goldWeight}
+                          onChange={(e) => {
+                            setGoldWeight(e.target.value);
+                            setError("");
+                          }}
+                          placeholder="e.g., 10"
+                          className={inputClass}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-medium text-[#52665b]">Purity *</span>
+                        <select
+                          value={goldPurity}
+                          onChange={(e) => {
+                            setGoldPurity(e.target.value);
+                            setError("");
+                          }}
+                          className={inputClass}
+                        >
+                          <option value="24K / 999">24K / 999 (99.9% Pure)</option>
+                          <option value="22K / 916">22K / 916 (91.6% Pure)</option>
+                          <option value="18K">18K (75.0% Pure)</option>
+                          <option value="14K">14K (58.3% Pure)</option>
+                          <option value="9K">9K (37.5% Pure)</option>
+                        </select>
                       </label>
                     </div>
                   )}
@@ -1207,10 +1349,9 @@ function InvestmentForm({ onClose, onSuccess }) {
                       }}
                       className={inputClass}
                     >
+                      <option value="Cash">Cash</option>
                       <option value="Bank Account">Bank Account</option>
                       <option value="UPI">UPI</option>
-                      <option value="Cash">Cash</option>
-                      <option value="Other">Other</option>
                     </select>
                   </label>
 
@@ -1923,14 +2064,36 @@ function InvestmentForm({ onClose, onSuccess }) {
 
             <button
               type="submit"
-              className="rounded-xl bg-[#315c46] px-6 py-3 text-xs font-semibold text-white transition hover:bg-[#274c3a]"
+              disabled={isSubmitting}
+              className="rounded-xl bg-[#315c46] px-6 py-3 text-xs font-semibold text-white transition hover:bg-[#274c3a] disabled:opacity-50"
             >
-              {isFixedDeposit ? "Save Fixed Deposit" : "Save Investment"}
+              {isSubmitting
+                ? "Saving..."
+                : isEdit
+                ? "Update Investment"
+                : isFixedDeposit
+                ? "Save Fixed Deposit"
+                : "Save Investment"}
             </button>
           </div>
         </form>
       </div>
     </div>
+
+    <CenteredModal
+      isOpen={showUpdateConfirmModal}
+      onClose={() => !isSubmitting && setShowUpdateConfirmModal(false)}
+      title="Are you sure you want to update this plan?"
+      message="Are you sure you want to update this plan?"
+      type="confirm"
+      iconType="info"
+      confirmText={isSubmitting ? "Updating..." : "Update"}
+      cancelText="Cancel"
+      confirmVariant="primary"
+      isProcessing={isSubmitting}
+      onConfirm={executeUpdate}
+    />
+  </>
   );
 }
 

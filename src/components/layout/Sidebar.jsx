@@ -20,13 +20,17 @@ import {
   useNavigate,
 } from "react-router-dom";
 
+import { useState } from "react";
 import financeOSLogo from "../../assets/images/financeos-logo-Copy.png";
 import useFinance from "../../context/useFinance.js";
+import CenteredModal from "../common/CenteredModal.jsx";
 
 function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { selectedMonth, sidebarCollapsed, toggleSidebar } = useFinance();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const menuItems = [
     {
@@ -67,7 +71,9 @@ function Sidebar() {
     },
   ];
 
-  const handleLogout = () => {
+  const confirmLogout = () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
     localStorage.removeItem("financeos_token");
     localStorage.removeItem("financeos_user");
     sessionStorage.removeItem("financeos_token");
@@ -163,7 +169,7 @@ function Sidebar() {
 
         <button
           type="button"
-          onClick={handleLogout}
+          onClick={() => setShowLogoutConfirm(true)}
           title="Logout"
           aria-label="Logout"
           className={
@@ -176,6 +182,18 @@ function Sidebar() {
           {!sidebarCollapsed && <span className="font-medium truncate">Logout</span>}
         </button>
       </div>
+
+      <CenteredModal
+        isOpen={showLogoutConfirm}
+        onClose={() => !isLoggingOut && setShowLogoutConfirm(false)}
+        title="Are you sure you want to logout?"
+        message=""
+        type="confirm"
+        confirmText={isLoggingOut ? "Logging out..." : "Logout"}
+        cancelText="Cancel"
+        confirmVariant="danger"
+        onConfirm={confirmLogout}
+      />
     </aside>
   );
 }

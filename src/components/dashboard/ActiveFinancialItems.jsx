@@ -327,6 +327,19 @@ function ActiveFinancialItems({
           const monthlyDueAmount = Number(inv.monthlyContribution || inv.amount || 0);
           const monthRemaining = Math.max(monthlyDueAmount - monthPaidAmount, 0);
 
+          const paidSipTotal = (inv.sipContributions || [])
+            .filter((c) => c.status === "Paid")
+            .reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+          const totalInvestedDisplay = inv.status === "Matured"
+            ? Number(inv.actualMaturityValue || inv.totalContributions || inv.amount || 0)
+            : (paidSipTotal > 0
+                ? paidSipTotal
+                : (Number(inv.totalContributions) > 0
+                    ? Number(inv.totalContributions)
+                    : (inv.contributionType === "One Time" || inv.type === "Fixed Deposit"
+                        ? Number(inv.principalAmount || inv.amount || 0)
+                        : 0)));
+
           return (
             <div
               key={`investment-${inv._id || inv.id}`}
@@ -379,7 +392,7 @@ function ActiveFinancialItems({
                           Total Invested
                         </p>
                         <p className="mt-0.5 text-sm font-bold text-[#18392c]">
-                          ₹{formatMoney(inv.totalContributions || inv.amount || inv.currentValue || 0)}
+                          ₹{formatMoney(totalInvestedDisplay)}
                         </p>
                       </div>
                     </div>

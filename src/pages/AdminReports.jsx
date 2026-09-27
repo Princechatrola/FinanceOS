@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   CalendarDays,
@@ -14,6 +14,8 @@ import {
 
 import AdminSidebar from "../components/AdminSidebar.jsx";
 import AdminTopbar from "../components/AdminTopbar.jsx";
+import CenteredModal from "../components/common/CenteredModal.jsx";
+import { generateFinancialReport } from "../utils/generateFinancialReport.js";
 
 
 // ============================================================
@@ -38,6 +40,17 @@ export default function AdminReports() {
   const [minIncome, setMinIncome] = useState("");
   const [maxIncome, setMaxIncome] = useState("");
   const [selectedUsers, setSelectedUsers] = useState([]);
+  const [exportingCsv, setExportingCsv] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [downloadingRowId, setDownloadingRowId] = useState(null);
+  const [modalState, setModalState] = useState({
+    isOpen: false,
+    title: "Notice",
+    message: "",
+    iconType: "info",
+  });
+
+  const selectAllCheckboxRef = useRef(null);
 
 
   // ==========================================================
@@ -199,6 +212,31 @@ export default function AdminReports() {
 
 
   // ==========================================================
+  // ALL FILTERED SELECTED & INDETERMINATE STATE
+  // ==========================================================
+
+  const allFilteredSelected = useMemo(() => {
+    return (
+      filteredUsers.length > 0 &&
+      filteredUsers.every((user) => selectedUsers.includes(user.id))
+    );
+  }, [filteredUsers, selectedUsers]);
+
+  const someFilteredSelected = useMemo(() => {
+    return (
+      filteredUsers.some((user) => selectedUsers.includes(user.id)) &&
+      !allFilteredSelected
+    );
+  }, [filteredUsers, selectedUsers, allFilteredSelected]);
+
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = someFilteredSelected;
+    }
+  }, [someFilteredSelected]);
+
+
+  // ==========================================================
   // SELECT USER
   // ==========================================================
 
@@ -222,13 +260,9 @@ export default function AdminReports() {
       (user) => user.id
     );
 
-    const allSelected =
-      filteredIds.length > 0 &&
-      filteredIds.every((id) =>
-        selectedUsers.includes(id)
-      );
+    if (filteredIds.length === 0) return;
 
-    if (allSelected) {
+    if (allFilteredSelected) {
       setSelectedUsers((current) =>
         current.filter(
           (id) => !filteredIds.includes(id)
@@ -274,118 +308,215 @@ export default function AdminReports() {
       return filteredUsers;
     }
 
-    return filteredUsers.filter((user) =>
+    return users.filter((user) =>
       selectedUsers.includes(user.id)
     );
   }
 
 
   // ==========================================================
-  // EXPORT CSV
+  // ROW-SPECIFIC USER REPORT DOWNLOAD
   // ==========================================================
 
-  function exportCSV() {
-    const reportUsers = getReportUsers();
+  const handleDownloadUserReport = async (user) => {
+    if (!user) return;
+    if (downloadingRowId || exportingCsv || generatingPdf) return;
 
-    if (reportUsers.length === 0) {
-      alert("No users available to export.");
+    const targetDbId = user._id;
+    if (!targetDbId) {
+      setModalState({
+        isOpen: true,
+        title: "Invalid User",
+        message: "User database identifier is missing.",
+        iconType: "error",
+      });
       return;
     }
 
-    const headers = [
-      "User ID",
-      "Name",
-      "Email",
-      "Mobile",
-      "City",
-      "Registered",
-      "Income",
-      "Status",
-    ];
+    try {
+      setDownloadingRowId(targetDbId);
 
-    const rows = reportUsers.map((user) => [
-      user.id,
-      user.name,
-      user.email,
-      `+91 ${user.phone || "—"}`,
-      user.city,
-      formatDate(user.registered),
-      user.income,
-      user.status,
-    ]);
+      const token =
+        localStorage.getItem("financeos_token") ||
+        sessionStorage.getItem("financeos_token");
 
-    const csvContent = [
-      headers,
-      ...rows,
-    ]
-      .map((row) =>
-        row
-          .map((value) =>
-            `"${String(value ?? "").replace(
-              /"/g,
-              '""'
-            )}"`
-          )
-          .join(",")
-      )
-      .join("\n");
-
-    // UTF-8 BOM helps Excel read the CSV correctly.
-    const blob = new Blob(
-      ["\uFEFF" + csvContent],
-      {
-        type: "text/csv;charset=utf-8;",
+      const params = new URLSearchParams();
+      if (year && year !== "All") params.append("year", year);
+      if (month && month !== "All") {
+        params.append("duration", "monthly");
+        params.append("month", String(Number(month)));
+      } else if (year && year !== "All") {
+        params.append("duration", "yearly");
       }
-    );
 
-    const url = URL.createObjectURL(blob);
+      const queryString = params.toString() ? `?${params.toString()}` : "";
+      const response = await fetch(
+        `http://localhost:5000/api/admin/users/${targetDbId}/reports${queryString}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        }
+      );
 
-    const link =
-      document.createElement("a");
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to generate report for user.");
+      }
 
-    const today = new Date()
-      .toISOString()
-      .slice(0, 10);
+      generateFinancialReport(data.report);
+    } catch (err) {
+      console.error("Individual User Report Download Error:", err);
+      setModalState({
+        isOpen: true,
+        title: "Download Failed",
+        message: err.message || "Unable to download user report. Please try again.",
+        iconType: "error",
+      });
+    } finally {
+      setDownloadingRowId(null);
+    }
+  };
 
-    link.href = url;
 
-    link.download =
-      `FinanceOS-Users-Report-${today}.csv`;
+  // ==========================================================
+  // EXPORT CSV
+  // ==========================================================
 
-    document.body.appendChild(link);
+  const exportCSV = async () => {
+    if (exportingCsv || generatingPdf) return;
 
-    link.click();
+    const reportUsers = getReportUsers();
 
-    document.body.removeChild(link);
+    if (reportUsers.length === 0) {
+      setModalState({
+        isOpen: true,
+        title: "No Users Selected",
+        message: "No users selected. Please select at least one user.",
+        iconType: "warning",
+      });
+      return;
+    }
 
-    URL.revokeObjectURL(url);
-  }
+    try {
+      setExportingCsv(true);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const headers = [
+        "User ID",
+        "Name",
+        "Email",
+        "Mobile",
+        "City",
+        "Registered",
+        "Income",
+        "Status",
+      ];
+
+      const rows = reportUsers.map((user) => [
+        user.id,
+        user.name,
+        user.email,
+        `+91 ${user.phone || "—"}`,
+        user.city,
+        formatDate(user.registered),
+        user.income,
+        user.status,
+      ]);
+
+      const csvContent = [
+        headers,
+        ...rows,
+      ]
+        .map((row) =>
+          row
+            .map((value) =>
+              `"${String(value ?? "").replace(
+                /"/g,
+                '""'
+              )}"`
+            )
+            .join(",")
+        )
+        .join("\n");
+
+      // UTF-8 BOM helps Excel read the CSV correctly.
+      const blob = new Blob(
+        ["\uFEFF" + csvContent],
+        {
+          type: "text/csv;charset=utf-8;",
+        }
+      );
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const today = new Date()
+        .toISOString()
+        .slice(0, 10);
+
+      link.href = url;
+      link.download =
+        `FinanceOS-Users-Report-${today}.csv`;
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export CSV Error:", err);
+      setModalState({
+        isOpen: true,
+        title: "Export Failed",
+        message: err.message || "Failed to export CSV report.",
+        iconType: "error",
+      });
+    } finally {
+      setExportingCsv(false);
+    }
+  };
 
 
   // ==========================================================
   // GENERATE PDF / PRINT REPORT
   // ==========================================================
 
-  function generatePDF() {
+  const generatePDF = async () => {
+    if (generatingPdf || exportingCsv) return;
+
     const reportUsers = getReportUsers();
 
     if (reportUsers.length === 0) {
-      alert("No users available for this report.");
+      setModalState({
+        isOpen: true,
+        title: "No Users Selected",
+        message: "No users selected. Please select at least one user.",
+        iconType: "warning",
+      });
       return;
     }
 
-    const reportWindow = window.open(
-      "",
-      "_blank"
-    );
+    try {
+      setGeneratingPdf(true);
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-    if (!reportWindow) {
-      alert(
-        "Your browser blocked the report window. Please allow pop-ups and try again."
+      const reportWindow = window.open(
+        "",
+        "_blank"
       );
 
-      return;
-    }
+      if (!reportWindow) {
+        setModalState({
+          isOpen: true,
+          title: "Pop-up Blocked",
+          message:
+            "Your browser blocked the report window. Please allow pop-ups and try again.",
+          iconType: "warning",
+        });
+
+        return;
+      }
 
     const generatedDate =
       new Date().toLocaleString("en-IN");
@@ -879,19 +1010,19 @@ export default function AdminReports() {
     `);
 
 
-    reportWindow.document.close();
-  }
-
-
-  // ==========================================================
-  // ALL FILTERED SELECTED?
-  // ==========================================================
-
-  const allFilteredSelected =
-    filteredUsers.length > 0 &&
-    filteredUsers.every((user) =>
-      selectedUsers.includes(user.id)
-    );
+      reportWindow.document.close();
+    } catch (err) {
+      console.error("Generate PDF Error:", err);
+      setModalState({
+        isOpen: true,
+        title: "Generation Failed",
+        message: err.message || "Failed to generate report window.",
+        iconType: "error",
+      });
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
 
 
   // ==========================================================
@@ -958,11 +1089,16 @@ export default function AdminReports() {
                 <button
                   type="button"
                   onClick={exportCSV}
-                  className="flex items-center gap-2 rounded-xl border border-[#dce4d8] bg-white px-4 py-2.5 text-sm font-semibold text-[#526459] transition hover:bg-[#f5f8f2]"
+                  disabled={exportingCsv || generatingPdf}
+                  className="flex items-center gap-2 rounded-xl border border-[#dce4d8] bg-white px-4 py-2.5 text-sm font-semibold text-[#526459] transition hover:bg-[#f5f8f2] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <Download size={16} />
+                  {exportingCsv ? (
+                    <RefreshCcw size={16} className="animate-spin text-[#57923d]" />
+                  ) : (
+                    <Download size={16} />
+                  )}
 
-                  Export CSV
+                  {exportingCsv ? "Exporting..." : "Export CSV"}
                 </button>
 
 
@@ -971,11 +1107,16 @@ export default function AdminReports() {
                 <button
                   type="button"
                   onClick={generatePDF}
-                  className="flex items-center gap-2 rounded-xl bg-[#dff3ad] px-4 py-2.5 text-sm font-bold text-[#173b2b] transition hover:bg-[#d5eba2]"
+                  disabled={generatingPdf || exportingCsv}
+                  className="flex items-center gap-2 rounded-xl bg-[#dff3ad] px-4 py-2.5 text-sm font-bold text-[#173b2b] transition hover:bg-[#d5eba2] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <FileText size={16} />
+                  {generatingPdf ? (
+                    <RefreshCcw size={16} className="animate-spin text-[#173b2b]" />
+                  ) : (
+                    <FileText size={16} />
+                  )}
 
-                  Generate PDF
+                  {generatingPdf ? "Generating..." : "Generate PDF"}
                 </button>
 
               </div>
@@ -1286,12 +1427,12 @@ export default function AdminReports() {
                 REPORT RESULTS
             ================================================== */}
 
-            <section className="mt-5 overflow-hidden rounded-2xl border border-[#dfe6da] bg-white">
+            <section className="mt-5 rounded-2xl border border-[#dfe6da] bg-white">
 
 
-              {/* TABLE HEADER */}
+              {/* STICKY ACTION HEADER */}
 
-              <div className="flex flex-col gap-3 border-b border-[#edf0eb] p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="sticky top-0 z-20 flex flex-col gap-3 rounded-t-2xl border-b border-[#edf0eb] bg-white/95 backdrop-blur-sm p-4 sm:p-5 sm:flex-row sm:items-center sm:justify-between shadow-xs">
 
                 <div>
 
@@ -1301,31 +1442,87 @@ export default function AdminReports() {
 
                   <p className="mt-1 text-xs text-[#718177]">
 
-                    {filteredUsers.length} users found
+                    {filteredUsers.length} {filteredUsers.length === 1 ? "user" : "users"} found
 
                     {" • "}
 
-                    {selectedUsers.length} selected
+                    <span className={selectedUsers.length > 0 ? "font-semibold text-[#57923d]" : ""}>
+                      {selectedUsers.length} {selectedUsers.length === 1 ? "user" : "users"} selected
+                    </span>
 
                   </p>
 
                 </div>
 
 
-                <div className="flex items-center gap-2 text-xs text-[#718177]">
+                <div className="flex flex-wrap items-center gap-2">
 
-                  <CalendarDays size={15} />
+                  <div className="hidden items-center gap-1.5 text-xs text-[#718177] xl:flex mr-2">
 
-                  Report date:{" "}
+                    <CalendarDays size={14} />
 
-                  {new Date().toLocaleDateString(
-                    "en-IN",
-                    {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                    }
-                  )}
+                    Report date:{" "}
+
+                    {new Date().toLocaleDateString(
+                      "en-IN",
+                      {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      }
+                    )}
+
+                  </div>
+
+                  {/* REFRESH */}
+                  <button
+                    type="button"
+                    onClick={fetchReportUsers}
+                    disabled={loading}
+                    title="Refresh users list"
+                    className="flex items-center gap-2 rounded-xl border border-[#dce4d8] bg-white px-3.5 py-2 text-xs font-semibold text-[#526459] transition hover:bg-[#f5f8f2] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshCcw
+                      size={14}
+                      className={loading ? "animate-spin" : ""}
+                    />
+
+                    Refresh
+                  </button>
+
+                  {/* EXPORT CSV */}
+                  <button
+                    type="button"
+                    onClick={exportCSV}
+                    disabled={exportingCsv || generatingPdf}
+                    title="Export CSV report"
+                    className="flex items-center gap-2 rounded-xl border border-[#dce4d8] bg-white px-3.5 py-2 text-xs font-semibold text-[#526459] transition hover:bg-[#f5f8f2] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {exportingCsv ? (
+                      <RefreshCcw size={14} className="animate-spin text-[#57923d]" />
+                    ) : (
+                      <Download size={14} />
+                    )}
+
+                    {exportingCsv ? "Exporting..." : "Export CSV"}
+                  </button>
+
+                  {/* GENERATE PDF */}
+                  <button
+                    type="button"
+                    onClick={generatePDF}
+                    disabled={generatingPdf || exportingCsv}
+                    title="Generate PDF report"
+                    className="flex items-center gap-2 rounded-xl bg-[#dff3ad] px-3.5 py-2 text-xs font-bold text-[#173b2b] transition hover:bg-[#d5eba2] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {generatingPdf ? (
+                      <RefreshCcw size={14} className="animate-spin text-[#173b2b]" />
+                    ) : (
+                      <FileText size={14} />
+                    )}
+
+                    {generatingPdf ? "Generating..." : "Generate PDF"}
+                  </button>
 
                 </div>
 
@@ -1334,9 +1531,9 @@ export default function AdminReports() {
 
               {/* TABLE */}
 
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto rounded-b-2xl">
 
-                <table className="w-full min-w-[1100px]">
+                <table className="w-full min-w-[1000px]">
 
                   <thead className="bg-[#fafcf9]">
 
@@ -1348,12 +1545,14 @@ export default function AdminReports() {
                       <th className="w-[60px] px-5 py-4 text-left">
 
                         <input
+                          ref={selectAllCheckboxRef}
                           type="checkbox"
                           checked={
                             allFilteredSelected
                           }
                           onChange={toggleAll}
-                          className="h-4 w-4 accent-[#57923d]"
+                          aria-label="Select all displayed users"
+                          className="h-4 w-4 accent-[#57923d] cursor-pointer"
                         />
 
                       </th>
@@ -1383,6 +1582,10 @@ export default function AdminReports() {
                         Status
                       </TableHeading>
 
+                      <th className="px-4 py-4 text-right text-[10px] font-bold uppercase tracking-[0.08em] text-[#718177]">
+                        Action
+                      </th>
+
                     </tr>
 
                   </thead>
@@ -1406,6 +1609,8 @@ export default function AdminReports() {
                                 user.id
                               )
                             }
+                            onDownloadReport={handleDownloadUserReport}
+                            downloading={downloadingRowId === user._id}
                           />
 
                         )
@@ -1416,7 +1621,7 @@ export default function AdminReports() {
                       <tr>
 
                         <td
-                          colSpan="7"
+                          colSpan="8"
                           className="px-5 py-16 text-center"
                         >
 
@@ -1496,6 +1701,23 @@ export default function AdminReports() {
 
             </section>
 
+            {/* ==================================================
+                MODAL
+            ================================================== */}
+
+            <CenteredModal
+              isOpen={modalState.isOpen}
+              onClose={() =>
+                setModalState((prev) => ({
+                  ...prev,
+                  isOpen: false,
+                }))
+              }
+              title={modalState.title}
+              message={modalState.message}
+              iconType={modalState.iconType}
+            />
+
           </div>
 
         </main>
@@ -1515,6 +1737,8 @@ function UserRow({
   user,
   selected,
   onSelect,
+  onDownloadReport,
+  downloading,
 }) {
   return (
     <tr className="border-b border-[#edf0eb] last:border-b-0 hover:bg-[#fbfcfa]">
@@ -1525,7 +1749,8 @@ function UserRow({
           type="checkbox"
           checked={selected}
           onChange={onSelect}
-          className="h-4 w-4 accent-[#57923d]"
+          aria-label={`Select ${user.name}`}
+          className="h-4 w-4 accent-[#57923d] cursor-pointer"
         />
 
       </td>
@@ -1535,9 +1760,9 @@ function UserRow({
 
       <td className="px-4 py-4">
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
 
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#edf5e8] text-sm font-bold text-[#57923d]">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#edf5e8] text-sm font-bold text-[#57923d] mt-0.5">
 
             {user.name.charAt(0)}
 
@@ -1550,9 +1775,36 @@ function UserRow({
               {user.name}
             </p>
 
-            <p className="mt-1 font-mono text-[10px] font-semibold text-[#639a48]">
+            <p className="mt-0.5 font-mono text-[10px] font-semibold text-[#639a48]">
               {user.id}
             </p>
+
+            <button
+              type="button"
+              onClick={() => onDownloadReport(user)}
+              disabled={downloading}
+              title="Download Report"
+              aria-label={`Download Report for ${user.name}`}
+              className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-[#dce4d8] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#2f6634] transition hover:bg-[#edf5e8] hover:border-[#b8d4ab] disabled:cursor-not-allowed disabled:opacity-60 shadow-2xs"
+            >
+              {downloading ? (
+                <>
+                  <RefreshCcw
+                    size={10}
+                    className="animate-spin text-[#57923d]"
+                  />
+                  <span>Downloading...</span>
+                </>
+              ) : (
+                <>
+                  <Download
+                    size={10}
+                    className="text-[#57923d]"
+                  />
+                  <span>Download Report</span>
+                </>
+              )}
+            </button>
 
           </div>
 
@@ -1592,7 +1844,7 @@ function UserRow({
       {/* CITY */}
 
       <td className="px-4 py-4 text-sm text-[#526459]">
-        {user.city}
+        {user.city || "—"}
       </td>
 
 
@@ -1624,6 +1876,42 @@ function UserRow({
         <StatusBadge
           status={user.status}
         />
+
+      </td>
+
+
+      {/* ACTION */}
+
+      <td className="px-4 py-4 text-right">
+
+        <button
+          type="button"
+          onClick={() => onDownloadReport(user)}
+          disabled={downloading}
+          title="Download Report"
+          aria-label={`Download Report for ${user.name}`}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#dce4d8] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#173b2b] transition hover:bg-[#edf5e8] hover:border-[#b8d4ab] disabled:cursor-not-allowed disabled:opacity-60 shadow-xs"
+        >
+          {downloading ? (
+            <>
+              <RefreshCcw
+                size={13}
+                className="animate-spin text-[#57923d]"
+              />
+
+              <span>Downloading...</span>
+            </>
+          ) : (
+            <>
+              <Download
+                size={13}
+                className="text-[#57923d]"
+              />
+
+              <span>Download Report</span>
+            </>
+          )}
+        </button>
 
       </td>
 

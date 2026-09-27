@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { FiShield, FiX, FiCalendar, FiBell } from "react-icons/fi";
 import useFinance from "../../context/useFinance.js";
+import CenteredModal from "../common/CenteredModal.jsx";
 
 const inputClass =
   "mt-2 w-full rounded-xl border border-[#dfe6da] bg-[#fafcf8] px-4 py-3 text-sm text-[#18392c] outline-none transition placeholder:text-slate-300 focus:border-[#9fbd8d]";
@@ -65,6 +66,8 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
   const [endDate, setEndDate] = useState(editingPolicy?.endDate ? formatDateInput(editingPolicy.endDate) : "");
   const [status, setStatus] = useState(editingPolicy?.status || "Active");
   const [notes, setNotes] = useState(editingPolicy?.notes || "");
+  const [showUpdateConfirmModal, setShowUpdateConfirmModal] = useState(false);
+  const [pendingPolicyPayload, setPendingPolicyPayload] = useState(null);
 
   // Payment Source State
   const [paymentMethod, setPaymentMethod] = useState(editingPolicy?.paymentSource?.method || "Cash");
@@ -272,12 +275,14 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
       };
 
       if (isEdit) {
-        await updateInsurancePolicy(editingPolicy._id, policyPayload);
-      } else {
-        await addInsurancePolicy(policyPayload);
+        setIsSubmitting(false);
+        setPendingPolicyPayload(policyPayload);
+        setShowUpdateConfirmModal(true);
+        return;
       }
 
-      if (onSuccess) onSuccess();
+      await addInsurancePolicy(policyPayload);
+      if (onSuccess) onSuccess({ isEdit: false });
       if (onClose) onClose();
     } catch (err) {
       setError(err.message || "Failed to save insurance policy.");
@@ -286,8 +291,24 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
     }
   };
 
+  const executeUpdate = async () => {
+    if (!pendingPolicyPayload) return;
+    setIsSubmitting(true);
+    setShowUpdateConfirmModal(false);
+    try {
+      await updateInsurancePolicy(editingPolicy._id, pendingPolicyPayload);
+      if (onSuccess) onSuccess({ isEdit: true });
+      if (onClose) onClose();
+    } catch (err) {
+      setError(err.message || "Failed to update insurance policy.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
       <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl flex flex-col max-h-[90vh]">
         {/* HEADER */}
         <div className="flex items-center justify-between border-b border-[#edf0e9] bg-[#fafcf8] px-6 py-4">
@@ -454,7 +475,7 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
               <div>
                 <FieldLabel>Payment Method</FieldLabel>
                 <div className="flex gap-4">
-                  {["Cash", "UPI", "Bank Account", "Other"].map((m) => (
+                  {["Cash", "Bank Account", "UPI"].map((m) => (
                     <label key={m} className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer">
                       <input
                         type="radio"
@@ -964,6 +985,21 @@ function InsuranceForm({ onClose, onSuccess, editingPolicy = null }) {
         </div>
       </div>
     </div>
+
+    <CenteredModal
+      isOpen={showUpdateConfirmModal}
+      onClose={() => !isSubmitting && setShowUpdateConfirmModal(false)}
+      title="Are you sure you want to update this plan?"
+      message="Are you sure you want to update this plan?"
+      type="confirm"
+      iconType="info"
+      confirmText={isSubmitting ? "Updating..." : "Update"}
+      cancelText="Cancel"
+      confirmVariant="primary"
+      isProcessing={isSubmitting}
+      onConfirm={executeUpdate}
+    />
+  </>
   );
 }
 

@@ -34,6 +34,22 @@ const createInsurance = async (req, res) => {
     const userId = req.user?.id || req.user?._id;
     const insuranceData = { ...req.body, user: userId };
     
+    // Normalize aliases
+    if (!insuranceData.name && insuranceData.policyName) insuranceData.name = insuranceData.policyName;
+    if (!insuranceData.type && insuranceData.insuranceType) insuranceData.type = insuranceData.insuranceType;
+    if (insuranceData.type === "Term" || insuranceData.type === "Life" || insuranceData.type === "Term Insurance") {
+      insuranceData.type = "Life Insurance";
+    } else if (insuranceData.type === "Health") {
+      insuranceData.type = "Health Insurance";
+    } else if (insuranceData.type === "Vehicle") {
+      insuranceData.type = "Vehicle Insurance";
+    } else if (insuranceData.type === "Home") {
+      insuranceData.type = "Home Insurance";
+    }
+    if (!insuranceData.premiumFrequency && insuranceData.paymentFrequency) {
+      insuranceData.premiumFrequency = insuranceData.paymentFrequency;
+    }
+
     const insurance = await Insurance.create(insuranceData);
 
     await logActivity(userId, `Added a new insurance policy: ${insurance.name}`);

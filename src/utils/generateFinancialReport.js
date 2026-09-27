@@ -87,6 +87,7 @@ export function generateFinancialReport(reportData) {
     quarterly: "QUARTERLY FINANCIAL PERFORMANCE REPORT",
     halfYear: "HALF-YEARLY FINANCIAL AUDIT",
     yearly: "ANNUAL FINANCIAL STATEMENT & REVIEW",
+    custom: "CUSTOM PERIOD FINANCIAL STATEMENT",
   };
   doc.text(durationTitleMap[duration] || "FINANCIAL REPORT", pageWidth - 14, 15, { align: "right" });
 
@@ -258,6 +259,8 @@ export function generateFinancialReport(reportData) {
       ? "2. Quarterly Month-by-Month Performance Grid"
       : duration === "halfYear"
       ? "2. Half-Yearly Financial Trajectory Matrix"
+      : duration === "custom"
+      ? "2. Custom Period Month-by-Month Financial Matrix"
       : "2. Annual 12-Month Historical Financial Matrix";
 
     doc.text(titleText, 14, currentY);
@@ -266,13 +269,13 @@ export function generateFinancialReport(reportData) {
     const gridHeaders = ["Month", "Income", "Expenses", "Savings", "Investments", "Goals", "Liabilities", "Closing"];
     const gridRows = monthDetails.map((m) => [
       m.monthName,
-      m.totalIncome > 0 ? fmtINR(m.totalIncome) : "—",
-      m.expenses > 0 ? fmtINR(m.expenses) : "—",
-      m.hasRecord || m.totalIncome > 0 ? fmtINR(m.savings) : "—",
-      m.investmentCommitments > 0 ? fmtINR(m.investmentCommitments) : "—",
-      m.goalAllocations > 0 ? fmtINR(m.goalAllocations) : "—",
-      m.liabilityCommitments > 0 ? fmtINR(m.liabilityCommitments) : "—",
-      m.hasRecord || m.closingBalance > 0 ? fmtINR(m.closingBalance) : "—",
+      m.hasRecord ? fmtINR(m.totalIncome) : "—",
+      m.hasRecord ? fmtINR(m.expenses) : "—",
+      m.hasRecord ? fmtINR(m.savings) : "—",
+      m.hasRecord ? fmtINR(m.investmentCommitments) : "—",
+      m.hasRecord ? fmtINR(m.goalAllocations) : "—",
+      m.hasRecord ? fmtINR(m.liabilityCommitments) : "—",
+      m.hasRecord ? fmtINR(m.closingBalance) : "—",
     ]);
 
     gridRows.push([

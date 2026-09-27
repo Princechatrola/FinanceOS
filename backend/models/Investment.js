@@ -43,6 +43,23 @@ const interestTransactionSchema = new mongoose.Schema(
 // ============================================================
 // SIP CONTRIBUTION SCHEMA
 // ============================================================
+// PAYMENT SOURCE SCHEMA FOR CONTRIBUTIONS
+// ============================================================
+
+const contributionPaymentSourceSchema = new mongoose.Schema(
+  {
+    method: {
+      type: String,
+      enum: ["Cash", "Bank Account", "UPI", "Other"],
+      default: "Cash",
+    },
+    bankName: { type: String, default: "", trim: true },
+    last4Digits: { type: String, default: "", maxlength: 4 },
+    upiId: { type: String, default: "", trim: true },
+    otherDetails: { type: String, default: "", trim: true },
+  },
+  { _id: false }
+);
 
 const investmentTransactionSchema = new mongoose.Schema(
   {
@@ -66,6 +83,10 @@ const investmentTransactionSchema = new mongoose.Schema(
     date: {
       type: Date,
       required: true,
+    },
+    paymentSource: {
+      type: contributionPaymentSourceSchema,
+      default: () => ({ method: "Cash" }),
     },
     destination: {
       type: String,
@@ -98,6 +119,10 @@ const sipContributionSchema = new mongoose.Schema(
       type: String,
       enum: ["Paid", "Not Paid", "Skipped"],
       default: "Not Paid",
+    },
+    paymentSource: {
+      type: contributionPaymentSourceSchema,
+      default: () => ({ method: "Cash" }),
     },
     note: {
       type: String,
@@ -142,6 +167,7 @@ const investmentSchema = new mongoose.Schema(
         "Mutual Fund",
         "Fixed Deposit",
         "Recurring Deposit",
+        "RD",
         "Gold",
         "Stocks",
         "Other",
@@ -270,7 +296,7 @@ const investmentSchema = new mongoose.Schema(
     // --------------------------------------------------------
     goldType: { 
       type: String, 
-      enum: ["Physical Gold", "Digital Gold", "Gold ETF", "Sovereign Gold Bond", ""], 
+      enum: ["Physical Gold", "Digital Gold", "Physical", "Digital", "Gold ETF", "Sovereign Gold Bond", ""], 
       default: "" 
     },
     weight: { type: Number, default: 0 },

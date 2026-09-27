@@ -22,25 +22,36 @@ const logActivity = async (userId, description) => {
 };
 
 // --------------------------------------------------------
+// --------------------------------------------------------
 // Validate investment payload based on type and required custom fields
 // --------------------------------------------------------
 function validateInvestmentPayload(payload) {
   const { type, customDetails = {} } = payload;
   const errors = [];
   switch (type) {
-    case "Mutual Fund":
-      if (!customDetails.fundName) errors.push("fundName is required for Mutual Fund");
-      if (!customDetails.units) errors.push("units is required for Mutual Fund");
+    case "Mutual Fund": {
+      const fundName = payload.schemeName || payload.fundName || customDetails.fundName;
+      const units = payload.units !== undefined && payload.units !== "" ? payload.units : customDetails.units;
+      if (!fundName || !String(fundName).trim()) errors.push("fundName is required for Mutual Fund");
+      if (units === undefined || units === null || units === "" || Number(units) < 0) errors.push("units is required for Mutual Fund");
       break;
-    case "Gold":
-      if (!customDetails.weight) errors.push("weight is required for Gold");
-      if (!customDetails.purity) errors.push("purity is required for Gold");
+    }
+    case "Gold": {
+      const weight = payload.weight !== undefined && payload.weight !== "" ? payload.weight : customDetails.weight;
+      const purity = payload.purity || customDetails.purity;
+      if (weight === undefined || weight === null || weight === "" || Number(weight) <= 0) errors.push("weight is required for Gold");
+      if (!purity || !String(purity).trim()) errors.push("purity is required for Gold");
       break;
-    case "Stocks":
-      if (!customDetails.ticker) errors.push("ticker is required for Stocks");
-      if (!customDetails.quantity) errors.push("quantity is required for Stocks");
-      if (!customDetails.purchasePrice) errors.push("purchasePrice is required for Stocks");
+    }
+    case "Stocks": {
+      const ticker = payload.symbol || payload.ticker || customDetails.ticker;
+      const quantity = payload.quantity !== undefined && payload.quantity !== "" ? payload.quantity : customDetails.quantity;
+      const purchasePrice = payload.purchasePrice !== undefined && payload.purchasePrice !== "" ? payload.purchasePrice : customDetails.purchasePrice;
+      if (!ticker || !String(ticker).trim()) errors.push("ticker is required for Stocks");
+      if (quantity === undefined || quantity === null || quantity === "" || Number(quantity) <= 0) errors.push("quantity is required for Stocks");
+      if (purchasePrice === undefined || purchasePrice === null || purchasePrice === "" || Number(purchasePrice) < 0) errors.push("purchasePrice is required for Stocks");
       break;
+    }
     case "Recurring Deposit":
       // RD uses same fields as FD; no extra customDetails required
       break;
@@ -69,15 +80,47 @@ const addInvestment = async (req, res) => {
         message: "SMS notifications are not supported. FinanceOS supports only Email and In-App notifications.",
       });
     }
-    console.log("REQ.USER:", req.user);
-    console.log("REQ.USER.ID:", req.user?.id);
-    console.log("REQ.USER._ID:", req.user?._id);
 
+    const customDetails = req.body.customDetails || {};
     const investmentData = {
       ...req.body,
       user: req.user?.id || req.user?._id,
       paymentSource: req.body.paymentSource || undefined,
+      paymentSourceDetails: req.body.paymentSourceDetails || undefined,
     };
+
+    // Normalize type
+    if (investmentData.type === "RD") {
+      investmentData.type = "Recurring Deposit";
+    }
+
+    // Normalize amount if not supplied
+    if (investmentData.amount === undefined || investmentData.amount === null || isNaN(Number(investmentData.amount))) {
+      if (investmentData.contributionType === "Recurring") {
+        investmentData.amount = Number(investmentData.monthlyContribution || 0);
+      } else {
+        investmentData.amount = Number(investmentData.principalAmount || 0);
+      }
+    }
+
+    // Normalize type-specific fields onto the root document
+    if (investmentData.type === "Gold") {
+      investmentData.weight = Number(req.body.weight ?? customDetails.weight ?? 0);
+      investmentData.purity = String(req.body.purity ?? customDetails.purity ?? "").trim();
+      if (req.body.goldType) investmentData.goldType = req.body.goldType;
+    } else if (investmentData.type === "Mutual Fund") {
+      investmentData.schemeName = String(req.body.schemeName ?? req.body.fundName ?? customDetails.fundName ?? "").trim();
+      investmentData.units = Number(req.body.units ?? customDetails.units ?? 0);
+    } else if (investmentData.type === "Stocks") {
+      investmentData.symbol = String(req.body.symbol ?? req.body.ticker ?? customDetails.ticker ?? "").trim();
+      investmentData.companyName = String(req.body.companyName ?? req.body.name ?? "").trim();
+      investmentData.quantity = Number(req.body.quantity ?? customDetails.quantity ?? 0);
+      investmentData.purchasePrice = Number(req.body.purchasePrice ?? customDetails.purchasePrice ?? 0);
+    } else if (investmentData.type === "Recurring Deposit" || investmentData.type === "RD") {
+      investmentData.institution = String(req.body.institution ?? "").trim();
+      investmentData.interestRate = Number(req.body.interestRate ?? 0);
+      if (req.body.dueDay) investmentData.dueDay = Number(req.body.dueDay);
+    }
 
     // --------------------------------------------------------
     // Run validation before persisting
@@ -90,8 +133,6 @@ const addInvestment = async (req, res) => {
         errors,
       });
     }
-
-    console.log("INVESTMENT USER:", investmentData.user);
 
     const investment = await Investment.create(investmentData);
 
@@ -179,12 +220,46 @@ const updateInvestment = async (req, res) => {
         message: "SMS notifications are not supported. FinanceOS supports only Email and In-App notifications.",
       });
     }
+
+    const customDetails = req.body.customDetails || {};
+    const updateData = { ...req.body };
+
+    // Normalize type-specific fields onto updateData
+    if (updateData.type === "Gold" || req.body.weight !== undefined || customDetails.weight !== undefined || req.body.purity !== undefined || customDetails.purity !== undefined) {
+      if (req.body.weight !== undefined || customDetails.weight !== undefined) {
+        updateData.weight = Number(req.body.weight ?? customDetails.weight ?? 0);
+      }
+      if (req.body.purity !== undefined || customDetails.purity !== undefined) {
+        updateData.purity = String(req.body.purity ?? customDetails.purity ?? "").trim();
+      }
+      if (req.body.goldType) updateData.goldType = req.body.goldType;
+    }
+    if (updateData.type === "Mutual Fund" || req.body.schemeName !== undefined || req.body.fundName !== undefined || customDetails.fundName !== undefined || req.body.units !== undefined || customDetails.units !== undefined) {
+      if (req.body.schemeName !== undefined || req.body.fundName !== undefined || customDetails.fundName !== undefined) {
+        updateData.schemeName = String(req.body.schemeName ?? req.body.fundName ?? customDetails.fundName ?? "").trim();
+      }
+      if (req.body.units !== undefined || customDetails.units !== undefined) {
+        updateData.units = Number(req.body.units ?? customDetails.units ?? 0);
+      }
+    }
+    if (updateData.type === "Stocks" || req.body.symbol !== undefined || req.body.ticker !== undefined || customDetails.ticker !== undefined || req.body.quantity !== undefined || customDetails.quantity !== undefined) {
+      if (req.body.symbol !== undefined || req.body.ticker !== undefined || customDetails.ticker !== undefined) {
+        updateData.symbol = String(req.body.symbol ?? req.body.ticker ?? customDetails.ticker ?? "").trim();
+      }
+      if (req.body.quantity !== undefined || customDetails.quantity !== undefined) {
+        updateData.quantity = Number(req.body.quantity ?? customDetails.quantity ?? 0);
+      }
+      if (req.body.purchasePrice !== undefined || customDetails.purchasePrice !== undefined) {
+        updateData.purchasePrice = Number(req.body.purchasePrice ?? customDetails.purchasePrice ?? 0);
+      }
+    }
+
     const investment = await Investment.findOneAndUpdate(
       {
         _id: req.params.id,
         user: req.user?.id || req.user?._id,
       },
-      req.body,
+      updateData,
       {
         new: true,
         runValidators: true,
@@ -261,8 +336,24 @@ const recordFDInterest = async (req, res) => {
       });
     }
 
-    investment.interestTransactions.push(req.body);
-    investment.totalInterestReceived += Number(req.body.amount);
+    const interestAmount = Number(req.body.amount || req.body.interestAmount || 0);
+    const dateVal = req.body.date || req.body.payoutDate ? new Date(req.body.date || req.body.payoutDate) : new Date();
+
+    const transaction = {
+      amount: interestAmount,
+      date: dateVal,
+      referenceId: req.body.referenceId || `fd-${Date.now()}`,
+      note: req.body.note || "",
+      month: req.body.month || (dateVal.getMonth() + 1),
+      year: req.body.year || dateVal.getFullYear(),
+    };
+
+    if (!Array.isArray(investment.interestTransactions)) {
+      investment.interestTransactions = [];
+    }
+
+    investment.interestTransactions.push(transaction);
+    investment.totalInterestReceived = (Number(investment.totalInterestReceived) || 0) + interestAmount;
 
     await investment.save();
 
@@ -447,7 +538,8 @@ const addSIPContribution = async (req, res) => {
     const storedDueDay = investment.dueDay
       || (investment.reminder && investment.reminder.contributionDay)
       || (investment.nextContributionDate ? new Date(investment.nextContributionDate).getDate() : null)
-      || 10; // fallback
+      || (investment.startDate ? new Date(investment.startDate).getDate() : null)
+      || (paidDate ? new Date(paidDate).getDate() : 1);
 
     const effectiveDueDate = calculateDueDateForMonth(storedDueDay, targetYear, targetMonth);
 
@@ -465,11 +557,22 @@ const addSIPContribution = async (req, res) => {
       }
     }
 
+    const rawPaymentSource = req.body.paymentSource || {};
+    const method = rawPaymentSource.method || "Cash";
+    const paymentSource = {
+      method,
+      bankName: (method === "Bank Account" || method === "UPI") ? (rawPaymentSource.bankName || "") : "",
+      last4Digits: method === "Bank Account" ? (rawPaymentSource.last4Digits || "") : "",
+      upiId: method === "UPI" ? (rawPaymentSource.upiId || "") : "",
+      otherDetails: method === "Other" ? (rawPaymentSource.otherDetails || "") : "",
+    };
+
     const contribution = {
       amount: contributionAmount,
       dueDate: effectiveDueDate,
       paidDate: effectivePaidDate,
       status: contributionStatus,
+      paymentSource,
       note: note || "",
     };
 
@@ -482,15 +585,26 @@ const addSIPContribution = async (req, res) => {
     if (contributionStatus === "Paid") {
       investment.amount = (Number(investment.amount) || 0) + contributionAmount;
       investment.totalContributions = (Number(investment.totalContributions) || 0) + contributionAmount;
+
+      // Update type-specific quantities if provided in the contribution request
+      if (investment.type === "Gold" && (req.body.weight || req.body.quantity)) {
+        investment.weight = (Number(investment.weight) || 0) + Number(req.body.weight || req.body.quantity || 0);
+      } else if (investment.type === "Mutual Fund" && (req.body.units || req.body.quantity)) {
+        investment.units = (Number(investment.units) || 0) + Number(req.body.units || req.body.quantity || 0);
+      } else if (investment.type === "Stocks" && req.body.quantity) {
+        investment.quantity = (Number(investment.quantity) || 0) + Number(req.body.quantity || 0);
+      }
     }
     
     await investment.save();
+
+    await logActivity(userId, `Recorded ${investment.type} contribution of ₹${contributionAmount} for ${investment.name}`);
 
     const createdContribution = investment.sipContributions[investment.sipContributions.length - 1];
 
     return res.status(201).json({
       success: true,
-      message: `SIP contribution of ₹${contributionAmount.toLocaleString("en-IN")} recorded for ${formattedMonth}.`,
+      message: `${investment.type} contribution of ₹${contributionAmount.toLocaleString("en-IN")} recorded for ${formattedMonth}.`,
       contribution: createdContribution,
       investment,
       selectedMonth: monthCtx.iso,

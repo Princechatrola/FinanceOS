@@ -184,8 +184,7 @@ export default function AdminDashboard() {
               </h1>
 
               <p className="mt-1 text-sm text-[#718177]">
-                Manage users, administrators, reports,
-                communication and system activity.
+                Manage users, reports, communication and system activity.
               </p>
             </div>
 
@@ -450,21 +449,12 @@ export default function AdminDashboard() {
               </h2>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <QuickAction
                 icon={<UserPlus size={18} />}
                 title="Create User"
                 description="Add a new FinanceOS user."
-                onClick={() => navigate("/admin/users")}
-              />
-
-              <QuickAction
-                icon={<ShieldCheck size={18} />}
-                title="Manage Admins"
-                description="Administrators and permissions."
-                onClick={() =>
-                  navigate("/admin/administrators")
-                }
+                onClick={() => navigate("/admin/users/create")}
               />
 
               <QuickAction
@@ -486,128 +476,77 @@ export default function AdminDashboard() {
           </section>
 
           {/* ==================================================
-              LOWER GRID
+              RECENT REGISTRATIONS
           ================================================== */}
 
-          <div className="mt-6 grid gap-5 xl:grid-cols-2">
+          <section className="mt-6 overflow-hidden rounded-2xl border border-[#dfe6da] bg-white">
+            <div className="flex items-center justify-between border-b border-[#e7ece4] px-5 py-4">
+              <div>
+                <h2 className="font-bold text-[#173b2b]">
+                  Recent Registrations
+                </h2>
 
-            {/* =================================================
-                RECENT REGISTRATIONS
-            ================================================= */}
-
-            <section className="overflow-hidden rounded-2xl border border-[#dfe6da] bg-white">
-              <div className="flex items-center justify-between border-b border-[#e7ece4] px-5 py-4">
-                <div>
-                  <h2 className="font-bold text-[#173b2b]">
-                    Recent Registrations
-                  </h2>
-
-                  <p className="mt-1 text-xs text-[#7b8980]">
-                    Latest FinanceOS user accounts.
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => navigate("/admin/users")}
-                  className="text-xs font-semibold text-[#57923d]"
-                >
-                  View All
-                </button>
+                <p className="mt-1 text-xs text-[#7b8980]">
+                  Latest FinanceOS user accounts.
+                </p>
               </div>
 
-              <div>
-                {registrations.length === 0 ? (
-                  <div className="px-5 py-8 text-center">
-                    <Users
-                      size={25}
-                      className="mx-auto text-[#9aaa9d]"
-                    />
+              <button
+                onClick={() => navigate("/admin/users")}
+                className="text-xs font-semibold text-[#57923d]"
+              >
+                View All
+              </button>
+            </div>
 
-                    <p className="mt-2 text-sm font-medium text-[#526459]">
-                      No registrations found
-                    </p>
-                  </div>
-                ) : (
-                  registrations.map((user) => (
-                    <div
-                      key={user._id || user.userId}
-                      className="flex items-center gap-3 border-b border-[#edf0eb] px-5 py-4 last:border-0"
-                    >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#edf5e8] text-[#57923d]">
-                        <Users size={17} />
-                      </div>
+            <div>
+              {registrations.length === 0 ? (
+                <div className="px-5 py-8 text-center">
+                  <Users
+                    size={25}
+                    className="mx-auto text-[#9aaa9d]"
+                  />
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-semibold text-[#173b2b]">
-                            {user.name}
-                          </p>
+                  <p className="mt-2 text-sm font-medium text-[#526459]">
+                    No registrations found
+                  </p>
+                </div>
+              ) : (
+                registrations.map((user) => (
+                  <div
+                    key={user._id || user.userId}
+                    className="flex items-center gap-3 border-b border-[#edf0eb] px-5 py-4 last:border-0"
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#edf5e8] text-[#57923d]">
+                      <Users size={17} />
+                    </div>
 
-                          <StatusBadge
-                            status={
-                              user.status || "Active"
-                            }
-                          />
-                        </div>
-
-                        <p className="mt-0.5 truncate text-xs text-[#718177]">
-                          {user.userId} · {user.email}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-semibold text-[#173b2b]">
+                          {user.name}
                         </p>
+
+                        <StatusBadge
+                          status={
+                            user.status || "Active"
+                          }
+                        />
                       </div>
 
-                      <p className="shrink-0 text-xs text-[#8a978f]">
-                        {formatDate(user.createdAt)}
+                      <p className="mt-0.5 truncate text-xs text-[#718177]">
+                        {user.userId} · {user.email}
                       </p>
                     </div>
-                  ))
-                )}
-              </div>
-            </section>
 
-            {/* =================================================
-                RECENT ADMIN ACTIVITY
-            ================================================= */}
-
-            <section className="overflow-hidden rounded-2xl border border-[#dfe6da] bg-white">
-              <div className="flex items-center justify-between border-b border-[#e7ece4] px-5 py-4">
-                <div>
-                  <h2 className="font-bold text-[#173b2b]">
-                    Recent Admin Activity
-                  </h2>
-
-                  <p className="mt-1 text-xs text-[#7b8980]">
-                    Administrative activity will appear here.
-                  </p>
-                </div>
-
-                <button
-                  onClick={() =>
-                    navigate("/admin/activity")
-                  }
-                  className="text-xs font-semibold text-[#57923d]"
-                >
-                  Audit Log
-                </button>
-              </div>
-
-              <div className="px-5 py-8">
-                <div className="flex flex-col items-center justify-center text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#edf5e8] text-[#57923d]">
-                    <Activity size={20} />
+                    <p className="shrink-0 text-xs text-[#8a978f]">
+                      {formatDate(user.createdAt)}
+                    </p>
                   </div>
-
-                  <p className="mt-3 text-sm font-semibold text-[#526459]">
-                    Activity API not connected yet
-                  </p>
-
-                  <p className="mt-1 max-w-sm text-xs leading-5 text-[#8a978f]">
-                    Connect the Admin Activity API later to
-                    display real administrative actions here.
-                  </p>
-                </div>
-              </div>
-            </section>
-          </div>
+                ))
+              )}
+            </div>
+          </section>
 
           {/* ==================================================
               ADMIN INSIGHTS

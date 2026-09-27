@@ -19,6 +19,7 @@ import useFinance from "../../context/useFinance.js";
 import { parseSelectedMonth } from "../../utils/monthLifecycle.js";
 import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../../utils/dueDateSchedule.js";
 import ReminderConfigModal from "../reminders/ReminderConfigModal.jsx";
+import CenteredModal from "../common/CenteredModal.jsx";
 
 const inputClass =
   "mt-2 w-full rounded-xl border border-[#dfe6da] bg-[#fafcf8] px-4 py-3 text-sm text-[#18392c] outline-none transition placeholder:text-slate-300 focus:border-[#9fbd8d] focus:bg-white";
@@ -118,44 +119,80 @@ export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
     }
   };
 
+  const [actionModal, setActionModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "info",
+    confirmText: "OK",
+    cancelText: "Cancel",
+    confirmVariant: "primary",
+    onConfirm: null,
+  });
+
   const handleAddPayment = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess("");
     if (!payAmount || Number(payAmount) <= 0) return setError("Enter a valid payment amount.");
 
-    setIsSubmitting(true);
-    try {
-      const paymentSource = {
-        method: payMethod,
-        bankName: (payMethod === "Bank Account" || payMethod === "UPI") ? payBankName : "",
-        last4Digits: payMethod === "Bank Account" ? payLast4 : "",
-        upiApp: payMethod === "UPI" ? payUpiApp : "",
-        upiId: payMethod === "UPI" ? payUpiId : "",
-        otherDetails: payMethod === "Other" ? payOther : "",
-      };
+    setActionModal({
+      isOpen: true,
+      title: "Confirm Payment",
+      message: `Amount: ₹${formatMoney(payAmount)}\nPayment Source: ${payMethod}\n\nDo you want to record this payment?`,
+      type: "confirm",
+      confirmText: "Confirm",
+      cancelText: "Cancel",
+      confirmVariant: "primary",
+      onConfirm: async () => {
+        setIsSubmitting(true);
+        try {
+          const paymentSource = {
+            method: payMethod,
+            bankName: (payMethod === "Bank Account" || payMethod === "UPI") ? payBankName : "",
+            last4Digits: payMethod === "Bank Account" ? payLast4 : "",
+            upiApp: payMethod === "UPI" ? payUpiApp : "",
+            upiId: payMethod === "UPI" ? payUpiId : "",
+            otherDetails: payMethod === "Other" ? payOther : "",
+          };
 
-      await recordLiabilityPayment(liability._id || liability.id, {
-        amount: Number(payAmount),
-        paidDate: payPaidDate ? new Date(payPaidDate) : undefined,
-        status: payStatus,
-        type: payType,
-        principalComponent: Number(payPrincipal) || 0,
-        interestComponent: Number(payInterest) || 0,
-        paymentSource,
-        note: payNote,
-        selectedMonth: monthBounds.iso,
-      });
+          await recordLiabilityPayment(liability._id || liability.id, {
+            amount: Number(payAmount),
+            paidDate: payPaidDate ? new Date(payPaidDate) : undefined,
+            status: payStatus,
+            type: payType,
+            principalComponent: Number(payPrincipal) || 0,
+            interestComponent: Number(payInterest) || 0,
+            paymentSource,
+            note: payNote,
+            selectedMonth: monthBounds.iso,
+          });
 
-      setSuccess("Payment transaction recorded successfully.");
-      setPayNote("");
-      setPayPrincipal("");
-      setPayInterest("");
-    } catch (err) {
-      setError(err.message || "Failed to record payment.");
-    } finally {
-      setIsSubmitting(false);
-    }
+          setActionModal({
+            isOpen: true,
+            title: "Payment Recorded Successfully",
+            message: `₹${formatMoney(payAmount)} has been recorded successfully.`,
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+          setPayNote("");
+          setPayPrincipal("");
+          setPayInterest("");
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Failed to record payment.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
+    });
   };
 
   const handleEarlyClosure = async (e) => {
@@ -167,58 +204,107 @@ export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
     const outstanding = Number(liability?.remainingAmount || 0);
     const finalAmount = outstanding + penalty;
 
-    const confirmed = window.confirm(`Confirm early closure of this liability? You will record a final closure payment of ₹${formatMoney(finalAmount)}.`);
-    if (!confirmed) return;
+    setActionModal({
+      isOpen: true,
+      title: "Confirm Early Closure",
+      message: `Confirm early closure of this liability? You will record a final closure payment of ₹${formatMoney(finalAmount)}.`,
+      type: "confirm",
+      confirmText: "Close Liability",
+      cancelText: "Cancel",
+      confirmVariant: "primary",
+      onConfirm: async () => {
+        setIsSubmitting(true);
+        try {
+          const paymentSource = {
+            method: payMethod,
+            bankName: (payMethod === "Bank Account" || payMethod === "UPI") ? payBankName : "",
+            last4Digits: payMethod === "Bank Account" ? payLast4 : "",
+            upiApp: payMethod === "UPI" ? payUpiApp : "",
+            upiId: payMethod === "UPI" ? payUpiId : "",
+            otherDetails: payMethod === "Other" ? payOther : "",
+          };
 
-    setIsSubmitting(true);
-    try {
-      const paymentSource = {
-        method: payMethod,
-        bankName: (payMethod === "Bank Account" || payMethod === "UPI") ? payBankName : "",
-        last4Digits: payMethod === "Bank Account" ? payLast4 : "",
-        upiApp: payMethod === "UPI" ? payUpiApp : "",
-        upiId: payMethod === "UPI" ? payUpiId : "",
-        otherDetails: payMethod === "Other" ? payOther : "",
-      };
+          await recordLiabilityPayment(liability._id || liability.id, {
+            amount: finalAmount,
+            paidDate: closureDate ? new Date(closureDate) : undefined,
+            status: "Paid",
+            type: "Closure",
+            principalComponent: outstanding,
+            interestComponent: 0,
+            paymentSource,
+            note: closureNote || "Early Closure Payout",
+            closureDetails: {
+              closureDate: closureDate ? new Date(closureDate) : undefined,
+              amountPaid: finalAmount,
+              outstandingAtClosure: outstanding,
+              penaltyCharges: penalty,
+              note: closureNote || "Early Closure Payout"
+            }
+          });
 
-      await recordLiabilityPayment(liability._id || liability.id, {
-        amount: finalAmount,
-        paidDate: closureDate ? new Date(closureDate) : undefined,
-        status: "Paid",
-        type: "Closure",
-        principalComponent: outstanding,
-        interestComponent: 0,
-        paymentSource,
-        note: closureNote || "Early Closure Payout",
-        closureDetails: {
-          closureDate: closureDate ? new Date(closureDate) : undefined,
-          amountPaid: finalAmount,
-          outstandingAtClosure: outstanding,
-          penaltyCharges: penalty,
-          note: closureNote || "Early Closure Payout"
+          setActionModal({
+            isOpen: true,
+            title: "Liability Closed",
+            message: "Liability closed early and status updated to Closed.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => {
+              setActionModal(prev => ({ ...prev, isOpen: false }));
+              setActiveTab("details");
+            }
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Failed to close liability.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } finally {
+          setIsSubmitting(false);
         }
-      });
-
-      setSuccess("Liability closed early and status updated to Closed.");
-      setActiveTab("details");
-    } catch (err) {
-      setError(err.message || "Failed to close liability.");
-    } finally {
-      setIsSubmitting(false);
-    }
+      }
+    });
   };
 
   const handleDelete = async () => {
-    const confirmed = window.confirm(`Are you absolutely sure you want to delete "${liability.name}"? This action is permanent.`);
-    if (!confirmed) return;
-
-    setError("");
-    try {
-      await deleteLiability(liability._id || liability.id);
-      onClose();
-    } catch (err) {
-      setError(err.message || "Failed to delete liability.");
-    }
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to delete?",
+      message: "This action cannot be undone.",
+      type: "confirm",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        setError("");
+        try {
+          await deleteLiability(liability._id || liability.id);
+          setActionModal({
+            isOpen: true,
+            title: "Deleted Successfully",
+            message: "The plan has been deleted successfully.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => {
+              setActionModal(prev => ({ ...prev, isOpen: false }));
+              onClose();
+            },
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Failed to delete liability.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        }
+      },
+    });
   };
 
   const original = Number(liability?.principalAmount || 0);
@@ -628,9 +714,8 @@ export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
                       <FieldLabel>Payment Source Method</FieldLabel>
                       <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)} className={inputClass}>
                         <option value="Cash">Cash</option>
-                        <option value="UPI">UPI</option>
                         <option value="Bank Account">Bank Account</option>
-                        <option value="Other">Other</option>
+                        <option value="UPI">UPI</option>
                       </select>
                     </div>
                   </div>
@@ -889,6 +974,19 @@ export default function LiabilityDetailsModal({ liability, onClose, onEdit }) {
           initialData={liability}
         />
       )}
+
+      {/* ACTION MODAL */}
+      <CenteredModal
+        isOpen={actionModal.isOpen}
+        title={actionModal.title}
+        message={actionModal.message}
+        type={actionModal.type}
+        confirmText={actionModal.confirmText}
+        cancelText={actionModal.cancelText}
+        confirmVariant={actionModal.confirmVariant}
+        onConfirm={actionModal.onConfirm}
+        onClose={() => setActionModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

@@ -63,6 +63,7 @@ import useFinance
 import { parseSelectedMonth } from "../../utils/monthLifecycle.js";
 import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../../utils/dueDateSchedule.js";
 import ReminderConfigModal from "../reminders/ReminderConfigModal.jsx";
+import CenteredModal from "../common/CenteredModal.jsx";
 
 
 // ============================================================
@@ -382,6 +383,8 @@ function SavingGoalCard({
     showReminderModal,
     setShowReminderModal,
   ] = useState(false);
+
+  const [actionModal, setActionModal] = useState(null);
 
 
   const [
@@ -1238,29 +1241,21 @@ function SavingGoalCard({
   // HANDLE DELETE
   // ==========================================================
 
-  const handleDelete =
-    () => {
-
-      const confirmed =
-        window.confirm(
-          `Delete "${goal?.name || "this saving goal"}"? Its recorded transaction history will also be removed.`
-        );
-
-
-      if (
-        !confirmed
-      ) {
-
-        return;
-
-      }
-
-
-      deleteSavingGoal(
-        goal._id || goal.id
-      );
-
-    };
+  const handleDelete = () => {
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to delete this saving goal?",
+      message: `Delete "${goal?.name || "this saving goal"}"? Its recorded transaction history will also be removed.`,
+      confirmText: "Delete",
+      confirmVariant: "danger",
+      cancelText: "Cancel",
+      onConfirm: async () => {
+        setActionModal(null);
+        await deleteSavingGoal(goal._id || goal.id);
+      },
+      onCancel: () => setActionModal(null),
+    });
+  };
 
 
   // ==========================================================
@@ -3097,6 +3092,8 @@ function SavingGoalCard({
           initialData={goal}
         />
       )}
+
+      {actionModal && <CenteredModal {...actionModal} />}
 
     </div>
 

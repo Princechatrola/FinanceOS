@@ -110,7 +110,7 @@ const insuranceSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Active", "Expired", "Matured", "Closed", "Cancelled", "Lapsed"],
+      enum: ["Active", "Paused", "Expired", "Matured", "Closed", "Cancelled", "Lapsed"],
       default: "Active",
     },
     notes: {

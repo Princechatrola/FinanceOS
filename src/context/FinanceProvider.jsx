@@ -1708,6 +1708,7 @@ function FinanceProvider({ children }) {
     };
 
     setSavingGoals((current) => [createdGoal, ...current]);
+    await loadMonthFinance(activeWorkingPeriod.year, activeWorkingPeriod.month);
     await loadCurrentMonthFinance();
 
     return createdGoal;
@@ -1743,6 +1744,9 @@ function FinanceProvider({ children }) {
       current.map((g) => (g.id === id || g._id === id ? updatedGoal : g))
     );
 
+    await loadMonthFinance(activeWorkingPeriod.year, activeWorkingPeriod.month);
+    await loadCurrentMonthFinance();
+
     return updatedGoal;
   };
 
@@ -1765,6 +1769,7 @@ function FinanceProvider({ children }) {
       current.filter((goal) => goal.id !== id && goal._id !== id)
     );
 
+    await loadMonthFinance(activeWorkingPeriod.year, activeWorkingPeriod.month);
     await loadCurrentMonthFinance();
   };
 
@@ -2044,12 +2049,13 @@ function FinanceProvider({ children }) {
         startDate: investment.startDate || null,
         nextContributionDate: investment.nextContributionDate || null,
         maturityDate: investment.maturityDate || null,
+        dueDay: investment.dueDay !== undefined ? investment.dueDay : null,
         status: investment.status || "Active",
         institution: investment.institution || "",
         principalAmount: isFD
           ? nonNegative(firstDefined(investment.principalAmount, amount))
           : undefined,
-        interestRate: isFD ? nonNegative(investment.interestRate) : undefined,
+        interestRate: (isFD || investment.type === "Recurring Deposit") ? nonNegative(investment.interestRate) : undefined,
         interestMethod: isFD ? investment.interestMethod || "Payout" : undefined,
         interestPayoutFrequency: isFD ? investment.interestPayoutFrequency || null : undefined,
         compoundingFrequency: isFD ? investment.compoundingFrequency || null : undefined,
@@ -2062,6 +2068,19 @@ function FinanceProvider({ children }) {
           isFD && Array.isArray(investment.interestTransactions)
             ? investment.interestTransactions
             : [],
+        weight: investment.weight !== undefined ? Number(investment.weight) : (investment.customDetails?.weight !== undefined ? Number(investment.customDetails.weight) : undefined),
+        purity: investment.purity || investment.customDetails?.purity || undefined,
+        goldType: investment.goldType || undefined,
+        schemeName: investment.schemeName || investment.customDetails?.fundName || undefined,
+        units: investment.units !== undefined ? Number(investment.units) : (investment.customDetails?.units !== undefined ? Number(investment.customDetails.units) : undefined),
+        symbol: investment.symbol || investment.customDetails?.ticker || undefined,
+        companyName: investment.companyName || undefined,
+        quantity: investment.quantity !== undefined ? Number(investment.quantity) : (investment.customDetails?.quantity !== undefined ? Number(investment.customDetails.quantity) : undefined),
+        purchasePrice: investment.purchasePrice !== undefined ? Number(investment.purchasePrice) : (investment.customDetails?.purchasePrice !== undefined ? Number(investment.customDetails.purchasePrice) : undefined),
+        customDetails: investment.customDetails || undefined,
+        autoPay: investment.autoPay || undefined,
+        category: investment.category || undefined,
+        description: investment.description || undefined,
         reminder: investment.reminder || undefined,
         maturityReminder: investment.maturityReminder || undefined,
         afterMaturityAction: investment.afterMaturityAction || "MANUAL_DECIDE",

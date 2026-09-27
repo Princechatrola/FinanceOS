@@ -30,6 +30,13 @@ const createLiability = async (req, res) => {
     const userId = req.user?.id || req.user?._id;
     const liabilityData = { ...req.body, user: userId };
     
+    // Normalize aliases
+    if (!liabilityData.name && liabilityData.title) liabilityData.name = liabilityData.title;
+    if (!liabilityData.type && liabilityData.liabilityType) liabilityData.type = liabilityData.liabilityType;
+    if (liabilityData.principalAmount === undefined && liabilityData.totalLoanAmount !== undefined) {
+      liabilityData.principalAmount = Number(liabilityData.totalLoanAmount);
+    }
+
     // Set initial remaining amount if not provided
     if (liabilityData.remainingAmount === undefined) {
       liabilityData.remainingAmount = liabilityData.principalAmount;

@@ -47,6 +47,7 @@ import {
 
 import useFinance
   from "../../context/useFinance.js";
+import CenteredModal from "../common/CenteredModal.jsx";
 
 
 import MaturityActionModal
@@ -152,6 +153,57 @@ function FinancialSuggestions() {
     itemType: null,
 
   });
+
+  const [actionModal, setActionModal] = useState(null);
+
+  const showErrorModal = (title, message) => {
+    setActionModal({
+      isOpen: true,
+      type: "error",
+      title: title || "Something went wrong",
+      message: message || "An unexpected error occurred.",
+      confirmText: "OK",
+      onConfirm: () => setActionModal(null),
+    });
+  };
+
+  const showSuccessModal = (title, message) => {
+    setActionModal({
+      isOpen: true,
+      type: "success",
+      title: title || "Success",
+      message: message || "Operation completed successfully.",
+      confirmText: "OK",
+      onConfirm: () => setActionModal(null),
+    });
+  };
+
+  const showInfoModal = (title, message) => {
+    setActionModal({
+      isOpen: true,
+      type: "info",
+      title: title || "Information",
+      message: message || "",
+      confirmText: "OK",
+      onConfirm: () => setActionModal(null),
+    });
+  };
+
+  const showConfirmModal = (title, message, onConfirm, confirmText = "Confirm") => {
+    setActionModal({
+      isOpen: true,
+      type: "warning",
+      title,
+      message,
+      confirmText,
+      cancelText: "Cancel",
+      onConfirm: () => {
+        setActionModal(null);
+        onConfirm();
+      },
+      onCancel: () => setActionModal(null),
+    });
+  };
 
 
   // ==========================================================
@@ -372,7 +424,8 @@ function FinancialSuggestions() {
         "function"
       ) {
 
-        window.alert(
+        showErrorModal(
+          "Unavailable",
           "Investment settlement is not available."
         );
 
@@ -392,40 +445,32 @@ function FinancialSuggestions() {
         );
 
 
-      const confirmed =
-        window.confirm(
-          `Add ₹${formatMoney(
-            amount
-          )} from this matured investment to Cash & Savings?`
-        );
+      showConfirmModal(
+        "Confirm Settlement",
+        `Add ₹${formatMoney(
+          amount
+        )} from this matured investment to Cash & Savings?`,
+        () => {
+          const result =
+            settleInvestment(
+              item.id,
+              "savings"
+            );
 
+          if (
+            result?.success === false
+          ) {
+            showErrorModal(
+              "Settlement Failed",
+              result.message ||
+              "Unable to settle the investment."
+            );
+            return;
+          }
 
-      if (!confirmed) {
-        return;
-      }
-
-
-      const result =
-        settleInvestment(
-          item.id,
-          "savings"
-        );
-
-
-      if (
-        result?.success === false
-      ) {
-
-        window.alert(
-          result.message ||
-          "Unable to settle the investment."
-        );
-
-        return;
-      }
-
-
-      closeMaturityModal();
+          closeMaturityModal();
+        }
+      );
 
       return;
     }
@@ -445,7 +490,8 @@ function FinancialSuggestions() {
         "function"
       ) {
 
-        window.alert(
+        showErrorModal(
+          "Unavailable",
           "Insurance settlement is not available."
         );
 
@@ -459,41 +505,34 @@ function FinancialSuggestions() {
         );
 
 
-      const confirmed =
-        window.confirm(
-          `Add ₹${formatMoney(
-            amount
-          )} from this matured policy to Cash & Savings?`
-        );
+      showConfirmModal(
+        "Confirm Settlement",
+        `Add ₹${formatMoney(
+          amount
+        )} from this matured policy to Cash & Savings?`,
+        () => {
+          const result =
+            settleInsurance(
+              item.id,
+              "savings"
+            );
 
+          if (
+            result?.success === false
+          ) {
+            showErrorModal(
+              "Settlement Failed",
+              result.message ||
+              "Unable to settle the insurance policy."
+            );
+            return;
+          }
 
-      if (!confirmed) {
-        return;
-      }
+          closeMaturityModal();
+        }
+      );
 
-
-      const result =
-        settleInsurance(
-          item.id,
-          "savings"
-        );
-
-
-      if (
-        result?.success === false
-      ) {
-
-        window.alert(
-          result.message ||
-          "Unable to settle the insurance policy."
-        );
-
-        return;
-      }
-
-
-      closeMaturityModal();
-
+      return;
     }
 
   }
@@ -530,7 +569,8 @@ function FinancialSuggestions() {
         "function"
       ) {
 
-        window.alert(
+        showErrorModal(
+          "Unavailable",
           "Investment goal allocation is not available."
         );
 
@@ -538,47 +578,37 @@ function FinancialSuggestions() {
       }
 
 
-      const confirmed =
-        window.confirm(
-          `Allocate the matured proceeds from "${item.name || item.type || "Investment"}" toward "${goal.name || "Saving Goal"}"?`
-        );
+      showConfirmModal(
+        "Confirm Allocation",
+        `Allocate the matured proceeds from "${item.name || item.type || "Investment"}" toward "${goal.name || "Saving Goal"}"?`,
+        () => {
+          const result =
+            allocateMaturedInvestmentToGoal(
+              item.id,
+              goal.id
+            );
 
+          if (
+            result?.success === false
+          ) {
+            showErrorModal(
+              "Allocation Failed",
+              result.message ||
+              "Unable to allocate the matured investment."
+            );
+            return;
+          }
 
-      if (!confirmed) {
-        return;
-      }
+          if (result?.message) {
+            showSuccessModal(
+              "Allocation Successful",
+              result.message
+            );
+          }
 
-
-      const result =
-        allocateMaturedInvestmentToGoal(
-          item.id,
-          goal.id
-        );
-
-
-      if (
-        result?.success === false
-      ) {
-
-        window.alert(
-          result.message ||
-          "Unable to allocate the matured investment."
-        );
-
-        return;
-      }
-
-
-      if (result?.message) {
-
-        window.alert(
-          result.message
-        );
-
-      }
-
-
-      closeMaturityModal();
+          closeMaturityModal();
+        }
+      );
 
       return;
     }
@@ -598,7 +628,8 @@ function FinancialSuggestions() {
         "function"
       ) {
 
-        window.alert(
+        showErrorModal(
+          "Unavailable",
           "Insurance goal allocation is not available."
         );
 
@@ -606,48 +637,39 @@ function FinancialSuggestions() {
       }
 
 
-      const confirmed =
-        window.confirm(
-          `Allocate the maturity proceeds from "${item.name || item.type || "Insurance Policy"}" toward "${goal.name || "Saving Goal"}"?`
-        );
+      showConfirmModal(
+        "Confirm Allocation",
+        `Allocate the maturity proceeds from "${item.name || item.type || "Insurance Policy"}" toward "${goal.name || "Saving Goal"}"?`,
+        () => {
+          const result =
+            allocateMaturedInsuranceToGoal(
+              item.id,
+              goal.id
+            );
 
+          if (
+            result?.success === false
+          ) {
+            showErrorModal(
+              "Allocation Failed",
+              result.message ||
+              "Unable to allocate the insurance maturity proceeds."
+            );
+            return;
+          }
 
-      if (!confirmed) {
-        return;
-      }
+          if (result?.message) {
+            showSuccessModal(
+              "Allocation Successful",
+              result.message
+            );
+          }
 
+          closeMaturityModal();
+        }
+      );
 
-      const result =
-        allocateMaturedInsuranceToGoal(
-          item.id,
-          goal.id
-        );
-
-
-      if (
-        result?.success === false
-      ) {
-
-        window.alert(
-          result.message ||
-          "Unable to allocate the insurance maturity proceeds."
-        );
-
-        return;
-      }
-
-
-      if (result?.message) {
-
-        window.alert(
-          result.message
-        );
-
-      }
-
-
-      closeMaturityModal();
-
+      return;
     }
 
   }
@@ -680,7 +702,8 @@ function FinancialSuggestions() {
       "function"
     ) {
 
-      window.alert(
+      showErrorModal(
+        "Unavailable",
         "Investment reinvestment is not available."
       );
 
@@ -700,78 +723,51 @@ function FinancialSuggestions() {
       );
 
 
-    const confirmed =
-      window.confirm(
-        `Reinvest ₹${formatMoney(
-          maturityAmount
-        )} from "${item.name || item.type || "Investment"}"?`
-      );
+    showConfirmModal(
+      "Confirm Reinvestment",
+      `Reinvest ₹${formatMoney(
+        maturityAmount
+      )} from "${item.name || item.type || "Investment"}"?`,
+      () => {
+        const result =
+          reinvestMaturedInvestment(
+            item.id,
+            {
 
+              name:
+                `${item.name || item.type || "Investment"} - Reinvested`,
 
-    if (!confirmed) {
-      return;
-    }
+              type:
+                item.type ||
+                "Investment",
 
+              monthlyContribution:
+                0,
 
-    // --------------------------------------------------------
-    // NEW INVESTMENT DATA
-    //
-    // For now we automatically create the new investment
-    // from the matured investment.
-    //
-    // Later we can create a dedicated ReinvestmentModal
-    // where the user selects:
-    //
-    // - Investment type
-    // - Institution
-    // - Duration
-    // - Expected return
-    // - New maturity date
-    //
-    // --------------------------------------------------------
+            }
+          );
 
-    const result =
-      reinvestMaturedInvestment(
-        item.id,
-        {
-
-          name:
-            `${item.name || item.type || "Investment"} - Reinvested`,
-
-          type:
-            item.type ||
-            "Investment",
-
-          monthlyContribution:
-            0,
-
+        if (
+          result?.success === false
+        ) {
+          showErrorModal(
+            "Reinvestment Failed",
+            result.message ||
+            "Unable to reinvest the maturity proceeds."
+          );
+          return;
         }
-      );
 
+        if (result?.message) {
+          showSuccessModal(
+            "Reinvestment Successful",
+            result.message
+          );
+        }
 
-    if (
-      result?.success === false
-    ) {
-
-      window.alert(
-        result.message ||
-        "Unable to reinvest the maturity proceeds."
-      );
-
-      return;
-    }
-
-
-    if (result?.message) {
-
-      window.alert(
-        result.message
-      );
-
-    }
-
-
-    closeMaturityModal();
+        closeMaturityModal();
+      }
+    );
 
   }
 
@@ -818,7 +814,8 @@ function FinancialSuggestions() {
         "function"
       ) {
 
-        window.alert(
+        showErrorModal(
+          "Unavailable",
           "Goal settlement is not available."
         );
 
@@ -836,7 +833,8 @@ function FinancialSuggestions() {
         result?.success === false
       ) {
 
-        window.alert(
+        showErrorModal(
+          "Settlement Failed",
           result.message ||
           "Unable to settle this goal."
         );
@@ -864,7 +862,8 @@ function FinancialSuggestions() {
         "function"
       ) {
 
-        window.alert(
+        showErrorModal(
+          "Unavailable",
           "Goal withdrawal is not available."
         );
 
@@ -882,7 +881,8 @@ function FinancialSuggestions() {
 
       if (!goal) {
 
-        window.alert(
+        showErrorModal(
+          "Not Found",
           "Saving goal not found."
         );
 
@@ -916,7 +916,8 @@ function FinancialSuggestions() {
         availableFund <= 0
       ) {
 
-        window.alert(
+        showInfoModal(
+          "No Funds Available",
           "No goal funds are available to use."
         );
 
@@ -924,54 +925,46 @@ function FinancialSuggestions() {
       }
 
 
-      const confirmed =
-        window.confirm(
-          `Use ₹${formatMoney(
-            availableFund
-          )} from "${goal.name || "Saving Goal"}"?`
-        );
+      showConfirmModal(
+        "Confirm Goal Withdrawal",
+        `Use ₹${formatMoney(
+          availableFund
+        )} from "${goal.name || "Saving Goal"}"?`,
+        () => {
+          const result =
+            withdrawGoalFunds(
+              suggestion.itemId,
+              {
 
+                amount:
+                  availableFund,
 
-      if (!confirmed) {
-        return;
-      }
+                purpose:
+                  goal.name ||
+                  "Goal completed",
 
+                note:
+                  "Goal money used after completion.",
 
-      const result =
-        withdrawGoalFunds(
-          suggestion.itemId,
-          {
+                date:
+                  new Date()
+                    .toISOString()
+                    .slice(0, 10),
 
-            amount:
-              availableFund,
+              }
+            );
 
-            purpose:
-              goal.name ||
-              "Goal completed",
-
-            note:
-              "Goal money used after completion.",
-
-            date:
-              new Date()
-                .toISOString()
-                .slice(0, 10),
-
+          if (
+            result?.success === false
+          ) {
+            showErrorModal(
+              "Withdrawal Failed",
+              result.message ||
+              "Unable to use the goal money."
+            );
           }
-        );
-
-
-      if (
-        result?.success === false
-      ) {
-
-        window.alert(
-          result.message ||
-          "Unable to use the goal money."
-        );
-
-      }
-
+        }
+      );
 
       return;
     }
@@ -998,7 +991,8 @@ function FinancialSuggestions() {
 
       if (!investment) {
 
-        window.alert(
+        showErrorModal(
+          "Not Found",
           "Investment not found."
         );
 
@@ -1037,7 +1031,8 @@ function FinancialSuggestions() {
 
       if (!policy) {
 
-        window.alert(
+        showErrorModal(
+          "Not Found",
           "Insurance policy not found."
         );
 
@@ -1071,7 +1066,8 @@ function FinancialSuggestions() {
         "function"
       ) {
 
-        window.alert(
+        showErrorModal(
+          "Unavailable",
           "Liability closing is not available."
         );
 
@@ -1089,7 +1085,8 @@ function FinancialSuggestions() {
         result?.success === false
       ) {
 
-        window.alert(
+        showErrorModal(
+          "Close Failed",
           result.message ||
           "Unable to close this liability."
         );
@@ -2350,6 +2347,11 @@ function FinancialSuggestions() {
         onRefresh={handleRefreshAISuggestion}
         aiLoading={finance?.aiLoading}
       />
+
+      {/* ======================================================
+          ACTION MODAL (CENTERED)
+         ====================================================== */}
+      {actionModal && <CenteredModal {...actionModal} />}
 
     </>
 

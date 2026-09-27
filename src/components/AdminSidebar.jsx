@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
+import CenteredModal from "./common/CenteredModal.jsx";
 
 import {
   LayoutDashboard,
@@ -16,9 +18,8 @@ import {
 
 function AdminSidebar() {
   const navigate = useNavigate();
-
-  // Temporary until authentication is connected.
-  const isSuperAdmin = true;
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const menuItems = [
     {
@@ -36,17 +37,6 @@ function AdminSidebar() {
       path: "/admin/profile",
       icon: UserCog,
     },
-
-/*     ...(isSuperAdmin
-      ? [
-          {
-            name: "Administrators",
-            path: "/admin/administrators",
-            icon: UserCog,
-          },
-        ]
-      : []),
- */
     {
       name: "User Activity",
       path: "/admin/activity",
@@ -74,13 +64,15 @@ function AdminSidebar() {
     }, */
   ];
 
-  function handleSignOut() {
-    // Later:
-    // localStorage.removeItem("adminToken");
-    // localStorage.removeItem("adminUser");
-
-    navigate("/signin");
-  }
+  const confirmSignOut = () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    localStorage.removeItem("financeos_token");
+    localStorage.removeItem("financeos_user");
+    sessionStorage.removeItem("financeos_token");
+    sessionStorage.removeItem("financeos_user");
+    navigate("/signin", { replace: true });
+  };
 
   return (
     <aside
@@ -333,8 +325,7 @@ function AdminSidebar() {
 
           <button
             type="button"
-            onClick={handleSignOut}
-
+            onClick={() => setShowLogoutConfirm(true)}
             className="
               mt-2
               flex
@@ -365,6 +356,17 @@ function AdminSidebar() {
 
       </div>
 
+      <CenteredModal
+        isOpen={showLogoutConfirm}
+        onClose={() => !isLoggingOut && setShowLogoutConfirm(false)}
+        title="Sign Out"
+        message="Are you sure you want to sign out?"
+        type="confirm"
+        confirmText={isLoggingOut ? "Signing out..." : "Sign Out"}
+        cancelText="Cancel"
+        confirmVariant="danger"
+        onConfirm={confirmSignOut}
+      />
     </aside>
   );
 }

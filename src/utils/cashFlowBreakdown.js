@@ -151,6 +151,16 @@ export function deriveCashFlowBreakdown({
         }
       });
     }
+    if (Array.isArray(inv.transactions)) {
+      inv.transactions.forEach((tx) => {
+        if ((tx.type === "Buy" || tx.type === "Additional Investment") && isDateInPeriod(tx.date, targetYear, targetMonth)) {
+          const a = safeNumber(tx.amount);
+          actualInvestmentContributions += a;
+          paidAmt += a;
+          count++;
+        }
+      });
+    }
     if (inv.status === "Active") {
       plannedInvestmentsExpected += safeNumber(inv.monthlyContribution || (inv.type === "SIP" ? inv.amount : 0));
     }

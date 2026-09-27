@@ -147,7 +147,17 @@ function computeFinancialHealthScore({ income, expenses, commitments, availableT
 // BUILD FINANCIAL REPORT FOR USER (REUSABLE ENGINE)
 // ============================================================
 const buildFinancialReportForUser = async (userId, query = {}) => {
-  const { duration = "monthly", year, month, quarter, half } = query;
+  const {
+    duration = "monthly",
+    year,
+    month,
+    quarter,
+    half,
+    startYear,
+    startMonth,
+    endYear,
+    endMonth
+  } = query;
 
   const user = await User.findById(userId).select("name email phone role");
   if (!user) {
@@ -157,94 +167,203 @@ const buildFinancialReportForUser = async (userId, query = {}) => {
   }
 
   const currentYearNum = Number(year) || new Date().getFullYear();
-    let months = [];
-    let periodLabel = "";
-    let periodRangeLabel = "";
+  let monthPeriodItems = [];
+  let periodLabel = "";
+  let periodRangeLabel = "";
 
+  if (duration === "custom") {
+    const sYear = Number(startYear) || currentYearNum;
+    const sMonth = Number(startMonth) || 1;
+    const eYear = Number(endYear) || sYear;
+    const eMonth = Number(endMonth) || 12;
+
+    if (sYear > eYear || (sYear === eYear && sMonth > eMonth)) {
+      const err = new Error("Start date must be before or equal to End date.");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    let curY = sYear;
+    let curM = sMonth;
+    while (curY < eYear || (curY === eYear && curM <= eMonth)) {
+      monthPeriodItems.push({ year: curY, month: curM });
+      curM++;
+      if (curM > 12) {
+        curM = 1;
+        curY++;
+      }
+    }
+
+    periodLabel = `${MONTH_NAMES[sMonth - 1]} ${sYear} — ${MONTH_NAMES[eMonth - 1]} ${eYear}`;
+    periodRangeLabel = `${MONTH_NAMES[sMonth - 1]} 1, ${sYear} — ${MONTH_NAMES[eMonth - 1]} ${new Date(eYear, eMonth, 0).getDate()}, ${eYear}`;
+  } else if (duration === "monthly") {
+    const m = Number(month) || (new Date().getMonth() + 1);
+    monthPeriodItems.push({ year: currentYearNum, month: m });
+    periodLabel = `${MONTH_NAMES[m - 1]} ${currentYearNum}`;
+    periodRangeLabel = `${MONTH_NAMES[m - 1]} 1 — ${MONTH_NAMES[m - 1]} ${new Date(currentYearNum, m, 0).getDate()}, ${currentYearNum}`;
+  } else if (duration === "quarterly") {
+    const q = Number(quarter) || Math.ceil((new Date().getMonth() + 1) / 3);
+    const mList = q === 1 ? [1, 2, 3] : q === 2 ? [4, 5, 6] : q === 3 ? [7, 8, 9] : [10, 11, 12];
+    mList.forEach(m => monthPeriodItems.push({ year: currentYearNum, month: m }));
+    periodLabel = `Q${q} ${currentYearNum}`;
+    periodRangeLabel = `${MONTH_NAMES[mList[0] - 1]} — ${MONTH_NAMES[mList[2] - 1]} ${currentYearNum}`;
+  } else if (duration === "halfYear") {
+    const h = Number(half) || (new Date().getMonth() + 1 <= 6 ? 1 : 2);
+    const mList = h === 1 ? [1, 2, 3, 4, 5, 6] : [7, 8, 9, 10, 11, 12];
+    mList.forEach(m => monthPeriodItems.push({ year: currentYearNum, month: m }));
+    periodLabel = `H${h} ${currentYearNum}`;
+    periodRangeLabel = `${MONTH_NAMES[mList[0] - 1]} — ${MONTH_NAMES[mList[5] - 1]} ${currentYearNum}`;
+  } else {
+    // Yearly
+    for (let m = 1; m <= 12; m++) {
+      monthPeriodItems.push({ year: currentYearNum, month: m });
+    }
+    periodLabel = `Year ${currentYearNum}`;
+    periodRangeLabel = `January — December ${currentYearNum}`;
+  }
+
+  const firstItem = monthPeriodItems[0];
+  const lastItem = monthPeriodItems[monthPeriodItems.length - 1];
+  const periodStartDate = new Date(Date.UTC(firstItem.year, firstItem.month - 1, 1, 0, 0, 0));
+  const periodEndDate = new Date(Date.UTC(lastItem.year, lastItem.month, 0, 23, 59, 59, 999));
+
+  // 1. Fetch MonthlyFinance records for period (supporting multi-year spans)
+  const orConditions = monthPeriodItems.map(item => ({ year: item.year, month: item.month }));
+  const monthlyFinanceRecords = await MonthlyFinance.find({
+    user: userId,
+    $or: orConditions
+  }).sort({ year: 1, month: 1 });
+
+  // 2. Fetch Additional Incomes
+  const additionalIncomes = await AdditionalIncome.find({
+    user: userId,
+    $or: orConditions
+  }).sort({ date: 1 });
+
+  // 3. Fetch all financial items for the user
+  const [allInvestments, allInsurances, allLiabilities, allSavingGoals] = await Promise.all([
+    Investment.find({ user: userId }),
+    Insurance.find({ user: userId }),
+    Liability.find({ user: userId }),
+    SavingGoal.find({ user: userId }),
+  ]);
+
+  // STRICT NO-DATA VALIDATION
+  // Check if any financial data exists in this selected period
+  const hasMonthlyRecords = monthlyFinanceRecords.length > 0;
+  const hasAdditionalIncomes = additionalIncomes.length > 0;
+  const hasInvestmentActivity = allInvestments.some(inv => {
+    const sipMatch = Array.isArray(inv.sipContributions) && inv.sipContributions.some(sc => {
+      const d = sc.paidDate ? new Date(sc.paidDate) : (sc.dueDate ? new Date(sc.dueDate) : null);
+      return d && d >= periodStartDate && d <= periodEndDate;
+    });
+    const txMatch = Array.isArray(inv.transactions) && inv.transactions.some(tx => {
+      const d = tx.date ? new Date(tx.date) : null;
+      return d && d >= periodStartDate && d <= periodEndDate;
+    });
+    const itxMatch = Array.isArray(inv.interestTransactions) && inv.interestTransactions.some(itx => {
+      const d = itx.date ? new Date(itx.date) : null;
+      return d && d >= periodStartDate && d <= periodEndDate;
+    });
+    const createdMatch = inv.createdAt && new Date(inv.createdAt) >= periodStartDate && new Date(inv.createdAt) <= periodEndDate;
+    return sipMatch || txMatch || itxMatch || createdMatch;
+  });
+  const hasInsuranceActivity = allInsurances.some(ins => {
+    const payMatch = Array.isArray(ins.payments) && ins.payments.some(p => {
+      const d = p.paidDate ? new Date(p.paidDate) : (p.date ? new Date(p.date) : null);
+      return d && d >= periodStartDate && d <= periodEndDate;
+    });
+    const createdMatch = ins.createdAt && new Date(ins.createdAt) >= periodStartDate && new Date(ins.createdAt) <= periodEndDate;
+    return payMatch || createdMatch;
+  });
+  const hasLiabilityActivity = allLiabilities.some(liab => {
+    const payMatch = Array.isArray(liab.payments) && liab.payments.some(p => {
+      const d = p.paidDate ? new Date(p.paidDate) : (p.date ? new Date(p.date) : null);
+      return d && d >= periodStartDate && d <= periodEndDate;
+    });
+    const createdMatch = liab.createdAt && new Date(liab.createdAt) >= periodStartDate && new Date(liab.createdAt) <= periodEndDate;
+    return payMatch || createdMatch;
+  });
+  const hasGoalActivity = allSavingGoals.some(goal => {
+    const cMatch = Array.isArray(goal.contributions) && goal.contributions.some(c => {
+      const d = c.date ? new Date(c.date) : (c.createdAt ? new Date(c.createdAt) : null);
+      return d && d >= periodStartDate && d <= periodEndDate;
+    });
+    const createdMatch = goal.createdAt && new Date(goal.createdAt) >= periodStartDate && new Date(goal.createdAt) <= periodEndDate;
+    return cMatch || createdMatch;
+  });
+
+  const hasAnyData = hasMonthlyRecords || hasAdditionalIncomes || hasInvestmentActivity || hasInsuranceActivity || hasLiabilityActivity || hasGoalActivity;
+
+  if (!hasAnyData) {
+    let msg = "";
     if (duration === "monthly") {
-      const m = Number(month) || (new Date().getMonth() + 1);
-      months = [m];
-      periodLabel = `${MONTH_NAMES[m - 1]} ${currentYearNum}`;
-      periodRangeLabel = `${MONTH_NAMES[m - 1]} 1 — ${MONTH_NAMES[m - 1]} ${new Date(currentYearNum, m, 0).getDate()}, ${currentYearNum}`;
-    } else if (duration === "quarterly") {
-      const q = Number(quarter) || Math.ceil((new Date().getMonth() + 1) / 3);
-      if (q === 1) months = [1, 2, 3];
-      else if (q === 2) months = [4, 5, 6];
-      else if (q === 3) months = [7, 8, 9];
-      else months = [10, 11, 12];
-      periodLabel = `Q${q} ${currentYearNum}`;
-      periodRangeLabel = `${MONTH_NAMES[months[0] - 1]} — ${MONTH_NAMES[months[2] - 1]} ${currentYearNum}`;
-    } else if (duration === "halfYear") {
-      const h = Number(half) || (new Date().getMonth() + 1 <= 6 ? 1 : 2);
-      months = h === 1 ? [1, 2, 3, 4, 5, 6] : [7, 8, 9, 10, 11, 12];
-      periodLabel = `H${h} ${currentYearNum}`;
-      periodRangeLabel = `${MONTH_NAMES[months[0] - 1]} — ${MONTH_NAMES[months[5] - 1]} ${currentYearNum}`;
+      msg = `No data saved in ${MONTH_NAMES[firstItem.month - 1]} ${firstItem.year}. Please choose a month with saved data.`;
+    } else if (duration === "custom") {
+      msg = "No financial data found for the selected period. Please choose a period containing saved data.";
     } else {
-      // Yearly
-      months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-      periodLabel = `Year ${currentYearNum}`;
-      periodRangeLabel = `January — December ${currentYearNum}`;
+      msg = `No financial data found for ${periodLabel}. Please choose a period containing saved data.`;
     }
+    const err = new Error(msg);
+    err.statusCode = 404;
+    err.noData = true;
+    throw err;
+  }
 
-    const startMonth = months[0];
-    const endMonth = months[months.length - 1];
-    const periodStartDate = new Date(Date.UTC(currentYearNum, startMonth - 1, 1, 0, 0, 0));
-    const periodEndDate = new Date(Date.UTC(currentYearNum, endMonth, 0, 23, 59, 59, 999));
+  // Find starting opening balance before the selected period
+  let openingBalance = null;
+  const prevMonth = firstItem.month === 1 ? 12 : firstItem.month - 1;
+  const prevYear = firstItem.month === 1 ? firstItem.year - 1 : firstItem.year;
+  const prevRecord = await MonthlyFinance.findOne({
+    user: userId,
+    year: prevYear,
+    month: prevMonth
+  });
 
-    // 1. Fetch MonthlyFinance records for period
-    const monthlyFinanceRecords = await MonthlyFinance.find({
-      user: userId,
-      year: currentYearNum,
-      month: { $in: months }
-    }).sort({ month: 1 });
-
-    // Find starting opening balance before the selected period
-    let openingBalance = null;
-    let prevRecord = null;
-    if (startMonth > 1) {
-      prevRecord = await MonthlyFinance.findOne({
-        user: userId,
-        year: currentYearNum,
-        month: startMonth - 1
-      });
-    } else {
-      prevRecord = await MonthlyFinance.findOne({
-        user: userId,
-        year: currentYearNum - 1,
-        month: 12
-      });
-    }
-
-    if (prevRecord) {
-      openingBalance = safeNum(prevRecord.closingBalance !== undefined ? prevRecord.closingBalance : prevRecord.cashBalance);
-    } else if (monthlyFinanceRecords.length > 0) {
-      openingBalance = safeNum(monthlyFinanceRecords[0].openingBalance !== undefined ? monthlyFinanceRecords[0].openingBalance : monthlyFinanceRecords[0].cashBalance);
-    } else {
-      openingBalance = 0;
-    }
-
-    // 2. Fetch Additional Incomes
-    const additionalIncomes = await AdditionalIncome.find({
-      user: userId,
-      year: currentYearNum,
-      month: { $in: months }
-    }).sort({ date: 1 });
-
-    // 3. Fetch all financial items for the user
-    const [allInvestments, allInsurances, allLiabilities, allSavingGoals] = await Promise.all([
-      Investment.find({ user: userId }),
-      Insurance.find({ user: userId }),
-      Liability.find({ user: userId }),
-      SavingGoal.find({ user: userId }),
-    ]);
+  if (prevRecord) {
+    openingBalance = safeNum(prevRecord.closingBalance !== undefined ? prevRecord.closingBalance : prevRecord.cashBalance);
+  } else if (monthlyFinanceRecords.length > 0) {
+    openingBalance = safeNum(monthlyFinanceRecords[0].openingBalance !== undefined ? monthlyFinanceRecords[0].openingBalance : monthlyFinanceRecords[0].cashBalance);
+  } else {
+    openingBalance = 0;
+  }
 
     // ============================================================
     // A. AGGREGATE MONTH-BY-MONTH CASH FLOW
     // ============================================================
-    const monthDetails = months.map((m) => {
-      const record = monthlyFinanceRecords.find((r) => r.month === m);
-      const mIncomes = additionalIncomes.filter((ai) => ai.month === m);
+    const monthDetails = monthPeriodItems.map((item) => {
+      const record = monthlyFinanceRecords.find((r) => r.year === item.year && r.month === item.month);
+      const mIncomes = additionalIncomes.filter((ai) => ai.year === item.year && ai.month === item.month);
       const addIncomeTotal = mIncomes.reduce((sum, ai) => sum + safeNum(ai.amount), 0);
+
+      const hasRecord = !!record || mIncomes.length > 0;
+
+      if (!hasRecord) {
+        return {
+          year: item.year,
+          month: item.month,
+          monthName: MONTH_NAMES[item.month - 1],
+          shortLabel: MONTH_NAMES[item.month - 1].slice(0, 3),
+          periodKey: `${item.year}-${String(item.month).padStart(2, "0")}`,
+          hasRecord: false,
+          baseIncome: null,
+          additionalIncome: 0,
+          totalIncome: null,
+          expenses: null,
+          savings: null,
+          openingBalance: null,
+          goalAllocations: null,
+          investmentCommitments: null,
+          insuranceCommitments: null,
+          liabilityCommitments: null,
+          totalCommitments: null,
+          closingBalance: null,
+          availableToAllocate: null,
+          healthScore: null,
+          healthStatus: "No Data",
+          updateDate: null,
+        };
+      }
 
       const baseIncome = record ? safeNum(record.income) : 0;
       const totalIncome = baseIncome + addIncomeTotal;
@@ -270,10 +389,12 @@ const buildFinancialReportForUser = async (userId, query = {}) => {
       });
 
       return {
-        month: m,
-        monthName: MONTH_NAMES[m - 1],
-        shortLabel: MONTH_NAMES[m - 1].slice(0, 3),
-        hasRecord: !!record,
+        year: item.year,
+        month: item.month,
+        monthName: MONTH_NAMES[item.month - 1],
+        shortLabel: MONTH_NAMES[item.month - 1].slice(0, 3),
+        periodKey: `${item.year}-${String(item.month).padStart(2, "0")}`,
+        hasRecord: true,
         baseIncome,
         additionalIncome: addIncomeTotal,
         totalIncome,
@@ -293,18 +414,19 @@ const buildFinancialReportForUser = async (userId, query = {}) => {
       };
     });
 
-    const totalIncome = monthDetails.reduce((sum, m) => sum + m.totalIncome, 0);
-    const totalExpenses = monthDetails.reduce((sum, m) => sum + m.expenses, 0);
+    const recordedMonths = monthDetails.filter((m) => m.hasRecord);
+    const totalIncome = recordedMonths.reduce((sum, m) => sum + (m.totalIncome || 0), 0);
+    const totalExpenses = recordedMonths.reduce((sum, m) => sum + (m.expenses || 0), 0);
     const totalSavings = totalIncome - totalExpenses;
-    const recordedMonthsCount = monthDetails.filter((m) => m.hasRecord || m.totalIncome > 0 || m.expenses > 0).length || 1;
+    const recordedMonthsCount = recordedMonths.length || 1;
 
-    const avgMonthlyIncome = Math.round(totalIncome / (months.length || 1));
-    const avgMonthlyExpenses = Math.round(totalExpenses / (months.length || 1));
-    const avgMonthlySavings = Math.round(totalSavings / (months.length || 1));
+    const avgMonthlyIncome = Math.round(totalIncome / recordedMonthsCount);
+    const avgMonthlyExpenses = Math.round(totalExpenses / recordedMonthsCount);
+    const avgMonthlySavings = Math.round(totalSavings / recordedMonthsCount);
 
     const lastRecordedMonth = [...monthDetails].reverse().find((m) => m.hasRecord) || monthDetails[monthDetails.length - 1];
-    const closingBalance = lastRecordedMonth ? lastRecordedMonth.closingBalance : (openingBalance + totalSavings);
-    const availableToAllocate = lastRecordedMonth ? lastRecordedMonth.availableToAllocate : (openingBalance + totalSavings);
+    const closingBalance = lastRecordedMonth && lastRecordedMonth.hasRecord ? lastRecordedMonth.closingBalance : (openingBalance + totalSavings);
+    const availableToAllocate = lastRecordedMonth && lastRecordedMonth.hasRecord ? lastRecordedMonth.availableToAllocate : (openingBalance + totalSavings);
 
     // ============================================================
     // B. FINANCIAL ACTIVITY LEDGER (Contributions, Payments, Inflows)
@@ -680,21 +802,38 @@ const buildFinancialReportForUser = async (userId, query = {}) => {
     const netWorthChangePct = openingNetWorth !== 0 ? ((netWorthChange / Math.abs(openingNetWorth)) * 100).toFixed(1) : null;
 
     // Timeline matching duration points
-    const netWorthPoints = months.map((m) => {
-      const rec = monthlyFinanceRecords.find((r) => r.month === m);
-      const mClosing = rec ? safeNum(rec.closingBalance) : (openingBalance + (totalSavings / months.length));
+    const netWorthPoints = monthPeriodItems.map((item) => {
+      const rec = monthlyFinanceRecords.find((r) => r.year === item.year && r.month === item.month);
+      const detail = monthDetails.find((d) => d.year === item.year && d.month === item.month);
+
+      if (!detail || !detail.hasRecord) {
+        return {
+          year: item.year,
+          month: item.month,
+          monthName: MONTH_NAMES[item.month - 1],
+          shortLabel: MONTH_NAMES[item.month - 1].slice(0, 3),
+          netWorth: null,
+          assets: null,
+          liabilities: totalLiabilitiesVal,
+          cashBalance: null,
+          isRecorded: false,
+        };
+      }
+
+      const mClosing = rec ? safeNum(rec.closingBalance) : (openingBalance + (totalSavings / recordedMonthsCount));
       const mAssets = mClosing + totalInvestmentsVal + totalGoalFundsVal;
       const mNetWorth = rec && rec.netWorth !== undefined && rec.netWorth !== null ? rec.netWorth : (mAssets - totalLiabilitiesVal);
 
       return {
-        month: m,
-        monthName: MONTH_NAMES[m - 1],
-        shortLabel: MONTH_NAMES[m - 1].slice(0, 3),
+        year: item.year,
+        month: item.month,
+        monthName: MONTH_NAMES[item.month - 1],
+        shortLabel: MONTH_NAMES[item.month - 1].slice(0, 3),
         netWorth: mNetWorth,
         assets: mAssets,
         liabilities: totalLiabilitiesVal,
         cashBalance: mClosing,
-        isRecorded: !!rec,
+        isRecorded: true,
       };
     });
 
@@ -723,6 +862,9 @@ const buildFinancialReportForUser = async (userId, query = {}) => {
     } else if (duration === "halfYear") {
       suggestions.push(`Over this 6-month period, you committed ₹${(totalInvestmentContributionsPeriod + totalGoalContributionsPeriod).toLocaleString("en-IN")} toward wealth accumulation.`);
       if (totalLiabilityPaymentsPeriod > 0) suggestions.push(`Consolidated debt servicing accounted for ₹${totalLiabilityPaymentsPeriod.toLocaleString("en-IN")}.`);
+    } else if (duration === "custom") {
+      suggestions.push(`Selected custom period generated ₹${totalSavings.toLocaleString("en-IN")} in cumulative recorded net savings.`);
+      if (totalGoalContributionsPeriod > 0) suggestions.push(`Goal funding totaled ₹${totalGoalContributionsPeriod.toLocaleString("en-IN")} across this custom timeframe.`);
     } else {
       // Yearly
       suggestions.push(`Annual income of ₹${totalIncome.toLocaleString("en-IN")} generated ₹${totalSavings.toLocaleString("en-IN")} in cumulative savings.`);
@@ -802,9 +944,13 @@ const buildFinancialReportForUser = async (userId, query = {}) => {
         userEmail: user.email,
         duration,
         year: currentYearNum,
-        month: duration === "monthly" ? months[0] : null,
+        month: duration === "monthly" ? monthPeriodItems[0].month : null,
         quarter: duration === "quarterly" ? Number(quarter) || 1 : null,
         half: duration === "halfYear" ? Number(half) || 1 : null,
+        startYear: duration === "custom" ? firstItem.year : null,
+        startMonth: duration === "custom" ? firstItem.month : null,
+        endYear: duration === "custom" ? lastItem.year : null,
+        endMonth: duration === "custom" ? lastItem.month : null,
         periodLabel,
         periodRangeLabel,
         generatedAt: new Date().toISOString(),
@@ -873,13 +1019,106 @@ const getFinancialReport = async (req, res) => {
     console.error("Report Controller Error:", error);
     return res.status(error.statusCode || 500).json({
       success: false,
+      noData: !!error.noData,
       message: error.message || "Failed to generate financial report."
+    });
+  }
+};
+
+// ============================================================
+// GET SAVED MONTHS (DISTINCT MONTHS WITH DATA)
+// ============================================================
+const getSavedMonths = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const [records, additional, investments, insurances, liabilities, goals] = await Promise.all([
+      MonthlyFinance.find({ user: userId }).select("year month"),
+      AdditionalIncome.find({ user: userId }).select("year month date"),
+      Investment.find({ user: userId }).select("sipContributions transactions interestTransactions createdAt"),
+      Insurance.find({ user: userId }).select("payments createdAt"),
+      Liability.find({ user: userId }).select("payments createdAt"),
+      SavingGoal.find({ user: userId }).select("contributions createdAt"),
+    ]);
+
+    const map = new Map();
+    records.forEach(r => {
+      const key = `${r.year}-${r.month}`;
+      map.set(key, { year: r.year, month: r.month, label: `${MONTH_NAMES[r.month - 1]} ${r.year}` });
+    });
+    additional.forEach(a => {
+      const key = `${a.year}-${a.month}`;
+      if (!map.has(key)) {
+        map.set(key, { year: a.year, month: a.month, label: `${MONTH_NAMES[a.month - 1]} ${a.year}` });
+      }
+    });
+
+    const addDateToMap = (d) => {
+      if (!d) return;
+      const dateObj = new Date(d);
+      if (Number.isNaN(dateObj.getTime())) return;
+      const y = dateObj.getFullYear();
+      const m = dateObj.getMonth() + 1;
+      const key = `${y}-${m}`;
+      if (!map.has(key) && y >= 2000 && y <= 2100) {
+        map.set(key, { year: y, month: m, label: `${MONTH_NAMES[m - 1]} ${y}` });
+      }
+    };
+
+    investments.forEach(inv => {
+      if (Array.isArray(inv.sipContributions)) {
+        inv.sipContributions.forEach(sc => addDateToMap(sc.paidDate || sc.dueDate));
+      }
+      if (Array.isArray(inv.transactions)) {
+        inv.transactions.forEach(tx => addDateToMap(tx.date));
+      }
+      if (Array.isArray(inv.interestTransactions)) {
+        inv.interestTransactions.forEach(itx => addDateToMap(itx.date));
+      }
+      addDateToMap(inv.createdAt);
+    });
+
+    insurances.forEach(ins => {
+      if (Array.isArray(ins.payments)) {
+        ins.payments.forEach(p => addDateToMap(p.paidDate || p.date));
+      }
+      addDateToMap(ins.createdAt);
+    });
+
+    liabilities.forEach(liab => {
+      if (Array.isArray(liab.payments)) {
+        liab.payments.forEach(p => addDateToMap(p.paidDate || p.date));
+      }
+      addDateToMap(liab.createdAt);
+    });
+
+    goals.forEach(g => {
+      if (Array.isArray(g.contributions)) {
+        g.contributions.forEach(c => addDateToMap(c.date || c.createdAt));
+      }
+      addDateToMap(g.createdAt);
+    });
+
+    const savedMonths = Array.from(map.values()).sort((a, b) => {
+      if (a.year !== b.year) return b.year - a.year;
+      return b.month - a.month;
+    });
+
+    return res.status(200).json({
+      success: true,
+      savedMonths,
+    });
+  } catch (error) {
+    console.error("getSavedMonths Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve saved months."
     });
   }
 };
 
 module.exports = {
   getFinancialReport,
+  getSavedMonths,
   buildFinancialReportForUser,
   computeFinancialHealthScore,
 };

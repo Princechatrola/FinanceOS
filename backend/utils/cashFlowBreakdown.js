@@ -205,6 +205,17 @@ async function calculateMonthlyCashFlowBreakdown({ userId, year, month }) {
       });
     }
 
+    if (Array.isArray(inv.transactions)) {
+      inv.transactions.forEach((tx) => {
+        if ((tx.type === "Buy" || tx.type === "Additional Investment") && isDateInPeriod(tx.date, targetYear, targetMonth)) {
+          const amt = safeNum(tx.amount);
+          actualInvestmentContributions += amt;
+          invPaidThisMonth += amt;
+          invPaidCount++;
+        }
+      });
+    }
+
     // Planned commitment for context (active in this month)
     if (inv.status === "Active") {
       plannedInvestmentsExpected += safeNum(inv.monthlyContribution || (inv.type === "SIP" ? inv.amount : 0));

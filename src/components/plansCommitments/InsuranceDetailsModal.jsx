@@ -22,6 +22,7 @@ import useFinance from "../../context/useFinance.js";
 import { parseSelectedMonth } from "../../utils/monthLifecycle.js";
 import { calculateDueDateForMonth, formatDateISO, formatDateDisplay } from "../../utils/dueDateSchedule.js";
 import ReminderConfigModal from "../reminders/ReminderConfigModal.jsx";
+import CenteredModal from "../common/CenteredModal.jsx";
 
 const inputClass =
   "mt-2 w-full rounded-xl border border-[#dfe6da] bg-[#fafcf8] px-4 py-3 text-sm text-[#18392c] outline-none transition placeholder:text-slate-300 focus:border-[#9fbd8d]";
@@ -95,6 +96,17 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
 
+  const [actionModal, setActionModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "info",
+    confirmText: "OK",
+    cancelText: "Cancel",
+    confirmVariant: "primary",
+    onConfirm: null,
+  });
+
   // Policy notes state
   const [policyNotes, setPolicyNotes] = useState(policy?.notes || "");
 
@@ -160,33 +172,58 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
     setSuccess("");
     if (!payAmount || Number(payAmount) <= 0) return setError("Enter a valid payment amount.");
 
-    setIsSubmitting(true);
-    try {
-      const paymentSource = {
-        method: payMethod,
-        bankName: payMethod === "Bank Account" || payMethod === "UPI" ? payBankName : "",
-        last4Digits: payMethod === "Bank Account" ? payLast4 : "",
-        upiApp: payMethod === "UPI" ? payUpiApp : "",
-        upiId: payMethod === "UPI" ? payUpiId : "",
-        otherDetails: payMethod === "Other" ? payOther : "",
-      };
+    setActionModal({
+      isOpen: true,
+      title: "Confirm Premium Payment",
+      message: `Amount: ₹${formatMoney(payAmount)}\nPayment Source: ${payMethod}\n\nDo you want to record this premium payment?`,
+      type: "confirm",
+      confirmText: "Confirm",
+      cancelText: "Cancel",
+      confirmVariant: "primary",
+      onConfirm: async () => {
+        setIsSubmitting(true);
+        try {
+          const paymentSource = {
+            method: payMethod,
+            bankName: payMethod === "Bank Account" || payMethod === "UPI" ? payBankName : "",
+            last4Digits: payMethod === "Bank Account" ? payLast4 : "",
+            upiApp: payMethod === "UPI" ? payUpiApp : "",
+            upiId: payMethod === "UPI" ? payUpiId : "",
+            otherDetails: payMethod === "Other" ? payOther : "",
+          };
 
-      await addInsurancePayment(policy._id, {
-        amount: Number(payAmount),
-        paidDate: payStatus === "Paid" ? payPaidDate : undefined,
-        status: payStatus,
-        paymentSource,
-        note: payNote,
-        selectedMonth: monthBounds.iso,
-      });
+          await addInsurancePayment(policy._id, {
+            amount: Number(payAmount),
+            paidDate: payStatus === "Paid" ? payPaidDate : undefined,
+            status: payStatus,
+            paymentSource,
+            note: payNote,
+            selectedMonth: monthBounds.iso,
+          });
 
-      setSuccess("Premium payment recorded successfully.");
-      setPayNote("");
-    } catch (err) {
-      setError(err.message || "Failed to record payment.");
-    } finally {
-      setIsSubmitting(false);
-    }
+          setActionModal({
+            isOpen: true,
+            title: "Premium Payment Recorded",
+            message: `₹${formatMoney(payAmount)} has been added successfully.`,
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+          setPayNote("");
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Failed to record payment.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
+    });
   };
 
   const handleRenew = async (e) => {
@@ -282,34 +319,86 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
     }
   };
 
-  const handleDeleteHomeItem = async (indexToDelete) => {
-    setError("");
-    setSuccess("");
-    try {
-      const currentItems = policy.homeDetails?.electronicsItems || [];
-      const newElectronics = currentItems.filter((_, idx) => idx !== indexToDelete);
+  const handleDeleteHomeItem = (indexToDelete) => {
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to delete?",
+      message: "Remove this covered item from policy?",
+      type: "confirm",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        setError("");
+        setSuccess("");
+        try {
+          const currentItems = policy.homeDetails?.electronicsItems || [];
+          const newElectronics = currentItems.filter((_, idx) => idx !== indexToDelete);
 
-      await updateInsurancePolicy(policy._id, {
-        homeDetails: {
-          ...policy.homeDetails,
-          electronicsItems: newElectronics
+          await updateInsurancePolicy(policy._id, {
+            homeDetails: {
+              ...policy.homeDetails,
+              electronicsItems: newElectronics
+            }
+          });
+          setActionModal({
+            isOpen: true,
+            title: "Deleted Successfully",
+            message: "Covered item deleted.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Failed to delete item.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
         }
-      });
-      setSuccess("Covered item deleted.");
-    } catch (err) {
-      setError(err.message || "Failed to delete item.");
-    }
+      }
+    });
   };
 
-  const handleDeletePolicy = async () => {
-    if (!window.confirm("Are you sure you want to delete this insurance policy? This cannot be undone.")) return;
-    setError("");
-    try {
-      await deleteInsurancePolicy(policy._id);
-      onClose();
-    } catch (err) {
-      setError(err.message || "Failed to delete policy.");
-    }
+  const handleDeletePolicy = () => {
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to delete?",
+      message: "This action cannot be undone.",
+      type: "confirm",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        setError("");
+        try {
+          await deleteInsurancePolicy(policy._id);
+          setActionModal({
+            isOpen: true,
+            title: "Deleted Successfully",
+            message: "The plan has been deleted successfully.",
+            type: "success",
+            confirmText: "OK",
+            onConfirm: () => {
+              setActionModal(prev => ({ ...prev, isOpen: false }));
+              onClose();
+            },
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            title: "Something went wrong",
+            message: err.message || "Failed to delete policy.",
+            type: "error",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(prev => ({ ...prev, isOpen: false })),
+          });
+        }
+      },
+    });
   };
 
   // Calculations
@@ -957,6 +1046,19 @@ export default function InsuranceDetailsModal({ policy, onClose, onEdit }) {
           initialData={policy}
         />
       )}
+
+      {/* ACTION MODAL */}
+      <CenteredModal
+        isOpen={actionModal.isOpen}
+        title={actionModal.title}
+        message={actionModal.message}
+        type={actionModal.type}
+        confirmText={actionModal.confirmText}
+        cancelText={actionModal.cancelText}
+        confirmVariant={actionModal.confirmVariant}
+        onConfirm={actionModal.onConfirm}
+        onClose={() => setActionModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

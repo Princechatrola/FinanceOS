@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import CenteredModal from "../components/common/CenteredModal.jsx";
 
 import {
   AlertCircle,
@@ -316,6 +317,12 @@ function SignUp() {
 
   const [isSubmitting, setIsSubmitting] =
     useState(false);
+
+  const [successModal, setSuccessModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+  });
 
   const [formData, setFormData] = useState({
 
@@ -765,13 +772,11 @@ function SignUp() {
       // SUCCESS
       // ======================================================
 
-      alert(
-        data.message ||
-        "FinanceOS account created successfully."
-      );
-
-
-      navigate("/signin");
+      setSuccessModal({
+        isOpen: true,
+        title: "Account Created Successfully",
+        message: data.message || "Your FinanceOS account has been created successfully. Please sign in to continue.",
+      });
 
     } catch (error) {
 
@@ -1637,6 +1642,22 @@ function SignUp() {
         </div>
 
       </main>
+
+      <CenteredModal
+        isOpen={successModal.isOpen}
+        title={successModal.title}
+        message={successModal.message}
+        type="success"
+        confirmText="Sign In"
+        onConfirm={() => {
+          setSuccessModal({ isOpen: false, title: "", message: "" });
+          navigate("/signin");
+        }}
+        onClose={() => {
+          setSuccessModal({ isOpen: false, title: "", message: "" });
+          navigate("/signin");
+        }}
+      />
 
     </div>
 

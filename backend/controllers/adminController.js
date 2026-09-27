@@ -46,6 +46,15 @@ function normalizeStatus(status) {
     : null;
 }
 
+function getUserLookupQuery(id) {
+  if (!id) return null;
+  const trimmed = String(id).trim();
+  if (mongoose.Types.ObjectId.isValid(trimmed)) {
+    return { $or: [{ _id: trimmed }, { userId: trimmed }] };
+  }
+  return { userId: trimmed };
+}
+
 async function generateUserId() {
   const lastUser = await User.findOne({
     userId: /^FOS-U-/,
@@ -369,20 +378,16 @@ const getAdminUsers = async (req, res) => {
 const getAdminUserById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userQuery = getUserLookupQuery(id);
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!userQuery) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID.",
       });
     }
 
-    const user = await User.findOne({
-      _id: id,
-      role: {
-        $nin: ["admin", "administrator"],
-      },
-    })
+    const user = await User.findOne(userQuery)
       .select(
         "name userId email mobile phone city state gender dateOfBirth status createdAt role permissions"
       )
@@ -548,17 +553,15 @@ const updateAdminUser = async (req, res) => {
       status,
     } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const userQuery = getUserLookupQuery(id);
+    if (!userQuery) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID.",
       });
     }
 
-    const user = await User.findOne({
-      _id: id,
-      role: { $nin: ["admin", "administrator"] },
-    });
+    const user = await User.findOne(userQuery);
 
     if (!user) {
       return res.status(404).json({
@@ -605,7 +608,7 @@ const updateAdminUser = async (req, res) => {
       }
 
       // Check for duplicate email (excluding this user)
-      const existingUser = await User.findOne({ email: normalizedEmail, _id: { $ne: id } });
+      const existingUser = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } });
       if (existingUser) return res.status(409).json({ success: false, message: "An account with this email already exists." });
 
       user.email = normalizedEmail;
@@ -664,7 +667,8 @@ const updateUserAccess = async (req, res) => {
     const { id } = req.params;
     const { permissions } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const userQuery = getUserLookupQuery(id);
+    if (!userQuery) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID.",
@@ -678,10 +682,7 @@ const updateUserAccess = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({
-      _id: id,
-      role: { $nin: ["admin", "administrator"] },
-    });
+    const user = await User.findOne(userQuery);
 
     if (!user) {
       return res.status(404).json({
@@ -738,7 +739,8 @@ const updateUserStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const userQuery = getUserLookupQuery(id);
+    if (!userQuery) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID.",
@@ -756,12 +758,7 @@ const updateUserStatus = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({
-      _id: id,
-      role: {
-        $nin: ["admin", "administrator"],
-      },
-    });
+    const user = await User.findOne(userQuery);
 
     if (!user) {
       return res.status(404).json({
@@ -816,24 +813,27 @@ const archiveUser = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const userQuery = getUserLookupQuery(id);
+    if (!userQuery) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID.",
       });
     }
 
-    const user = await User.findOne({
-      _id: id,
-      role: {
-        $nin: ["admin", "administrator"],
-      },
-    });
+    const user = await User.findOne(userQuery);
 
     if (!user) {
       return res.status(404).json({
         success: false,
         message: "User not found.",
+      });
+    }
+
+    if (user.role === "admin" || user.role === "administrator") {
+      return res.status(403).json({
+        success: false,
+        message: "Super Admin accounts cannot be deleted.",
       });
     }
 
@@ -976,6 +976,7 @@ const getAdminReportUsers = async (req, res) => {
     );
 
     const reportUsers = users.map((user) => ({
+      _id: user._id,
       id: user.userId,
       name: user.name,
       email: user.email,
@@ -1795,18 +1796,16 @@ const getAdminUserFinancial = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const userQuery = getUserLookupQuery(id);
+    if (!userQuery) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID.",
       });
     }
 
-    const user = await User.findOne({
-      _id: id,
-      role: { $nin: ["admin", "administrator"] },
-    })
-      .select("name userId email mobile phone city state gender dateOfBirth status createdAt")
+    const user = await User.findOne(userQuery)
+      .select("name userId email mobile phone city state gender dateOfBirth status createdAt role")
       .lean();
 
     if (!user) {
@@ -1815,6 +1814,8 @@ const getAdminUserFinancial = async (req, res) => {
         message: "User not found.",
       });
     }
+
+    const actualMongoId = user._id;
 
     // Determine requested year & month
     const now = new Date();
@@ -1830,7 +1831,7 @@ const getAdminUserFinancial = async (req, res) => {
       targetMonth < 1 ||
       targetMonth > 12
     ) {
-      const latestMf = await MonthlyFinance.findOne({ user: id })
+      const latestMf = await MonthlyFinance.findOne({ user: actualMongoId })
         .sort({ year: -1, month: -1 })
         .lean();
 
@@ -1845,13 +1846,13 @@ const getAdminUserFinancial = async (req, res) => {
 
     // Authoritative cash flow breakdown calculation
     const breakdown = await calculateMonthlyCashFlowBreakdown({
-      userId: id,
+      userId: actualMongoId,
       year: targetYear,
       month: targetMonth,
     });
 
     // Fetch all user's recorded periods for navigation dropdown
-    const allMonthlyRecords = await MonthlyFinance.find({ user: id })
+    const allMonthlyRecords = await MonthlyFinance.find({ user: actualMongoId })
       .sort({ year: -1, month: -1 })
       .select("year month income expenses cashBalance openingBalance closingBalance commitments")
       .lean();
@@ -1877,13 +1878,13 @@ const getAdminUserFinancial = async (req, res) => {
       reminders,
       maturityActions,
     ] = await Promise.all([
-      SavingGoal.find({ user: id }).sort({ createdAt: -1 }).lean(),
-      Investment.find({ user: id }).sort({ createdAt: -1 }).lean(),
-      Liability.find({ user: id }).sort({ createdAt: -1 }).lean(),
-      Insurance.find({ user: id }).sort({ createdAt: -1 }).lean(),
-      AdditionalIncome.find({ user: id, year: targetYear, month: targetMonth }).sort({ date: -1 }).lean(),
-      Reminder.find({ userId: id }).sort({ dueDate: -1 }).lean(),
-      InvestmentMaturityAction.find({ user: id }).sort({ createdAt: -1 }).lean(),
+      SavingGoal.find({ user: actualMongoId }).sort({ createdAt: -1 }).lean(),
+      Investment.find({ user: actualMongoId }).sort({ createdAt: -1 }).lean(),
+      Liability.find({ user: actualMongoId }).sort({ createdAt: -1 }).lean(),
+      Insurance.find({ user: actualMongoId }).sort({ createdAt: -1 }).lean(),
+      AdditionalIncome.find({ user: actualMongoId, year: targetYear, month: targetMonth }).sort({ date: -1 }).lean(),
+      Reminder.find({ userId: actualMongoId }).sort({ dueDate: -1 }).lean(),
+      InvestmentMaturityAction.find({ user: actualMongoId }).sort({ createdAt: -1 }).lean(),
     ]);
 
     // Calculate Asset & Liability totals for Net Worth
@@ -1981,18 +1982,16 @@ const getAdminUserActivity = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const userQuery = getUserLookupQuery(id);
+    if (!userQuery) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID.",
       });
     }
 
-    const user = await User.findOne({
-      _id: id,
-      role: { $nin: ["admin", "administrator"] },
-    })
-      .select("name userId email")
+    const user = await User.findOne(userQuery)
+      .select("name userId email role")
       .lean();
 
     if (!user) {
@@ -2002,7 +2001,7 @@ const getAdminUserActivity = async (req, res) => {
       });
     }
 
-    const activities = await Activity.find({ userId: id })
+    const activities = await Activity.find({ userId: user._id })
       .sort({ createdAt: -1 })
       .lean();
 
@@ -2058,17 +2057,15 @@ const getAdminUserReport = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const userQuery = getUserLookupQuery(id);
+    if (!userQuery) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID.",
       });
     }
 
-    const user = await User.findOne({
-      _id: id,
-      role: { $nin: ["admin", "administrator"] },
-    })
+    const user = await User.findOne(userQuery)
       .select("name userId email phone role")
       .lean();
 
@@ -2079,7 +2076,29 @@ const getAdminUserReport = async (req, res) => {
       });
     }
 
-    const report = await buildFinancialReportForUser(id, req.query);
+    const actualMongoId = user._id;
+
+    let report;
+    try {
+      report = await buildFinancialReportForUser(actualMongoId, req.query);
+    } catch (reportErr) {
+      if (!req.query.month && !req.query.year && !req.query.duration) {
+        const latestRecord = await MonthlyFinance.findOne({ user: actualMongoId })
+          .sort({ year: -1, month: -1 })
+          .lean();
+        if (latestRecord) {
+          report = await buildFinancialReportForUser(actualMongoId, {
+            duration: "monthly",
+            year: latestRecord.year,
+            month: latestRecord.month,
+          });
+        } else {
+          throw reportErr;
+        }
+      } else {
+        throw reportErr;
+      }
+    }
 
     return res.status(200).json({
       success: true,

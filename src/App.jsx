@@ -55,15 +55,6 @@ import AdminEditUser from "./pages/AdminEditUser.jsx";
 import AdminUserAccess from "./pages/AdminUserAccess.jsx";
 
 
-// ============================================================
-// SUPER ADMIN - ADMINISTRATOR MANAGEMENT
-// ============================================================
-
-import AdminAdministrators from "./pages/AdminAdministrators.jsx";
-import AdminCreateAdministrator from "./pages/AdminCreateAdministrator.jsx";
-import AdminAdministratorDetails from "./pages/AdminAdministratorDetails.jsx";
-import AdminEditAdministrator from "./pages/AdminEditAdministrator.jsx";
-import AdminAdministratorAccess from "./pages/AdminAdministratorAccess.jsx";
 
 
 // ============================================================
@@ -330,50 +321,17 @@ function App() {
 
 
       {/* ======================================================
-          SUPER ADMIN - ADMINISTRATOR MANAGEMENT
+          REMOVED ADMINISTRATOR MANAGEMENT -> REDIRECT
       ====================================================== */}
 
       <Route
-        path="/admin/administrators"
+        path="/admin/administrators/*"
         element={
           <AdminProtectedRoute>
-            <AdminAdministrators />
-          </AdminProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/administrators/create"
-        element={
-          <AdminProtectedRoute>
-            <AdminCreateAdministrator />
-          </AdminProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/administrators/:id"
-        element={
-          <AdminProtectedRoute>
-            <AdminAdministratorDetails />
-          </AdminProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/administrators/:id/edit"
-        element={
-          <AdminProtectedRoute>
-            <AdminEditAdministrator />
-          </AdminProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/administrators/:id/access"
-        element={
-          <AdminProtectedRoute>
-            <AdminAdministratorAccess />
+            <Navigate
+              to="/admin/dashboard"
+              replace
+            />
           </AdminProtectedRoute>
         }
       />

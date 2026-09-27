@@ -13,6 +13,7 @@ import {
   FiBriefcase
 } from "react-icons/fi";
 import useFinance from "../../context/useFinance.js";
+import CenteredModal from "../common/CenteredModal.jsx";
 
 // ============================================================
 // COMMON INPUT STYLES
@@ -205,6 +206,8 @@ export default function LiabilityForm({ editingLiability, onClose, onSuccess }) 
   const [paymentFrequency, setPaymentFrequency] = useState(editingLiability?.paymentFrequency || "Monthly");
   const [notes, setNotes] = useState(editingLiability?.notes || "");
   const [status, setStatus] = useState(editingLiability?.status || "Active");
+  const [showUpdateConfirmModal, setShowUpdateConfirmModal] = useState(false);
+  const [pendingPayload, setPendingPayload] = useState(null);
 
   // Payment Source State
   const [sourceMethod, setSourceMethod] = useState(editingLiability?.paymentSource?.method || "Cash");
@@ -403,12 +406,15 @@ export default function LiabilityForm({ editingLiability, onClose, onSuccess }) 
       };
 
       if (editingLiability) {
-        await updateLiability(editingLiability._id || editingLiability.id, payload);
-      } else {
-        await addLiability(payload);
+        setIsSubmitting(false);
+        setPendingPayload(payload);
+        setShowUpdateConfirmModal(true);
+        return;
       }
 
-      if (onSuccess) onSuccess();
+      await addLiability(payload);
+      if (onSuccess) onSuccess({ isEdit: false });
+      if (onClose) onClose();
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to save liability.");
@@ -417,8 +423,25 @@ export default function LiabilityForm({ editingLiability, onClose, onSuccess }) 
     }
   };
 
+  const executeUpdate = async () => {
+    if (!pendingPayload) return;
+    setIsSubmitting(true);
+    setShowUpdateConfirmModal(false);
+    try {
+      await updateLiability(editingLiability._id || editingLiability.id, pendingPayload);
+      if (onSuccess) onSuccess({ isEdit: true });
+      if (onClose) onClose();
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to update liability.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/35 backdrop-blur-sm p-4 overflow-y-auto">
+    <>
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/35 backdrop-blur-sm p-4 overflow-y-auto">
       <div className="my-8 w-full max-w-2xl overflow-hidden rounded-2xl border border-[#e2e8dc] bg-white shadow-2xl transition-all">
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-start justify-between border-b border-[#edf0e9] bg-white p-6">
@@ -909,9 +932,8 @@ export default function LiabilityForm({ editingLiability, onClose, onSuccess }) 
                 <FieldLabel>Method</FieldLabel>
                 <select value={sourceMethod} onChange={(e) => setSourceMethod(e.target.value)} className={inputClass}>
                   <option value="Cash">Cash</option>
-                  <option value="UPI">UPI</option>
                   <option value="Bank Account">Bank Account</option>
-                  <option value="Other">Other</option>
+                  <option value="UPI">UPI</option>
                 </select>
               </div>
 
@@ -1088,5 +1110,20 @@ export default function LiabilityForm({ editingLiability, onClose, onSuccess }) 
         </div>
       </div>
     </div>
+
+    <CenteredModal
+      isOpen={showUpdateConfirmModal}
+      onClose={() => !isSubmitting && setShowUpdateConfirmModal(false)}
+      title="Are you sure you want to update this plan?"
+      message="Are you sure you want to update this plan?"
+      type="confirm"
+      iconType="info"
+      confirmText={isSubmitting ? "Updating..." : "Update"}
+      cancelText="Cancel"
+      confirmVariant="primary"
+      isProcessing={isSubmitting}
+      onConfirm={executeUpdate}
+    />
+  </>
   );
-}
+}

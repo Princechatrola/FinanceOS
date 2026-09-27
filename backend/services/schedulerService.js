@@ -526,6 +526,7 @@ async function processScheduledReminders() {
               linkedItem: rem.itemName,
               category: rem.category || "Reminder",
               amount: rem.amount || 0,
+              reminderRule: rem.rule || "1 day before",
             });
 
             if (

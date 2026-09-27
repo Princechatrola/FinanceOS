@@ -15,6 +15,7 @@ import {
   FiInfo,
 } from "react-icons/fi";
 import useFinance from "../../context/useFinance.js";
+import CenteredModal from "../common/CenteredModal.jsx";
 
 function ReminderConfigModal({
   isOpen,
@@ -68,14 +69,12 @@ function ReminderConfigModal({
   });
   const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [feedback, setFeedback] = useState(null);
+  const [actionModal, setActionModal] = useState(null);
 
   // Initialize or reset form state when modal opens
   useEffect(() => {
     if (!isOpen) {
-      setShowDeleteConfirm(false);
-      setFeedback(null);
+      setActionModal(null);
       return;
     }
 
@@ -138,7 +137,6 @@ function ReminderConfigModal({
   const handleSave = async (e) => {
     e?.preventDefault();
     setIsSubmitting(true);
-    setFeedback(null);
 
     try {
       if (isPlanLinked && effectiveSourceId) {
@@ -152,11 +150,27 @@ function ReminderConfigModal({
         });
 
         if (res.success) {
-          setFeedback({ type: "success", message: "Reminder updated successfully!" });
           if (onSuccess) onSuccess();
-          setTimeout(() => onClose(), 700);
+          setActionModal({
+            isOpen: true,
+            type: "success",
+            title: "Reminder Updated Successfully",
+            message: "Reminder updated successfully.",
+            confirmText: "OK",
+            onConfirm: () => {
+              setActionModal(null);
+              onClose();
+            },
+          });
         } else {
-          setFeedback({ type: "error", message: res.message || "Failed to update reminder." });
+          setActionModal({
+            isOpen: true,
+            type: "error",
+            title: "Something went wrong",
+            message: res.message || "Unable to update reminder. Please try again.",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(null),
+          });
         }
       } else if (rawReminderId && !isPlanLinked) {
         // Update existing general reminder
@@ -171,11 +185,27 @@ function ReminderConfigModal({
           enabled,
         });
         if (res.success) {
-          setFeedback({ type: "success", message: "Reminder updated!" });
           if (onSuccess) onSuccess();
-          setTimeout(() => onClose(), 700);
+          setActionModal({
+            isOpen: true,
+            type: "success",
+            title: "Reminder Updated Successfully",
+            message: "Reminder updated successfully.",
+            confirmText: "OK",
+            onConfirm: () => {
+              setActionModal(null);
+              onClose();
+            },
+          });
         } else {
-          setFeedback({ type: "error", message: res.message || "Failed to update reminder." });
+          setActionModal({
+            isOpen: true,
+            type: "error",
+            title: "Something went wrong",
+            message: res.message || "Unable to update reminder. Please try again.",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(null),
+          });
         }
       } else {
         // Create new reminder
@@ -190,67 +220,163 @@ function ReminderConfigModal({
           sourceType: "General",
         });
         if (res.success) {
-          setFeedback({ type: "success", message: "Reminder created!" });
           if (onSuccess) onSuccess();
-          setTimeout(() => onClose(), 700);
+          setActionModal({
+            isOpen: true,
+            type: "success",
+            title: "Reminder Created Successfully",
+            message: "Your reminder has been saved successfully.",
+            confirmText: "OK",
+            onConfirm: () => {
+              setActionModal(null);
+              onClose();
+            },
+          });
         } else {
-          setFeedback({ type: "error", message: res.message || "Failed to create reminder." });
+          setActionModal({
+            isOpen: true,
+            type: "error",
+            title: "Something went wrong",
+            message: res.message || "Unable to create reminder. Please try again.",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(null),
+          });
         }
       }
     } catch (err) {
-      setFeedback({ type: "error", message: err.message || "An unexpected error occurred." });
+      setActionModal({
+        isOpen: true,
+        type: "error",
+        title: "Something went wrong",
+        message: err.message || "Unable to process reminder. Please try again.",
+        confirmText: "OK",
+        onConfirm: () => setActionModal(null),
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleToggleActive = async () => {
-    setIsSubmitting(true);
-    try {
-      const nextEnabled = !enabled;
-      setEnabled(nextEnabled);
-
-      if (isPlanLinked && effectiveSourceId) {
-        if (nextEnabled) {
-          await enableItemReminder(effectiveSourceType, effectiveSourceId);
-        } else {
-          await disableItemReminder(effectiveSourceType, effectiveSourceId);
-        }
-      } else if (rawReminderId) {
-        await updateCustomReminder(rawReminderId, { enabled: nextEnabled });
-      }
-
-      setFeedback({
-        type: "success",
-        message: `Reminder ${nextEnabled ? "enabled" : "disabled"} successfully!`,
+  const handleToggleClick = () => {
+    if (enabled) {
+      setActionModal({
+        isOpen: true,
+        title: "Are you sure you want to disable this reminder?",
+        message: "You will no longer receive upcoming alerts for this item until re-enabled.",
+        confirmText: "Disable",
+        confirmVariant: "danger",
+        cancelText: "Cancel",
+        onConfirm: async () => {
+          setIsSubmitting(true);
+          try {
+            setEnabled(false);
+            if (isPlanLinked && effectiveSourceId) {
+              await disableItemReminder(effectiveSourceType, effectiveSourceId);
+            } else if (rawReminderId) {
+              await updateCustomReminder(rawReminderId, { enabled: false });
+            }
+            if (onSuccess) onSuccess();
+            setActionModal({
+              isOpen: true,
+              type: "success",
+              title: "Reminder Disabled",
+              message: "The reminder has been disabled successfully.",
+              confirmText: "OK",
+              onConfirm: () => setActionModal(null),
+            });
+          } catch (err) {
+            setActionModal({
+              isOpen: true,
+              type: "error",
+              title: "Something went wrong",
+              message: err.message || "Unable to disable reminder.",
+              confirmText: "OK",
+              onConfirm: () => setActionModal(null),
+            });
+          } finally {
+            setIsSubmitting(false);
+          }
+        },
+        onCancel: () => setActionModal(null),
       });
-      if (onSuccess) onSuccess();
-    } catch (err) {
-      setFeedback({ type: "error", message: err.message });
-    } finally {
-      setIsSubmitting(false);
+    } else {
+      (async () => {
+        setIsSubmitting(true);
+        try {
+          setEnabled(true);
+          if (isPlanLinked && effectiveSourceId) {
+            await enableItemReminder(effectiveSourceType, effectiveSourceId);
+          } else if (rawReminderId) {
+            await updateCustomReminder(rawReminderId, { enabled: true });
+          }
+          if (onSuccess) onSuccess();
+          setActionModal({
+            isOpen: true,
+            type: "success",
+            title: "Reminder Enabled",
+            message: "The reminder has been enabled successfully.",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(null),
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            type: "error",
+            title: "Something went wrong",
+            message: err.message || "Unable to enable reminder.",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(null),
+          });
+        } finally {
+          setIsSubmitting(false);
+        }
+      })();
     }
   };
 
-  const handleDelete = async () => {
-    setIsSubmitting(true);
-    try {
-      if (isPlanLinked && effectiveSourceId) {
-        await deleteItemReminder(effectiveSourceType, effectiveSourceId);
-      } else if (rawReminderId) {
-        await deleteCustomReminder(rawReminderId);
-      }
-      setFeedback({
-        type: "success",
-        message: "Reminder deleted. Financial plan remains safe and intact.",
-      });
-      if (onSuccess) onSuccess();
-      setTimeout(() => onClose(), 800);
-    } catch (err) {
-      setFeedback({ type: "error", message: err.message });
-    } finally {
-      setIsSubmitting(false);
-    }
+  const promptDelete = () => {
+    setActionModal({
+      isOpen: true,
+      title: "Are you sure you want to delete this reminder?",
+      message: "This action cannot be undone. Your financial plan, contributions, and balance records will remain safe.",
+      confirmText: "Delete",
+      confirmVariant: "danger",
+      cancelText: "Cancel",
+      onConfirm: async () => {
+        setIsSubmitting(true);
+        try {
+          if (isPlanLinked && effectiveSourceId) {
+            await deleteItemReminder(effectiveSourceType, effectiveSourceId);
+          } else if (rawReminderId) {
+            await deleteCustomReminder(rawReminderId);
+          }
+          if (onSuccess) onSuccess();
+          setActionModal({
+            isOpen: true,
+            type: "success",
+            title: "Reminder Deleted Successfully",
+            message: "Reminder deleted successfully.",
+            confirmText: "OK",
+            onConfirm: () => {
+              setActionModal(null);
+              onClose();
+            },
+          });
+        } catch (err) {
+          setActionModal({
+            isOpen: true,
+            type: "error",
+            title: "Something went wrong",
+            message: err.message || "Unable to delete reminder.",
+            confirmText: "OK",
+            onConfirm: () => setActionModal(null),
+          });
+        } finally {
+          setIsSubmitting(false);
+        }
+      },
+      onCancel: () => setActionModal(null),
+    });
   };
 
   return (
@@ -281,60 +407,8 @@ function ReminderConfigModal({
           </button>
         </div>
 
-        {/* Feedback Alert */}
-        {feedback && (
-          <div
-            className={`px-6 py-3 text-xs font-medium flex items-center gap-2 ${
-              feedback.type === "success"
-                ? "bg-[#eaf5e6] text-[#2c5f3b]"
-                : "bg-rose-50 text-rose-700"
-            }`}
-          >
-            {feedback.type === "success" ? <FiCheck /> : <FiAlertTriangle />}
-            <span>{feedback.message}</span>
-          </div>
-        )}
-
-        {/* Delete Confirmation Modal Layer */}
-        {showDeleteConfirm ? (
-          <div className="p-6 bg-rose-50/50 space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
-                <FiAlertTriangle className="text-xl" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-rose-900">Delete Reminder Alert?</h4>
-                <p className="mt-1 text-xs text-rose-700 leading-relaxed">
-                  This action will <strong>ONLY remove the scheduled reminder notification</strong>.
-                  Your financial plan, monthly payments, transaction histories, and balance records
-                  will remain <strong>completely safe and unaffected</strong>.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-rose-200">
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={isSubmitting}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={isSubmitting}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-600/20 transition"
-              >
-                <FiTrash2 />
-                {isSubmitting ? "Deleting..." : "Yes, Delete Reminder"}
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* Main Form */
-          <form onSubmit={handleSave} className="p-6 space-y-5">
+        {/* Main Form */}
+        <form onSubmit={handleSave} className="p-6 space-y-5">
             
             {/* Item Info Banner */}
             <div className="rounded-xl border border-[#e2e8dc] bg-[#f9fbf8] p-3.5 flex items-center justify-between">
@@ -370,7 +444,7 @@ function ReminderConfigModal({
               </div>
               <button
                 type="button"
-                onClick={handleToggleActive}
+                onClick={handleToggleClick}
                 className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                   enabled ? "bg-[#315c46]" : "bg-slate-300"
                 }`}
@@ -547,7 +621,7 @@ function ReminderConfigModal({
               {(initialData || effectiveSourceId) ? (
                 <button
                   type="button"
-                  onClick={() => setShowDeleteConfirm(true)}
+                  onClick={promptDelete}
                   disabled={isSubmitting}
                   className="flex items-center gap-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-3 py-2 rounded-xl transition"
                 >
@@ -577,7 +651,8 @@ function ReminderConfigModal({
             </div>
 
           </form>
-        )}
+
+        {actionModal && <CenteredModal {...actionModal} />}
 
       </div>
     </div>
