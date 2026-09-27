@@ -19,6 +19,8 @@ const {
   sendLoginOTP,
   verifyLoginOTP,
   devLogin,
+  googleLogin,
+  generateUserId,
 } = require("../controllers/authController");
 
 const router = express.Router();
@@ -26,7 +28,20 @@ const router = express.Router();
 console.log("AUTH ROUTES LOADED");
 console.log("POST /api/auth/send-otp");
 console.log("POST /api/auth/verify-otp");
+console.log("POST /api/auth/google");
 console.log("POST /api/auth/dev-login");
+
+
+// ============================================================
+// GOOGLE SIGN-IN / AUTHENTICATION
+//
+// POST /api/auth/google
+// ============================================================
+
+router.post(
+  "/google",
+  googleLogin
+);
 
 
 // ============================================================
@@ -63,34 +78,6 @@ router.post(
   "/dev-login",
   devLogin
 );
-
-
-
-// ============================================================
-// GENERATE FINANCEOS USER ID
-// ============================================================
-
-async function generateUserId() {
-  const lastUser = await User.findOne({
-    userId: /^FOS-U-/,
-  }).sort({
-    createdAt: -1,
-  });
-
-  let nextNumber = 1;
-
-  if (lastUser?.userId) {
-    const currentNumber = Number(
-      lastUser.userId.replace("FOS-U-", "")
-    );
-
-    if (!Number.isNaN(currentNumber)) {
-      nextNumber = currentNumber + 1;
-    }
-  }
-
-  return `FOS-U-${String(nextNumber).padStart(6, "0")}`;
-}
 
 
 // ============================================================

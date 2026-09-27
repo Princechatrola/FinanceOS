@@ -32,14 +32,194 @@ function SignIn() {
   const [otpTimer, setOtpTimer] = useState(0);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   const [loginError, setLoginError] = useState("");
   const [otpNotice, setOtpNotice] = useState("");
 
   const [formData, setFormData] = useState({
     email: "",
-    rememberMe: false,
+    rememberMe: true,
   });
+
+  // ==========================================================
+  // GOOGLE IDENTITY SERVICES INITIALIZATION
+  // ==========================================================
+
+  useEffect(() => {
+    const googleClientId =
+      import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+      (typeof window !== "undefined" && window.__GOOGLE_CLIENT_ID__);
+
+    // Load Google Identity Services script if not already present
+    const scriptId = "google-gsi-client-script";
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+      script.onload = () => {
+        if (googleClientId && window.google?.accounts?.id) {
+          try {
+            window.google.accounts.id.initialize({
+              client_id: googleClientId,
+              callback: (response) => {
+                if (response?.credential) {
+                  completeGoogleSignIn({ credential: response.credential });
+                }
+              },
+              auto_select: false,
+              cancel_on_tap_outside: true,
+            });
+          } catch (initErr) {
+            console.warn("GSI initialization warning:", initErr);
+          }
+        }
+      };
+      document.body.appendChild(script);
+    }
+  }, []);
+
+  // ==========================================================
+  // COMPLETE GOOGLE SIGN IN
+  // ==========================================================
+
+  const completeGoogleSignIn = async (payload) => {
+    try {
+      setIsGoogleSubmitting(true);
+      setLoginError("");
+
+      const response = await fetch("/api/auth/google", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setLoginError(data.message || "Google sign-in failed. Please try again.");
+        return;
+      }
+
+      if (!data.token || !data.user) {
+        setLoginError("Invalid response received from authentication server.");
+        return;
+      }
+
+      // Clear previous tokens
+      localStorage.removeItem("financeos_token");
+      localStorage.removeItem("financeos_user");
+      sessionStorage.removeItem("financeos_token");
+      sessionStorage.removeItem("financeos_user");
+
+      const storage = formData.rememberMe ? localStorage : sessionStorage;
+      storage.setItem("financeos_token", data.token);
+      storage.setItem("financeos_user", JSON.stringify(data.user));
+
+      setUserData(data.user);
+
+      if (data.user.role === "admin") {
+        navigate("/admin/dashboard", { replace: true });
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
+    } catch (error) {
+      console.error("Google sign in error:", error);
+      setLoginError("Unable to connect to FinanceOS server for Google sign-in.");
+    } finally {
+      setIsGoogleSubmitting(false);
+    }
+  };
+
+  // ==========================================================
+  // HANDLE GOOGLE SIGN IN CLICK
+  // ==========================================================
+
+  const handleGoogleSignIn = () => {
+    setLoginError("");
+
+    const googleClientId =
+      import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+      (typeof window !== "undefined" && window.__GOOGLE_CLIENT_ID__);
+
+    if (!googleClientId) {
+      setLoginError(
+        "Google Sign-In is not configured yet. Please configure VITE_GOOGLE_CLIENT_ID in your environment."
+      );
+      return;
+    }
+
+    if (!window.google?.accounts) {
+      setLoginError(
+        "Google authentication service is still loading. Please try again in a moment."
+      );
+      return;
+    }
+
+    setIsGoogleSubmitting(true);
+
+    try {
+      // Use standard Google OAuth2 Token Client for popup account selector
+      if (window.google.accounts.oauth2) {
+        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: googleClientId,
+          scope: "openid email profile",
+          callback: async (tokenResponse) => {
+            if (tokenResponse && tokenResponse.access_token) {
+              try {
+                const userInfoRes = await fetch(
+                  "https://www.googleapis.com/oauth2/v3/userinfo",
+                  {
+                    headers: {
+                      Authorization: `Bearer ${tokenResponse.access_token}`,
+                    },
+                  }
+                );
+                const userInfo = await userInfoRes.json();
+                await completeGoogleSignIn({
+                  email: userInfo.email,
+                  name: userInfo.name,
+                  googleId: userInfo.sub,
+                  picture: userInfo.picture,
+                });
+              } catch (fetchErr) {
+                console.error("Failed to fetch Google profile:", fetchErr);
+                setLoginError("Failed to retrieve Google profile information.");
+                setIsGoogleSubmitting(false);
+              }
+            } else {
+              setIsGoogleSubmitting(false);
+            }
+          },
+        });
+        tokenClient.requestAccessToken();
+      } else if (window.google.accounts.id) {
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: (response) => {
+            if (response?.credential) {
+              completeGoogleSignIn({ credential: response.credential });
+            } else {
+              setIsGoogleSubmitting(false);
+            }
+          },
+        });
+        window.google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            setIsGoogleSubmitting(false);
+          }
+        });
+      }
+    } catch (err) {
+      console.error("Google sign in trigger error:", err);
+      setLoginError("Unable to initiate Google sign-in.");
+      setIsGoogleSubmitting(false);
+    }
+  };
 
   // ==========================================================
   // AUTO FOCUS FIRST OTP BOX WHEN OTP MODE OPENS
@@ -874,113 +1054,205 @@ function SignIn() {
               </div>
 
               {/* ==================================================
-                  EMAIL
+                  CONTINUE WITH GOOGLE & EMAIL
               ================================================== */}
 
               {!otpMode && (
+                <div className="mt-6 space-y-4">
 
-                <div className="mt-6">
-
-                  <label
-                    htmlFor="email"
-                    className="mb-1.5 block text-sm font-semibold text-[#344f42]"
+                  {/* GOOGLE SIGN IN BUTTON */}
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    disabled={isSubmitting || isGoogleSubmitting}
+                    className="
+                      flex
+                      w-full
+                      items-center
+                      justify-center
+                      gap-3
+                      rounded-xl
+                      border
+                      border-[#d8e0d4]
+                      bg-white
+                      px-5
+                      py-3
+                      text-sm
+                      font-semibold
+                      text-[#1f3f30]
+                      shadow-sm
+                      transition-all
+                      duration-150
+                      hover:bg-[#f4f8f0]
+                      hover:border-[#adc7a4]
+                      hover:shadow
+                      active:scale-[0.99]
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
                   >
-                    Email Address
-                  </label>
+                    {isGoogleSubmitting ? (
+                      <RefreshCw size={18} className="animate-spin text-[#57923d]" />
+                    ) : (
+                      <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.27 21.39 7.33 24 12 24z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.27 2.61 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                        />
+                      </svg>
+                    )}
+                    <span>
+                      {isGoogleSubmitting
+                        ? "Signing in with Google..."
+                        : "Continue with Google"}
+                    </span>
+                  </button>
 
-                  <div className="relative">
-
-                    <Mail
-                      size={17}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-[#87958c]"
-                    />
-
-                    <input
-                      id="email"
-                      type="email"
-                      name="email"
-                      value={
-                        formData.email
-                      }
-                      onChange={
-                        handleChange
-                      }
-                      placeholder="Enter your email"
-                      autoComplete="email"
-                      className="
-                        w-full
-                        rounded-xl
-                        border
-                        border-[#dce3d8]
-                        bg-[#fbfcfa]
-                        py-3
-                        pl-11
-                        pr-4
-                        text-sm
-                        text-[#173b2b]
-                        outline-none
-                        focus:border-[#9fbd82]
-                        focus:ring-2
-                        focus:ring-[#eaf4df]
-                      "
-                    />
-
+                  {/* DIVIDER */}
+                  <div className="flex items-center gap-3 py-1">
+                    <div className="h-px flex-1 bg-[#e1e7dc]" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#829589]">
+                      or continue with email
+                    </span>
+                    <div className="h-px flex-1 bg-[#e1e7dc]" />
                   </div>
 
-                </div>
+                  {/* EMAIL INPUT */}
+                  <div>
+                    <label
+                      htmlFor="email"
+                      className="mb-1.5 block text-sm font-semibold text-[#344f42]"
+                    >
+                      Email Address
+                    </label>
 
+                    <div className="relative">
+                      <Mail
+                        size={17}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-[#87958c]"
+                      />
+
+                      <input
+                        id="email"
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleChange}
+                        placeholder="Enter your email"
+                        autoComplete="email"
+                        className="
+                          w-full
+                          rounded-xl
+                          border
+                          border-[#dce3d8]
+                          bg-[#fbfcfa]
+                          py-3
+                          pl-11
+                          pr-4
+                          text-sm
+                          text-[#173b2b]
+                          outline-none
+                          focus:border-[#9fbd82]
+                          focus:ring-2
+                          focus:ring-[#eaf4df]
+                        "
+                      />
+                    </div>
+                  </div>
+
+                  {/* REMEMBER ME & HELPER */}
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="flex items-center gap-2 text-xs font-medium text-[#65796c] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="rememberMe"
+                        checked={formData.rememberMe}
+                        onChange={handleChange}
+                        className="h-4 w-4 rounded border-[#ccd8c6] text-[#57923d] focus:ring-[#eaf4df] accent-[#57923d]"
+                      />
+                      <span>Keep me signed in</span>
+                    </label>
+                  </div>
+
+                  {/* ERROR MESSAGE */}
+                  {loginError && (
+                    <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                      <AlertCircle
+                        size={16}
+                        className="mt-0.5 shrink-0 text-red-500"
+                      />
+                      <p className="text-xs font-medium leading-5 text-red-600">
+                        {loginError}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* SEND OTP BUTTON */}
+                  <button
+                    type="button"
+                    onClick={handleSendOTP}
+                    disabled={isSubmitting || isGoogleSubmitting}
+                    className="
+                      flex
+                      w-full
+                      items-center
+                      justify-center
+                      gap-2
+                      rounded-xl
+                      bg-[#dff5b5]
+                      px-6
+                      py-3
+                      text-sm
+                      font-semibold
+                      text-[#173b2b]
+                      transition
+                      hover:bg-[#d2efa0]
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
+                  >
+                    {isSubmitting ? "Sending OTP..." : "Send OTP"}
+                    {!isSubmitting && <Mail size={17} />}
+                  </button>
+
+                </div>
               )}
 
               {/* ==================================================
-                  OTP
+                  OTP VERIFICATION FORM
               ================================================== */}
 
               {otpMode && (
-
-                <form
-                  onSubmit={
-                    handleVerifyOTP
-                  }
-                  className="mt-6"
-                >
-
+                <form onSubmit={handleVerifyOTP} className="mt-6">
                   <div className="rounded-2xl border border-[#dce7d5] bg-[#f8fbf5] p-5">
-
                     {/* OTP HEADER */}
-
                     <div className="flex items-center gap-3">
-
                       <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#e7f3d8]">
-
-                        <ShieldCheck
-                          size={21}
-                          className="text-[#57923d]"
-                        />
-
+                        <ShieldCheck size={21} className="text-[#57923d]" />
                       </div>
-
                       <div>
-
                         <p className="text-sm font-semibold text-[#173b2b]">
                           Verify Your Email
                         </p>
-
                         <p className="text-xs text-[#718177]">
-
-                          OTP sent to{" "}
-
-                          <strong>
-                            {formData.email}
-                          </strong>
-
+                          OTP sent to <strong>{formData.email}</strong>
                         </p>
-
                       </div>
-
                     </div>
 
                     {/* 6 INDIVIDUAL OTP INPUT BOXES */}
-
                     <div className="mt-5 flex items-center justify-center gap-2 sm:gap-3">
                       {otpDigits.map((digit, idx) => (
                         <input
@@ -1014,50 +1286,27 @@ function SignIn() {
                     </div>
 
                     {/* TIMER */}
-
                     <div className="mt-3 text-center">
-
                       {otpTimer > 0 ? (
-
                         <p className="text-xs text-[#718177]">
-
                           OTP expires in{" "}
-
-                          <strong className="text-[#57923d]">
-                            {formatTimer()}
-                          </strong>
-
+                          <strong className="text-[#57923d]">{formatTimer()}</strong>
                         </p>
-
                       ) : (
-
                         <button
                           type="button"
-                          onClick={
-                            handleResendOTP
-                          }
-                          disabled={
-                            isSubmitting
-                          }
-                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#57923d]"
+                          onClick={handleResendOTP}
+                          disabled={isSubmitting}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#57923d] hover:underline"
                         >
-
-                          <RefreshCw
-                            size={13}
-                          />
-
+                          <RefreshCw size={13} />
                           Resend OTP
-
                         </button>
-
                       )}
-
                     </div>
-
                   </div>
 
                   {/* OTP NOTICE (DEVELOPMENT / TERMINAL NOTICE) */}
-
                   {otpNotice && (
                     <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
                       <span className="text-amber-600 text-sm">ℹ️</span>
@@ -1068,32 +1317,19 @@ function SignIn() {
                   )}
 
                   {/* ERROR */}
-
                   {loginError && (
-
                     <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-
-                      <AlertCircle
-                        size={16}
-                        className="mt-0.5 shrink-0 text-red-500"
-                      />
-
+                      <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
                       <p className="text-xs font-medium leading-5 text-red-600">
                         {loginError}
                       </p>
-
                     </div>
-
                   )}
 
                   {/* VERIFY BUTTON */}
-
                   <button
                     type="submit"
-                    disabled={
-                      isSubmitting ||
-                      otp.length !== 6
-                    }
+                    disabled={isSubmitting || otp.length !== 6}
                     className="
                       mt-4
                       flex
@@ -1114,105 +1350,19 @@ function SignIn() {
                       disabled:opacity-60
                     "
                   >
-
-                    {isSubmitting
-                      ? "Verifying..."
-                      : "Verify OTP"}
-
-                    {!isSubmitting && (
-                      <ArrowRight
-                        size={17}
-                      />
-                    )}
-
+                    {isSubmitting ? "Verifying..." : "Verify OTP"}
+                    {!isSubmitting && <ArrowRight size={17} />}
                   </button>
 
                   {/* CHANGE EMAIL */}
-
                   <button
                     type="button"
-                    onClick={
-                      handleChangeEmail
-                    }
-                    className="mt-3 w-full text-center text-xs font-semibold text-[#57923d]"
+                    onClick={handleChangeEmail}
+                    className="mt-3 w-full text-center text-xs font-semibold text-[#57923d] hover:underline"
                   >
                     ← Change Email
                   </button>
-
                 </form>
-
-              )}
-
-              {/* ==================================================
-                  SEND OTP
-              ================================================== */}
-
-              {!otpMode && (
-
-                <>
-
-                  {/* ERROR */}
-
-                  {loginError && (
-
-                    <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-
-                      <AlertCircle
-                        size={16}
-                        className="mt-0.5 shrink-0 text-red-500"
-                      />
-
-                      <p className="text-xs font-medium leading-5 text-red-600">
-                        {loginError}
-                      </p>
-
-                    </div>
-
-                  )}
-
-                  {/* SEND OTP */}
-
-                  <button
-                    type="button"
-                    onClick={
-                      handleSendOTP
-                    }
-                    disabled={
-                      isSubmitting
-                    }
-                    className="
-                      mt-5
-                      flex
-                      w-full
-                      items-center
-                      justify-center
-                      gap-2
-                      rounded-xl
-                      bg-[#dff5b5]
-                      px-6
-                      py-3
-                      text-sm
-                      font-semibold
-                      text-[#173b2b]
-                      transition
-                      hover:bg-[#d2efa0]
-                      disabled:cursor-not-allowed
-                      disabled:opacity-60
-                    "
-                  >
-
-                    {isSubmitting
-                      ? "Sending OTP..."
-                      : "Send OTP"}
-
-                    {!isSubmitting && (
-                      <Mail size={17} />
-                    )}
-
-                  </button>
-
-                </>
-
               )}
 
               {/* ==================================================
