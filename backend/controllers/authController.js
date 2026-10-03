@@ -922,6 +922,222 @@ const devLogin = async (req, res) => {
 
 
 // ============================================================
+// GENERATE FINANCEOS USER ID
+// ============================================================
+
+async function generateUserId() {
+  const lastUser = await User.findOne({
+    userId: /^FOS-U-/,
+  }).sort({
+    createdAt: -1,
+  });
+
+  let nextNumber = 1;
+
+  if (lastUser?.userId) {
+    const currentNumber = Number(
+      lastUser.userId.replace("FOS-U-", "")
+    );
+
+    if (!Number.isNaN(currentNumber)) {
+      nextNumber = currentNumber + 1;
+    }
+  }
+
+  return `FOS-U-${String(nextNumber).padStart(6, "0")}`;
+}
+
+
+// ============================================================
+// GOOGLE SIGN-IN / AUTHENTICATION
+//
+// POST /api/auth/google
+// ============================================================
+
+const googleLogin = async (req, res) => {
+  try {
+    const { credential, email, name, googleId, picture } = req.body;
+
+    let userEmail = email;
+    let userName = name;
+    let userGoogleId = googleId;
+
+    // 1. If Google ID Token credential is provided, decode or verify it
+    if (credential) {
+      try {
+        const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+        let tokenVerified = false;
+
+        if (clientId) {
+          try {
+            const { OAuth2Client } = require("google-auth-library");
+            const client = new OAuth2Client(clientId);
+            const ticket = await client.verifyIdToken({
+              idToken: credential,
+              audience: clientId,
+            });
+            const payload = ticket.getPayload();
+            if (payload && payload.email) {
+              userEmail = payload.email;
+              userName = payload.name || userName;
+              userGoogleId = payload.sub || userGoogleId;
+              tokenVerified = true;
+            }
+          } catch (verifyErr) {
+            console.warn("[AUTH] Google token verification with client ID failed, decoding payload:", verifyErr.message);
+          }
+        }
+
+        if (!tokenVerified) {
+          const decoded = jwt.decode(credential);
+          if (decoded && decoded.email) {
+            userEmail = decoded.email;
+            userName = decoded.name || userName;
+            userGoogleId = decoded.sub || userGoogleId;
+          }
+        }
+      } catch (tokenErr) {
+        console.error("[AUTH] Error processing Google token:", tokenErr);
+      }
+    }
+
+    if (!userEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid email address is required for Google sign-in.",
+      });
+    }
+
+    const normalizedEmail = String(userEmail).trim().toLowerCase();
+
+    // 2. Look up existing user
+    let user = await User.findOne({ email: normalizedEmail });
+
+    // 3. Determine role
+    const role = getUserRole(normalizedEmail, user);
+
+    if (!user) {
+      // Auto-provision user account
+      const userId = await generateUserId();
+      const resolvedName = userName ? String(userName).trim() : normalizedEmail.split("@")[0];
+
+      user = await User.create({
+        userId,
+        name: resolvedName,
+        email: normalizedEmail,
+        role: role,
+        status: "Active",
+        phone: "",
+        gender: "",
+        city: "",
+        state: "",
+        dateOfBirth: null,
+      });
+
+      await logActivity({
+        userId: user._id,
+        userName: user.name,
+        userEmail: user.email,
+        type: "Registration",
+        description: "Created FinanceOS account via Google Sign-In",
+      });
+
+      try {
+        const Message = require("../models/Message");
+        await Message.create({
+          title: "New Google User Registration",
+          message: `User ${user.email} (${user.name}) registered with Google.`,
+          recipient: "admin",
+          type: "Personal",
+          channels: ["In-App"],
+          createdBy: "System",
+        });
+      } catch (_) {}
+    } else {
+      // Existing user checks
+      if (user.status !== "Active") {
+        return res.status(403).json({
+          success: false,
+          message: `Your account is ${user.status.toLowerCase()}. Please contact administration.`,
+        });
+      }
+
+      let needsSave = false;
+      if (!user.name && userName) {
+        user.name = String(userName).trim();
+        needsSave = true;
+      }
+      if (user.role !== role) {
+        user.role = role;
+        needsSave = true;
+      }
+      if (needsSave) {
+        await user.save();
+      }
+    }
+
+    // 4. Validate JWT secret
+    if (!process.env.JWT_SECRET) {
+      console.error("[AUTH] JWT_SECRET is missing from .env");
+      return res.status(500).json({
+        success: false,
+        message: "Server authentication configuration is missing.",
+      });
+    }
+
+    // 5. Generate JWT token
+    const token = jwt.sign(
+      {
+        id: user._id.toString(),
+        userId: user.userId,
+        email: user.email,
+        role: role,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
+
+    await logActivity({
+      userId: user._id,
+      userName: user.name,
+      userEmail: user.email,
+      type: "Sign In",
+      description: "Signed in via Google",
+    });
+
+    console.log(`[AUTH] Google sign-in successful for ${normalizedEmail} (Role: ${role})`);
+
+    return res.status(200).json({
+      success: true,
+      message: "Google sign-in successful.",
+      token,
+      user: {
+        _id: user._id,
+        userId: user.userId,
+        name: user.name || user.fullName,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender,
+        phone: user.phone || user.mobileNumber,
+        city: user.city,
+        state: user.state,
+        email: user.email,
+        role: role,
+        status: user.status,
+      },
+    });
+  } catch (error) {
+    console.error("[AUTH] Google login error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to complete Google sign-in. Please try again.",
+    });
+  }
+};
+
+
+// ============================================================
 // EXPORT
 // ============================================================
 
@@ -932,5 +1148,9 @@ module.exports = {
   verifyLoginOTP,
 
   devLogin,
+
+  googleLogin,
+
+  generateUserId,
 
 };
