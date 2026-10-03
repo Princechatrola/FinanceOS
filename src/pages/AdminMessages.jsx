@@ -359,7 +359,6 @@ export default function AdminMessages() {
 
   function getAuthHeaders() {
     const token =
-      localStorage.getItem("financeos_token") ||
       sessionStorage.getItem("financeos_token");
 
     return {

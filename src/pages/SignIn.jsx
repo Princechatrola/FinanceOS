@@ -11,6 +11,8 @@ import {
   ShieldCheck,
   RefreshCw,
 } from "lucide-react";
+import CenteredModal from "../components/common/CenteredModal.jsx";
+import { setAuthSession } from "../utils/authStorage.js";
 
 function SignIn() {
   const { setUserData } = useFinance();
@@ -35,7 +37,18 @@ function SignIn() {
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   const [loginError, setLoginError] = useState("");
+  const [accountNotFound, setAccountNotFound] = useState(false);
   const [otpNotice, setOtpNotice] = useState("");
+  const [authModal, setAuthModal] = useState({
+    isOpen: false,
+    title: "Authentication Notice",
+    message: "",
+    iconType: "info",
+  });
+  const [accountNotFoundModal, setAccountNotFoundModal] = useState({
+    isOpen: false,
+    message: "",
+  });
 
   const [formData, setFormData] = useState({
     email: "",
@@ -73,7 +86,7 @@ function SignIn() {
               cancel_on_tap_outside: true,
             });
           } catch (initErr) {
-            console.warn("GSI initialization warning:", initErr);
+            console.warn("[AUTH] GSI initialization warning:", initErr);
           }
         }
       };
@@ -95,31 +108,47 @@ function SignIn() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          intent: "signin",
+        }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setLoginError(data.message || "Google sign-in failed. Please try again.");
+        if (response.status === 404 || data.code === "ACCOUNT_NOT_FOUND") {
+          setAccountNotFoundModal({
+            isOpen: true,
+            message:
+              data.message ||
+              "No FinanceOS account was found for this Google account. Please register first.",
+          });
+          return;
+        }
+        const errorMsg =
+          data.message || "Google Sign-In could not be completed. Please try again.";
+        setAuthModal({
+          isOpen: true,
+          title: "Google Sign-In",
+          message: errorMsg,
+          iconType: "error",
+        });
         return;
       }
 
       if (!data.token || !data.user) {
-        setLoginError("Invalid response received from authentication server.");
+        setAuthModal({
+          isOpen: true,
+          title: "Google Sign-In",
+          message: "Google Sign-In could not be completed. Please try again.",
+          iconType: "error",
+        });
         return;
       }
 
-      // Clear previous tokens
-      localStorage.removeItem("financeos_token");
-      localStorage.removeItem("financeos_user");
-      sessionStorage.removeItem("financeos_token");
-      sessionStorage.removeItem("financeos_user");
-
-      const storage = formData.rememberMe ? localStorage : sessionStorage;
-      storage.setItem("financeos_token", data.token);
-      storage.setItem("financeos_user", JSON.stringify(data.user));
-
+      // Store tokens in tab-isolated sessionStorage
+      setAuthSession(data.token, data.user);
       setUserData(data.user);
 
       if (data.user.role === "admin") {
@@ -128,8 +157,13 @@ function SignIn() {
         navigate("/dashboard", { replace: true });
       }
     } catch (error) {
-      console.error("Google sign in error:", error);
-      setLoginError("Unable to connect to FinanceOS server for Google sign-in.");
+      console.error("[AUTH] Google sign in error:", error);
+      setAuthModal({
+        isOpen: true,
+        title: "Google Sign-In",
+        message: "Google Sign-In could not be completed. Please try again.",
+        iconType: "error",
+      });
     } finally {
       setIsGoogleSubmitting(false);
     }
@@ -147,16 +181,23 @@ function SignIn() {
       (typeof window !== "undefined" && window.__GOOGLE_CLIENT_ID__);
 
     if (!googleClientId) {
-      setLoginError(
-        "Google Sign-In is not configured yet. Please configure VITE_GOOGLE_CLIENT_ID in your environment."
-      );
+      console.warn("[AUTH] VITE_GOOGLE_CLIENT_ID is not configured in environment.");
+      setAuthModal({
+        isOpen: true,
+        title: "Google Sign-In",
+        message: "Google Sign-In could not be completed. Please try again.",
+        iconType: "error",
+      });
       return;
     }
 
     if (!window.google?.accounts) {
-      setLoginError(
-        "Google authentication service is still loading. Please try again in a moment."
-      );
+      setAuthModal({
+        isOpen: true,
+        title: "Google Sign-In",
+        message: "Google authentication service is still loading. Please try again in a moment.",
+        iconType: "info",
+      });
       return;
     }
 
@@ -170,30 +211,22 @@ function SignIn() {
           scope: "openid email profile",
           callback: async (tokenResponse) => {
             if (tokenResponse && tokenResponse.access_token) {
-              try {
-                const userInfoRes = await fetch(
-                  "https://www.googleapis.com/oauth2/v3/userinfo",
-                  {
-                    headers: {
-                      Authorization: `Bearer ${tokenResponse.access_token}`,
-                    },
-                  }
-                );
-                const userInfo = await userInfoRes.json();
-                await completeGoogleSignIn({
-                  email: userInfo.email,
-                  name: userInfo.name,
-                  googleId: userInfo.sub,
-                  picture: userInfo.picture,
-                });
-              } catch (fetchErr) {
-                console.error("Failed to fetch Google profile:", fetchErr);
-                setLoginError("Failed to retrieve Google profile information.");
-                setIsGoogleSubmitting(false);
-              }
+              await completeGoogleSignIn({
+                accessToken: tokenResponse.access_token,
+              });
             } else {
               setIsGoogleSubmitting(false);
             }
+          },
+          error_callback: (err) => {
+            console.error("[AUTH] Google OAuth popup error:", err);
+            setIsGoogleSubmitting(false);
+            setAuthModal({
+              isOpen: true,
+              title: "Google Sign-In",
+              message: "Google Sign-In could not be completed. Please try again.",
+              iconType: "error",
+            });
           },
         });
         tokenClient.requestAccessToken();
@@ -215,9 +248,14 @@ function SignIn() {
         });
       }
     } catch (err) {
-      console.error("Google sign in trigger error:", err);
-      setLoginError("Unable to initiate Google sign-in.");
+      console.error("[AUTH] Google sign in trigger error:", err);
       setIsGoogleSubmitting(false);
+      setAuthModal({
+        isOpen: true,
+        title: "Google Sign-In",
+        message: "Google Sign-In could not be completed. Please try again.",
+        iconType: "error",
+      });
     }
   };
 
@@ -380,6 +418,7 @@ function SignIn() {
     }));
 
     setLoginError("");
+    setAccountNotFound(false);
   };
 
   // ==========================================================
@@ -471,11 +510,16 @@ function SignIn() {
       // ======================================================
 
       if (!response.ok) {
-        if (response.status === 404) {
-          setLoginError(
+        if (response.status === 404 || data.code === "ACCOUNT_NOT_FOUND") {
+          setAccountNotFound(true);
+          const errorMsg =
             data.message ||
-              "No FinanceOS account was found for this email address."
-          );
+            "No account found for this email address. Please register first.";
+          setLoginError(errorMsg);
+          setAccountNotFoundModal({
+            isOpen: true,
+            message: errorMsg,
+          });
         } else if (response.status === 429) {
           setLoginError(
             data.message ||
@@ -635,58 +679,10 @@ function SignIn() {
       }
 
       // ======================================================
-      // CLEAR OLD LOGIN
+      // TAB-ISOLATED SESSION STORAGE
       // ======================================================
 
-      localStorage.removeItem(
-        "financeos_token"
-      );
-
-      localStorage.removeItem(
-        "financeos_user"
-      );
-
-      sessionStorage.removeItem(
-        "financeos_token"
-      );
-
-      sessionStorage.removeItem(
-        "financeos_user"
-      );
-
-      // ======================================================
-      // SELECT STORAGE
-      // ======================================================
-
-      const storage =
-        formData.rememberMe
-          ? localStorage
-          : sessionStorage;
-
-      // ======================================================
-      // SAVE TOKEN
-      // ======================================================
-
-      storage.setItem(
-        "financeos_token",
-        data.token
-      );
-
-      // ======================================================
-      // SAVE USER
-      // ======================================================
-
-      storage.setItem(
-        "financeos_user",
-        JSON.stringify(
-          data.user
-        )
-      );
-
-      // ======================================================
-      // UPDATE CONTEXT
-      // ======================================================
-
+      setAuthSession(data.token, data.user);
       setUserData(data.user);
 
       // ======================================================
@@ -1060,6 +1056,112 @@ function SignIn() {
               {!otpMode && (
                 <div className="mt-6 space-y-4">
 
+                  {/* EMAIL INPUT */}
+                  <div>
+                    <label
+                      htmlFor="email"
+                      className="mb-1.5 block text-sm font-semibold text-[#344f42]"
+                    >
+                      Email Address
+                    </label>
+
+                    <div className="relative">
+                      <Mail
+                        size={17}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-[#87958c]"
+                      />
+
+                      <input
+                        id="email"
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleChange}
+                        placeholder="Enter your email"
+                        autoComplete="email"
+                        className="
+                          w-full
+                          rounded-xl
+                          border
+                          border-[#dce3d8]
+                          bg-[#fbfcfa]
+                          py-3
+                          pl-11
+                          pr-4
+                          text-sm
+                          text-[#173b2b]
+                          outline-none
+                          focus:border-[#9fbd82]
+                          focus:ring-2
+                          focus:ring-[#eaf4df]
+                        "
+                      />
+                    </div>
+                  </div>
+
+
+
+                  {/* ERROR MESSAGE */}
+                  {loginError && (
+                    <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5">
+                      <AlertCircle
+                        size={17}
+                        className="mt-0.5 shrink-0 text-red-500"
+                      />
+                      <div className="flex-1 text-xs font-medium leading-5 text-red-700">
+                        <p>{loginError}</p>
+                        {accountNotFound && (
+                          <div className="mt-2 pt-2 border-t border-red-200/80">
+                            <Link
+                              to="/signup"
+                              state={{ initialEmail: formData.email }}
+                              className="inline-flex items-center gap-1 font-bold text-[#356d25] hover:underline"
+                            >
+                              Create your FinanceOS account now →
+                            </Link>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SEND OTP BUTTON */}
+                  <button
+                    type="button"
+                    onClick={handleSendOTP}
+                    disabled={isSubmitting || isGoogleSubmitting}
+                    className="
+                      flex
+                      w-full
+                      items-center
+                      justify-center
+                      gap-2
+                      rounded-xl
+                      bg-[#dff5b5]
+                      px-6
+                      py-3
+                      text-sm
+                      font-semibold
+                      text-[#173b2b]
+                      transition
+                      hover:bg-[#d2efa0]
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
+                  >
+                    {isSubmitting ? "Sending OTP..." : "Send OTP"}
+                    {!isSubmitting && <Mail size={17} />}
+                  </button>
+
+                  {/* DIVIDER */}
+                  <div className="flex items-center gap-3 py-1">
+                    <div className="h-px flex-1 bg-[#e1e7dc]" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#829589]">
+                      or
+                    </span>
+                    <div className="h-px flex-1 bg-[#e1e7dc]" />
+                  </div>
+
                   {/* GOOGLE SIGN IN BUTTON */}
                   <button
                     type="button"
@@ -1115,116 +1217,9 @@ function SignIn() {
                     )}
                     <span>
                       {isGoogleSubmitting
-                        ? "Signing in with Google..."
+                        ? "Connecting..."
                         : "Continue with Google"}
                     </span>
-                  </button>
-
-                  {/* DIVIDER */}
-                  <div className="flex items-center gap-3 py-1">
-                    <div className="h-px flex-1 bg-[#e1e7dc]" />
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#829589]">
-                      or continue with email
-                    </span>
-                    <div className="h-px flex-1 bg-[#e1e7dc]" />
-                  </div>
-
-                  {/* EMAIL INPUT */}
-                  <div>
-                    <label
-                      htmlFor="email"
-                      className="mb-1.5 block text-sm font-semibold text-[#344f42]"
-                    >
-                      Email Address
-                    </label>
-
-                    <div className="relative">
-                      <Mail
-                        size={17}
-                        className="absolute left-4 top-1/2 -translate-y-1/2 text-[#87958c]"
-                      />
-
-                      <input
-                        id="email"
-                        type="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleChange}
-                        placeholder="Enter your email"
-                        autoComplete="email"
-                        className="
-                          w-full
-                          rounded-xl
-                          border
-                          border-[#dce3d8]
-                          bg-[#fbfcfa]
-                          py-3
-                          pl-11
-                          pr-4
-                          text-sm
-                          text-[#173b2b]
-                          outline-none
-                          focus:border-[#9fbd82]
-                          focus:ring-2
-                          focus:ring-[#eaf4df]
-                        "
-                      />
-                    </div>
-                  </div>
-
-                  {/* REMEMBER ME & HELPER */}
-                  <div className="flex items-center justify-between pt-1">
-                    <label className="flex items-center gap-2 text-xs font-medium text-[#65796c] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="rememberMe"
-                        checked={formData.rememberMe}
-                        onChange={handleChange}
-                        className="h-4 w-4 rounded border-[#ccd8c6] text-[#57923d] focus:ring-[#eaf4df] accent-[#57923d]"
-                      />
-                      <span>Keep me signed in</span>
-                    </label>
-                  </div>
-
-                  {/* ERROR MESSAGE */}
-                  {loginError && (
-                    <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-                      <AlertCircle
-                        size={16}
-                        className="mt-0.5 shrink-0 text-red-500"
-                      />
-                      <p className="text-xs font-medium leading-5 text-red-600">
-                        {loginError}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* SEND OTP BUTTON */}
-                  <button
-                    type="button"
-                    onClick={handleSendOTP}
-                    disabled={isSubmitting || isGoogleSubmitting}
-                    className="
-                      flex
-                      w-full
-                      items-center
-                      justify-center
-                      gap-2
-                      rounded-xl
-                      bg-[#dff5b5]
-                      px-6
-                      py-3
-                      text-sm
-                      font-semibold
-                      text-[#173b2b]
-                      transition
-                      hover:bg-[#d2efa0]
-                      disabled:cursor-not-allowed
-                      disabled:opacity-60
-                    "
-                  >
-                    {isSubmitting ? "Sending OTP..." : "Send OTP"}
-                    {!isSubmitting && <Mail size={17} />}
                   </button>
 
                 </div>
@@ -1394,6 +1389,29 @@ function SignIn() {
 
       </main>
 
+      <CenteredModal
+        isOpen={authModal.isOpen}
+        onClose={() => setAuthModal((prev) => ({ ...prev, isOpen: false }))}
+        title={authModal.title}
+        message={authModal.message}
+        iconType={authModal.iconType}
+        confirmText="OK"
+      />
+
+      <CenteredModal
+        isOpen={accountNotFoundModal.isOpen}
+        onClose={() => setAccountNotFoundModal({ isOpen: false, message: "" })}
+        title="Account Not Found"
+        message={accountNotFoundModal.message}
+        type="confirm"
+        iconType="info"
+        confirmText="Register"
+        cancelText="Cancel"
+        onConfirm={() => {
+          setAccountNotFoundModal({ isOpen: false, message: "" });
+          navigate("/signup");
+        }}
+      />
     </div>
   );
 }

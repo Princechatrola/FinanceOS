@@ -67,8 +67,6 @@ function AdminSidebar() {
   const confirmSignOut = () => {
     if (isLoggingOut) return;
     setIsLoggingOut(true);
-    localStorage.removeItem("financeos_token");
-    localStorage.removeItem("financeos_user");
     sessionStorage.removeItem("financeos_token");
     sessionStorage.removeItem("financeos_user");
     navigate("/signin", { replace: true });

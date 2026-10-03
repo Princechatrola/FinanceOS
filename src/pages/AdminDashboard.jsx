@@ -72,7 +72,7 @@ export default function AdminDashboard() {
       // Change "token" below if your project stores JWT
       // using another localStorage key.
       //
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const token = sessionStorage.getItem("financeos_token");
 
       const response = await fetch(API_URL, {
         method: "GET",

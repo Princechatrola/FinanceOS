@@ -1,6 +1,8 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import CenteredModal from "../components/common/CenteredModal.jsx";
+import useFinance from "../context/useFinance.js";
+import { setAuthSession } from "../utils/authStorage.js";
 
 import {
   AlertCircle,
@@ -13,6 +15,7 @@ import {
   TrendingUp,
   UserRound,
   Users,
+  RefreshCw,
 } from "lucide-react";
 
 // ==========================================================
@@ -301,22 +304,27 @@ const states = Object.keys(stateCities);
 function SignUp() {
 
   // ==========================================================
-  // NAVIGATION
+  // NAVIGATION & CONTEXT
   // ==========================================================
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const { setUserData } = useFinance();
 
   // ==========================================================
   // STATE
   // ==========================================================
 
   const [errors, setErrors] = useState({});
-
-  const [serverError, setServerError] =
-    useState("");
-
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
+  const [serverError, setServerError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+  const [authModal, setAuthModal] = useState({
+    isOpen: false,
+    title: "Authentication Notice",
+    message: "",
+    iconType: "info",
+  });
 
   const [successModal, setSuccessModal] = useState({
     isOpen: false,
@@ -325,22 +333,212 @@ function SignUp() {
   });
 
   const [formData, setFormData] = useState({
-
     fullName: "",
-
     dateOfBirth: "",
-
     gender: "",
-
     mobileNumber: "",
-
     state: "",
-
     city: "",
-
-    email: "",
-
+    email: location.state?.initialEmail || "",
   });
+
+  // ==========================================================
+  // GOOGLE IDENTITY SERVICES INITIALIZATION
+  // ==========================================================
+
+  useEffect(() => {
+    if (location.state?.initialEmail) {
+      setFormData((prev) => ({
+        ...prev,
+        email: location.state.initialEmail,
+      }));
+    }
+
+    const googleClientId =
+      import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+      (typeof window !== "undefined" && window.__GOOGLE_CLIENT_ID__);
+
+    const scriptId = "google-gsi-client-script";
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+      script.onload = () => {
+        if (googleClientId && window.google?.accounts?.id) {
+          try {
+            window.google.accounts.id.initialize({
+              client_id: googleClientId,
+              callback: (response) => {
+                if (response?.credential) {
+                  completeGoogleSignUp({ credential: response.credential });
+                }
+              },
+              auto_select: false,
+              cancel_on_tap_outside: true,
+            });
+          } catch (initErr) {
+            console.warn("[AUTH] GSI initialization warning:", initErr);
+          }
+        }
+      };
+      document.body.appendChild(script);
+    }
+  }, [location.state]);
+
+  // ==========================================================
+  // COMPLETE GOOGLE SIGN UP
+  // ==========================================================
+
+  const completeGoogleSignUp = async (payload) => {
+    try {
+      setIsGoogleSubmitting(true);
+      setServerError("");
+
+      const response = await fetch("/api/auth/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...payload,
+          intent: "signup",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        const errorMsg =
+          data.message || "Google authentication could not be completed. Please try again.";
+        setAuthModal({
+          isOpen: true,
+          title: "Google Registration",
+          message: errorMsg,
+          iconType: "error",
+        });
+        return;
+      }
+
+      if (data.alreadyRegistered) {
+        setSuccessModal({
+          isOpen: true,
+          title: "Account Already Registered",
+          message:
+            data.message ||
+            "An account with this Google email already exists. Please sign in.",
+        });
+        return;
+      }
+
+      // Registration successful -> User must explicitly sign in (no auto-login)
+      setSuccessModal({
+        isOpen: true,
+        title: "Registration Successful",
+        message:
+          data.message ||
+          "Your FinanceOS account has been created successfully via Google. Please sign in to continue.",
+      });
+    } catch (error) {
+      console.error("[AUTH] Google registration error:", error);
+      setAuthModal({
+        isOpen: true,
+        title: "Google Registration",
+        message: "Google authentication could not be completed. Please try again.",
+        iconType: "error",
+      });
+    } finally {
+      setIsGoogleSubmitting(false);
+    }
+  };
+
+  // ==========================================================
+  // HANDLE GOOGLE SIGN UP CLICK
+  // ==========================================================
+
+  const handleGoogleSignUp = () => {
+    setServerError("");
+
+    const googleClientId =
+      import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+      (typeof window !== "undefined" && window.__GOOGLE_CLIENT_ID__);
+
+    if (!googleClientId) {
+      console.warn("[AUTH] VITE_GOOGLE_CLIENT_ID is not configured in environment.");
+      setAuthModal({
+        isOpen: true,
+        title: "Google Registration",
+        message: "Google Sign-In could not be completed. Please try again.",
+        iconType: "error",
+      });
+      return;
+    }
+
+    if (!window.google?.accounts) {
+      setAuthModal({
+        isOpen: true,
+        title: "Google Registration",
+        message: "Google authentication service is still loading. Please try again in a moment.",
+        iconType: "info",
+      });
+      return;
+    }
+
+    setIsGoogleSubmitting(true);
+
+    try {
+      if (window.google.accounts.oauth2) {
+        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: googleClientId,
+          scope: "openid email profile",
+          callback: async (tokenResponse) => {
+            if (tokenResponse && tokenResponse.access_token) {
+              await completeGoogleSignUp({
+                accessToken: tokenResponse.access_token,
+              });
+            } else {
+              setIsGoogleSubmitting(false);
+            }
+          },
+          error_callback: (err) => {
+            console.error("[AUTH] Google OAuth popup error:", err);
+            setIsGoogleSubmitting(false);
+            setAuthModal({
+              isOpen: true,
+              title: "Google Registration",
+              message: "Google Sign-In could not be completed. Please try again.",
+              iconType: "error",
+            });
+          },
+        });
+        tokenClient.requestAccessToken();
+      } else if (window.google.accounts.id) {
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: (response) => {
+            if (response?.credential) {
+              completeGoogleSignUp({ credential: response.credential });
+            } else {
+              setIsGoogleSubmitting(false);
+            }
+          },
+        });
+        window.google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            setIsGoogleSubmitting(false);
+          }
+        });
+      }
+    } catch (err) {
+      console.error("[AUTH] Google sign up trigger error:", err);
+      setIsGoogleSubmitting(false);
+      setAuthModal({
+        isOpen: true,
+        title: "Google Registration",
+        message: "Google Sign-In could not be completed. Please try again.",
+        iconType: "error",
+      });
+    }
+  };
 
 
   // ==========================================================
@@ -725,77 +923,52 @@ function SignUp() {
     // ========================================================
 
     try {
-
       setIsSubmitting(true);
 
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(registrationData),
+      });
 
-      const response =
-        await fetch(
-          "http://localhost:5000/api/auth/signup",
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-
-            body:
-              JSON.stringify(
-                registrationData
-              ),
-          }
-        );
-
-
-      const data =
-        await response.json();
-
-
-      // ======================================================
-      // BACKEND ERROR
-      // ======================================================
+      const data = await response.json();
 
       if (!response.ok) {
-
-        setServerError(
-          data.message ||
-          "Unable to create your account."
-        );
-
+        const errorMsg = data.message || "Unable to create your account.";
+        setServerError(errorMsg);
+        setAuthModal({
+          isOpen: true,
+          title: "Registration Failed",
+          message: errorMsg,
+          iconType: "error",
+        });
         return;
-
       }
 
-
-      // ======================================================
-      // SUCCESS
-      // ======================================================
-
+      // MANUAL REGISTRATION: Normal flow with success modal and sign-in redirect
       setSuccessModal({
         isOpen: true,
         title: "Account Created Successfully",
-        message: data.message || "Your FinanceOS account has been created successfully. Please sign in to continue.",
+        message:
+          data.message ||
+          "Your FinanceOS account has been created successfully. Please sign in to continue.",
       });
-
     } catch (error) {
-
-      console.error(
-        "Signup request failed:",
-        error
-      );
-
-
-      setServerError(
-        "Unable to connect to the FinanceOS server. Make sure the backend is running."
-      );
-
+      console.error("Signup request failed:", error);
+      const errorMsg =
+        "Unable to connect to the FinanceOS server. Make sure the backend is running.";
+      setServerError(errorMsg);
+      setAuthModal({
+        isOpen: true,
+        title: "Connection Error",
+        message: errorMsg,
+        iconType: "error",
+      });
     } finally {
-
       setIsSubmitting(false);
-
     }
-
   };
 
 
@@ -1119,7 +1292,6 @@ function SignUp() {
 
               </div>
 
-
               {/* ==================================================
                   FORM
               ================================================== */}
@@ -1127,7 +1299,7 @@ function SignUp() {
               <form
                 onSubmit={handleSubmit}
                 noValidate
-                className="mt-2.5 shrink-0"
+                className="mt-1.5 shrink-0"
               >
 
 
@@ -1487,9 +1659,7 @@ function SignUp() {
 
 
                 {/* EMAIL */}
-
                 <div>
-
                   <label
                     htmlFor="email"
                     className="mb-1 block text-xs font-semibold text-[#344f42]"
@@ -1497,34 +1667,23 @@ function SignUp() {
                     Email Address
                   </label>
 
-
                   <div className="relative">
-
                     <Mail
                       size={15}
                       className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
                     />
 
-
                     <input
                       id="email"
                       type="email"
                       name="email"
-                      value={
-                        formData.email
-                      }
-                      onChange={
-                        handleChange
-                      }
+                      value={formData.email}
+                      onChange={handleChange}
                       placeholder="Enter email address"
                       autoComplete="email"
-                      className={`${inputClass(
-                        "email"
-                      )} pl-9 pr-3`}
+                      className={`${inputClass("email")} pl-9 pr-3`}
                     />
-
                   </div>
-
                 </div>
 
 
@@ -1569,12 +1728,12 @@ function SignUp() {
                   )}
 
 
-                {/* CREATE ACCOUNT */}
+                {/* SAVE & CONTINUE */}
 
                 <button
                   type="submit"
                   disabled={
-                    isSubmitting
+                    isSubmitting || isGoogleSubmitting
                   }
                   className="
                     mt-3
@@ -1598,50 +1757,111 @@ function SignUp() {
                 >
 
                   {isSubmitting
-                    ? "Creating Account..."
-                    : "Create Account"}
-
+                    ? "Saving..."
+                    : "Save & Continue"}
 
                   {!isSubmitting && (
-
-                    <ArrowRight
-                      size={16}
-                    />
-
+                    <ArrowRight size={16} />
                   )}
-
                 </button>
-
               </form>
 
+              {/* GOOGLE SIGN UP AT BOTTOM */}
+              <div className="mt-2.5 space-y-2 shrink-0">
+                {/* DIVIDER */}
+                <div className="flex items-center gap-3 py-0.5">
+                  <div className="h-px flex-1 bg-[#e1e7dc]" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[#829589]">
+                    or
+                  </span>
+                  <div className="h-px flex-1 bg-[#e1e7dc]" />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGoogleSignUp}
+                  disabled={isSubmitting || isGoogleSubmitting}
+                  className="
+                    flex
+                    w-full
+                    items-center
+                    justify-center
+                    gap-3
+                    rounded-xl
+                    border
+                    border-[#d8e0d4]
+                    bg-white
+                    px-5
+                    py-2.5
+                    text-xs
+                    font-semibold
+                    text-[#1f3f30]
+                    shadow-sm
+                    transition-all
+                    duration-150
+                    hover:bg-[#f4f8f0]
+                    hover:border-[#adc7a4]
+                    hover:shadow
+                    active:scale-[0.99]
+                    disabled:cursor-not-allowed
+                    disabled:opacity-60
+                  "
+                >
+                  {isGoogleSubmitting ? (
+                    <RefreshCw size={15} className="animate-spin text-[#57923d]" />
+                  ) : (
+                    <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.27 21.39 7.33 24 12 24z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.27 2.61 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                      />
+                    </svg>
+                  )}
+                  <span>
+                    {isGoogleSubmitting
+                      ? "Connecting..."
+                      : "Continue with Google"}
+                  </span>
+                </button>
+              </div>
 
               {/* SIGN IN */}
-
-              <div className="mt-2.5 border-t border-[#e7ebe4] pt-2.5 text-center">
-
+              <div className="mt-2.5 border-t border-[#e7ebe4] pt-2 text-center shrink-0">
                 <p className="text-xs text-[#718177]">
-
                   Already have a FinanceOS account?{" "}
-
-
                   <Link
                     to="/signin"
                     className="font-semibold text-[#57923d] transition hover:text-[#3f762e]"
                   >
                     Sign In
                   </Link>
-
                 </p>
-
               </div>
-
             </div>
-
           </section>
-
         </div>
-
       </main>
+
+      <CenteredModal
+        isOpen={authModal.isOpen}
+        title={authModal.title}
+        message={authModal.message}
+        iconType={authModal.iconType}
+        confirmText="OK"
+        onClose={() => setAuthModal((prev) => ({ ...prev, isOpen: false }))}
+      />
 
       <CenteredModal
         isOpen={successModal.isOpen}
@@ -1658,7 +1878,6 @@ function SignUp() {
           navigate("/signin");
         }}
       />
-
     </div>
 
   );

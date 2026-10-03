@@ -4,6 +4,7 @@
 // ============================================================
 
 const express = require("express");
+const jwt = require("jsonwebtoken");
 
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
@@ -21,6 +22,7 @@ const {
   devLogin,
   googleLogin,
   generateUserId,
+  getUserRole,
 } = require("../controllers/authController");
 
 const router = express.Router();
@@ -102,6 +104,7 @@ router.post(
         city,
         state,
         email,
+        googleRegistrationToken,
       } = req.body;
 
 
@@ -209,6 +212,14 @@ router.post(
         });
       }
 
+      if (normalizedEmail === "financeos.system@gmail.com") {
+        return res.status(400).json({
+          success: false,
+          message:
+            "The email address financeos.system@gmail.com is reserved for the FinanceOS system administrator and cannot be registered via public sign-up.",
+        });
+      }
+
 
       // ======================================================
       // DATE OF BIRTH
@@ -307,6 +318,56 @@ router.post(
 
 
       // ======================================================
+      // GOOGLE REGISTRATION TOKEN VERIFICATION
+      // ======================================================
+
+      let isGoogle = false;
+      let googleId = null;
+      let avatar = "";
+
+      if (googleRegistrationToken) {
+        try {
+          const decodedGoogle = jwt.verify(
+            googleRegistrationToken,
+            process.env.JWT_SECRET
+          );
+
+          if (decodedGoogle.type !== "google_registration_pending") {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid Google registration session.",
+            });
+          }
+
+          if (
+            String(decodedGoogle.email).trim().toLowerCase() !==
+            normalizedEmail
+          ) {
+            return res.status(400).json({
+              success: false,
+              message: "Verified Google email does not match submitted email.",
+            });
+          }
+
+          isGoogle = true;
+          googleId = decodedGoogle.googleId || null;
+          avatar = decodedGoogle.avatar || "";
+        } catch (tokenErr) {
+          console.error("Google registration token verification failed:", tokenErr.message);
+          return res.status(401).json({
+            success: false,
+            message: "Google verification has expired. Please authenticate with Google again.",
+          });
+        }
+      }
+
+      // ======================================================
+      // ASSIGN ROLE (PROTECT ADMIN)
+      // ======================================================
+
+      const role = getUserRole(normalizedEmail, null);
+
+      // ======================================================
       // GENERATE USER ID
       // ======================================================
 
@@ -344,8 +405,14 @@ router.post(
           email:
             normalizedEmail,
 
-          role:
-            "user",
+          role,
+
+          googleId,
+
+          avatar,
+
+          authProvider:
+            isGoogle ? "google" : "email",
 
           status:
             "Active",
@@ -363,24 +430,74 @@ router.post(
         userName: user.name,
         userEmail: user.email,
         type: "Registration",
-        description: "Created a new FinanceOS account",
+        description: isGoogle
+          ? "Created a new FinanceOS account via Google Sign-Up"
+          : "Created a new FinanceOS account via manual registration",
       });
-await Message.create({
-  title: "New User Registration",
-  message: `User ${user.email} has been registered.`,
-  recipient: "admin",
-  type: "Personal",
-  channels: ["In-App"],
-  createdBy: "System"
-});
+
+      try {
+        await Message.create({
+          title: "New User Registration",
+          message: `User ${user.email} (${user.name}) registered via ${isGoogle ? "Google" : "Manual"} Sign-Up.`,
+          recipient: "admin",
+          type: "Personal",
+          channels: ["In-App"],
+          createdBy: "System",
+        });
+      } catch (_) {}
 
       // ======================================================
       // RESPONSE
       // ======================================================
 
+      if (isGoogle) {
+        if (!process.env.JWT_SECRET) {
+          return res.status(500).json({
+            success: false,
+            message: "Server authentication configuration is missing.",
+          });
+        }
+
+        const token = jwt.sign(
+          {
+            id: user._id.toString(),
+            userId: user.userId,
+            email: user.email,
+            role: user.role,
+          },
+          process.env.JWT_SECRET,
+          {
+            expiresIn: "7d",
+          }
+        );
+
+        return res.status(201).json({
+          success: true,
+          isGoogle: true,
+          message: "FinanceOS account created successfully.",
+          token,
+          user: {
+            _id: user._id,
+            userId: user.userId,
+            name: user.name,
+            dateOfBirth: user.dateOfBirth,
+            gender: user.gender,
+            phone: user.phone,
+            city: user.city,
+            state: user.state,
+            email: user.email,
+            role: user.role,
+            status: user.status,
+            avatar: user.avatar,
+          },
+        });
+      }
+
       return res.status(201).json({
 
         success: true,
+
+        isGoogle: false,
 
         message:
           "FinanceOS account created successfully.",
@@ -419,6 +536,9 @@ await Message.create({
 
           status:
             user.status,
+
+          avatar:
+            user.avatar,
 
         },
 
@@ -523,13 +643,12 @@ router.get(
       // ======================================================
 
       if (!user) {
-
-        return res.status(404).json({
+        return res.status(401).json({
           success: false,
+          code: "ACCOUNT_DELETED",
           message:
-            "User not found.",
+            "Your FinanceOS account no longer exists. Please create a new account.",
         });
-
       }
 
 

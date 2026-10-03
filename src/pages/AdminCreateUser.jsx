@@ -136,7 +136,6 @@ export default function AdminCreateUser() {
 
     try {
       const token =
-        localStorage.getItem("financeos_token") ||
         sessionStorage.getItem("financeos_token");
 
       if (!token) {

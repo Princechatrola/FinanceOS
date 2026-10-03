@@ -26,6 +26,7 @@ const {
   updateAdminUser,
   updateUserAccess,
   updateUserStatus,
+  deleteUser,
   archiveUser,
   getAdminActivities,
   getAdminReportUsers,
@@ -120,7 +121,7 @@ router.patch(
 
 router.delete(
   "/users/:id",
-  archiveUser
+  deleteUser
 );
 
 // ============================================================

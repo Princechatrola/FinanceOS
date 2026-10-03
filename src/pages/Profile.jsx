@@ -42,7 +42,6 @@ const API_URL = "http://localhost:5000/api/auth";
 
 const getToken = () => {
   return (
-    localStorage.getItem("financeos_token") ||
     sessionStorage.getItem("financeos_token")
   );
 };
@@ -53,9 +52,6 @@ const getToken = () => {
 // ============================================================
 
 const clearAuthentication = () => {
-  localStorage.removeItem("financeos_token");
-  localStorage.removeItem("financeos_user");
-
   sessionStorage.removeItem("financeos_token");
   sessionStorage.removeItem("financeos_user");
 };
@@ -67,22 +63,7 @@ const clearAuthentication = () => {
 
 const updateStoredUser = (user) => {
   const serializedUser = JSON.stringify(user);
-
-  if (localStorage.getItem("financeos_token")) {
-    localStorage.setItem(
-      "financeos_user",
-      serializedUser
-    );
-
-    return;
-  }
-
-  if (sessionStorage.getItem("financeos_token")) {
-    sessionStorage.setItem(
-      "financeos_user",
-      serializedUser
-    );
-  }
+  sessionStorage.setItem("financeos_user", serializedUser);
 };
 
 
