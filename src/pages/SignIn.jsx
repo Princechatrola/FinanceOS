@@ -12,6 +12,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 function SignIn() {
   const { setUserData } = useFinance();
   const navigate = useNavigate();
@@ -90,7 +92,7 @@ function SignIn() {
       setIsGoogleSubmitting(true);
       setLoginError("");
 
-      const response = await fetch("/api/auth/google", {
+      const response = await fetch(`${API_URL}/api/auth/google`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -443,7 +445,7 @@ function SignIn() {
       // ======================================================
 
       const response = await fetch(
-        "/api/auth/send-otp",
+        `${API_URL}/api/auth/send-otp`,
         {
           method: "POST",
 
@@ -570,7 +572,7 @@ function SignIn() {
       // ======================================================
 
       const response = await fetch(
-        "/api/auth/verify-otp",
+        `${API_URL}/api/auth/verify-otp`,
         {
           method: "POST",
 
