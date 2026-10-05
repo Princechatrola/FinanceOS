@@ -1,393 +1,752 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import useFinance from "../context/useFinance.js";
 
 import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
-  Calendar,
-  Eye,
-  EyeOff,
-  LockKeyhole,
   Mail,
-  MapPin,
-  Phone,
   TrendingUp,
-  UserRound,
-  Users,
+  ShieldCheck,
+  RefreshCw,
 } from "lucide-react";
 
-// ============================================================
-// FINANCEOS BACKEND API
-// ============================================================
-
-// Render production backend
-// VITE_API_URL should be:
-// https://financeos-giup.onrender.com
-
-const API_URL = (
-  import.meta.env.VITE_API_URL ||
-  "https://financeos-giup.onrender.com"
-).replace(/\/+$/, "");
-
-// ============================================================
-// SIGN UP COMPONENT
-// ============================================================
-
-function SignUp() {
-  // ==========================================================
-  // NAVIGATION
-  // ==========================================================
-
+function SignIn() {
+  const { setUserData } = useFinance();
   const navigate = useNavigate();
 
   // ==========================================================
   // STATE
   // ==========================================================
 
-  const [showPassword, setShowPassword] = useState(false);
+  const [otpMode, setOtpMode] = useState(false);
 
-  const [showConfirmPassword, setShowConfirmPassword] =
-    useState(false);
+  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
 
-  const [errors, setErrors] = useState({});
+  const otpRefs = useRef([]);
+  const isSendingRef = useRef(false);
 
-  const [serverError, setServerError] = useState("");
+  const otp = otpDigits.join("");
+
+  const [otpTimer, setOtpTimer] = useState(0);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+
+  const [loginError, setLoginError] = useState("");
+  const [otpNotice, setOtpNotice] = useState("");
 
   const [formData, setFormData] = useState({
-    fullName: "",
-    dateOfBirth: "",
-    gender: "",
-    mobileNumber: "",
-    city: "",
-    state: "",
     email: "",
-    password: "",
-    confirmPassword: "",
+    rememberMe: true,
   });
 
   // ==========================================================
-  // HANDLE INPUT CHANGE
+  // GOOGLE IDENTITY SERVICES INITIALIZATION
+  // ==========================================================
+
+  useEffect(() => {
+    const googleClientId =
+      import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+      (typeof window !== "undefined" && window.__GOOGLE_CLIENT_ID__);
+
+    // Load Google Identity Services script if not already present
+    const scriptId = "google-gsi-client-script";
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+      script.onload = () => {
+        if (googleClientId && window.google?.accounts?.id) {
+          try {
+            window.google.accounts.id.initialize({
+              client_id: googleClientId,
+              callback: (response) => {
+                if (response?.credential) {
+                  completeGoogleSignIn({ credential: response.credential });
+                }
+              },
+              auto_select: false,
+              cancel_on_tap_outside: true,
+            });
+          } catch (initErr) {
+            console.warn("GSI initialization warning:", initErr);
+          }
+        }
+      };
+      document.body.appendChild(script);
+    }
+  }, []);
+
+  // ==========================================================
+  // COMPLETE GOOGLE SIGN IN
+  // ==========================================================
+
+  const completeGoogleSignIn = async (payload) => {
+    try {
+      setIsGoogleSubmitting(true);
+      setLoginError("");
+
+      const response = await fetch("/api/auth/google", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setLoginError(data.message || "Google sign-in failed. Please try again.");
+        return;
+      }
+
+      if (!data.token || !data.user) {
+        setLoginError("Invalid response received from authentication server.");
+        return;
+      }
+
+      // Clear previous tokens
+      localStorage.removeItem("financeos_token");
+      localStorage.removeItem("financeos_user");
+      sessionStorage.removeItem("financeos_token");
+      sessionStorage.removeItem("financeos_user");
+
+      const storage = formData.rememberMe ? localStorage : sessionStorage;
+      storage.setItem("financeos_token", data.token);
+      storage.setItem("financeos_user", JSON.stringify(data.user));
+
+      setUserData(data.user);
+
+      if (data.user.role === "admin") {
+        navigate("/admin/dashboard", { replace: true });
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
+    } catch (error) {
+      console.error("Google sign in error:", error);
+      setLoginError("Unable to connect to FinanceOS server for Google sign-in.");
+    } finally {
+      setIsGoogleSubmitting(false);
+    }
+  };
+
+  // ==========================================================
+  // HANDLE GOOGLE SIGN IN CLICK
+  // ==========================================================
+
+  const handleGoogleSignIn = () => {
+    setLoginError("");
+
+    const googleClientId =
+      import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+      (typeof window !== "undefined" && window.__GOOGLE_CLIENT_ID__);
+
+    if (!googleClientId) {
+      setLoginError(
+        "Google Sign-In is not configured yet. Please configure VITE_GOOGLE_CLIENT_ID in your environment."
+      );
+      return;
+    }
+
+    if (!window.google?.accounts) {
+      setLoginError(
+        "Google authentication service is still loading. Please try again in a moment."
+      );
+      return;
+    }
+
+    setIsGoogleSubmitting(true);
+
+    try {
+      // Use standard Google OAuth2 Token Client for popup account selector
+      if (window.google.accounts.oauth2) {
+        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: googleClientId,
+          scope: "openid email profile",
+          callback: async (tokenResponse) => {
+            if (tokenResponse && tokenResponse.access_token) {
+              try {
+                const userInfoRes = await fetch(
+                  "https://www.googleapis.com/oauth2/v3/userinfo",
+                  {
+                    headers: {
+                      Authorization: `Bearer ${tokenResponse.access_token}`,
+                    },
+                  }
+                );
+                const userInfo = await userInfoRes.json();
+                await completeGoogleSignIn({
+                  email: userInfo.email,
+                  name: userInfo.name,
+                  googleId: userInfo.sub,
+                  picture: userInfo.picture,
+                });
+              } catch (fetchErr) {
+                console.error("Failed to fetch Google profile:", fetchErr);
+                setLoginError("Failed to retrieve Google profile information.");
+                setIsGoogleSubmitting(false);
+              }
+            } else {
+              setIsGoogleSubmitting(false);
+            }
+          },
+        });
+        tokenClient.requestAccessToken();
+      } else if (window.google.accounts.id) {
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: (response) => {
+            if (response?.credential) {
+              completeGoogleSignIn({ credential: response.credential });
+            } else {
+              setIsGoogleSubmitting(false);
+            }
+          },
+        });
+        window.google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            setIsGoogleSubmitting(false);
+          }
+        });
+      }
+    } catch (err) {
+      console.error("Google sign in trigger error:", err);
+      setLoginError("Unable to initiate Google sign-in.");
+      setIsGoogleSubmitting(false);
+    }
+  };
+
+  // ==========================================================
+  // AUTO FOCUS FIRST OTP BOX WHEN OTP MODE OPENS
+  // ==========================================================
+
+  useEffect(() => {
+    if (otpMode) {
+      const timer = setTimeout(() => {
+        const firstEmpty = otpDigits.findIndex((d) => !d);
+        const targetIdx = firstEmpty !== -1 ? firstEmpty : 0;
+        otpRefs.current[targetIdx]?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [otpMode]);
+
+  // ==========================================================
+  // OTP INPUT HANDLERS (6 INDIVIDUAL BOXES)
+  // ==========================================================
+
+  const handleOtpChange = (index, e) => {
+    const rawValue = e.target.value;
+    const digitsOnly = rawValue.replace(/\D/g, "");
+
+    // If empty / cleared
+    if (!digitsOnly) {
+      const updated = [...otpDigits];
+      updated[index] = "";
+      setOtpDigits(updated);
+      setLoginError("");
+      return;
+    }
+
+    // If multiple digits were pasted/autofilled into a single box
+    if (digitsOnly.length > 1) {
+      const updated = [...otpDigits];
+      let pasteIdx = index;
+      for (let i = 0; i < digitsOnly.length && pasteIdx < 6; i++) {
+        updated[pasteIdx] = digitsOnly[i];
+        pasteIdx++;
+      }
+      setOtpDigits(updated);
+      setLoginError("");
+
+      const nextFocus = Math.min(pasteIdx, 5);
+      otpRefs.current[nextFocus]?.focus();
+      return;
+    }
+
+    // Exactly 1 digit entered
+    const updated = [...otpDigits];
+    updated[index] = digitsOnly.slice(-1);
+    setOtpDigits(updated);
+    setLoginError("");
+
+    // Automatically move focus to next box
+    if (index < 5) {
+      setTimeout(() => {
+        otpRefs.current[index + 1]?.focus();
+      }, 10);
+    }
+  };
+
+  const handleOtpKeyDown = (index, e) => {
+    if (e.key === "Backspace") {
+      if (otpDigits[index]) {
+        // Clear current box digit
+        const updated = [...otpDigits];
+        updated[index] = "";
+        setOtpDigits(updated);
+        setLoginError("");
+      } else if (index > 0) {
+        // Move to previous box and clear its digit
+        const updated = [...otpDigits];
+        updated[index - 1] = "";
+        setOtpDigits(updated);
+        setLoginError("");
+        setTimeout(() => {
+          otpRefs.current[index - 1]?.focus();
+        }, 10);
+      }
+    } else if (e.key === "ArrowLeft" && index > 0) {
+      e.preventDefault();
+      setTimeout(() => {
+        otpRefs.current[index - 1]?.focus();
+      }, 10);
+    } else if (e.key === "ArrowRight" && index < 5) {
+      e.preventDefault();
+      setTimeout(() => {
+        otpRefs.current[index + 1]?.focus();
+      }, 10);
+    }
+  };
+
+  const handleOtpPaste = (e) => {
+    e.preventDefault();
+    const pasteData = e.clipboardData ? e.clipboardData.getData("text") : "";
+    const cleanDigits = pasteData.replace(/\D/g, "").slice(0, 6);
+    if (!cleanDigits) return;
+
+    const updated = ["", "", "", "", "", ""];
+    for (let i = 0; i < cleanDigits.length; i++) {
+      updated[i] = cleanDigits[i];
+    }
+    setOtpDigits(updated);
+    setLoginError("");
+
+    const nextFocus = Math.min(cleanDigits.length, 5);
+    setTimeout(() => {
+      otpRefs.current[nextFocus]?.focus();
+    }, 10);
+  };
+
+  // ==========================================================
+  // OTP TIMER
+  // ==========================================================
+
+  useEffect(() => {
+    if (otpTimer <= 0) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setOtpTimer((previous) => {
+        if (previous <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+
+        return previous - 1;
+      });
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [otpTimer]);
+
+  // ==========================================================
+  // INPUT CHANGE
   // ==========================================================
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    const {
+      name,
+      value,
+      type,
+      checked,
+    } = e.target;
 
-    let newValue = value;
+    setFormData((previous) => ({
+      ...previous,
 
-    // Mobile number: numbers only, maximum 10 digits
-    if (name === "mobileNumber") {
-      newValue = value.replace(/\D/g, "").slice(0, 10);
-    }
-
-    setFormData((prev) => ({
-      ...prev,
-      [name]: newValue,
+      [name]:
+        type === "checkbox"
+          ? checked
+          : value,
     }));
 
-    // Clear server error
-    if (serverError) {
-      setServerError("");
-    }
-
-    // Clear field error
-    if (errors[name]) {
-      setErrors((prev) => {
-        const updatedErrors = {
-          ...prev,
-        };
-
-        delete updatedErrors[name];
-
-        return updatedErrors;
-      });
-    }
+    setLoginError("");
   };
 
   // ==========================================================
-  // VALIDATE FORM
+  // START OTP TIMER
   // ==========================================================
 
-  const validateForm = () => {
-    const newErrors = {};
+  const startOtpTimer = () => {
+    setOtpTimer(300);
+  };
 
-    const nameRegex = /^[A-Za-z\s]+$/;
+  // ==========================================================
+  // SEND OTP
+  // ==========================================================
 
-    const locationRegex = /^[A-Za-z\s.'-]+$/;
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    const mobileRegex = /^[0-9]{10}$/;
-
-    // ========================================================
-    // FULL NAME
-    // ========================================================
-
-    if (!formData.fullName.trim()) {
-      newErrors.fullName = "Full name is required.";
-    } else if (formData.fullName.trim().length < 3) {
-      newErrors.fullName = "Enter a valid full name.";
-    } else if (!nameRegex.test(formData.fullName.trim())) {
-      newErrors.fullName =
-        "Full name should contain letters only.";
+  const handleSendOTP = async () => {
+    if (isSendingRef.current || isSubmitting) {
+      return;
     }
 
+    setLoginError("");
+
+    const email =
+      formData.email
+        .trim()
+        .toLowerCase();
+
     // ========================================================
-    // DATE OF BIRTH
+    // EMAIL REQUIRED
     // ========================================================
 
-    if (!formData.dateOfBirth) {
-      newErrors.dateOfBirth =
-        "Date of birth is required.";
-    } else {
-      const selectedDate = new Date(
-        `${formData.dateOfBirth}T00:00:00`
+    if (!email) {
+      setLoginError(
+        "Please enter your email address."
       );
 
-      const today = new Date();
-
-      today.setHours(0, 0, 0, 0);
-
-      if (Number.isNaN(selectedDate.getTime())) {
-        newErrors.dateOfBirth =
-          "Enter a valid date of birth.";
-      } else if (selectedDate > today) {
-        newErrors.dateOfBirth =
-          "Date of birth cannot be in the future.";
-      }
-    }
-
-    // ========================================================
-    // GENDER
-    // ========================================================
-
-    if (!formData.gender) {
-      newErrors.gender = "Please select gender.";
-    }
-
-    // ========================================================
-    // MOBILE NUMBER
-    // ========================================================
-
-    if (!formData.mobileNumber.trim()) {
-      newErrors.mobileNumber =
-        "Mobile number is required.";
-    } else if (
-      !mobileRegex.test(formData.mobileNumber.trim())
-    ) {
-      newErrors.mobileNumber =
-        "Enter a valid 10-digit mobile number.";
-    }
-
-    // ========================================================
-    // CITY
-    // ========================================================
-
-    if (!formData.city.trim()) {
-      newErrors.city = "City is required.";
-    } else if (
-      !locationRegex.test(formData.city.trim())
-    ) {
-      newErrors.city = "Enter a valid city.";
-    }
-
-    // ========================================================
-    // STATE
-    // ========================================================
-
-    if (!formData.state.trim()) {
-      newErrors.state = "State is required.";
-    } else if (
-      !locationRegex.test(formData.state.trim())
-    ) {
-      newErrors.state = "Enter a valid state.";
-    }
-
-    // ========================================================
-    // EMAIL
-    // ========================================================
-
-    if (!formData.email.trim()) {
-      newErrors.email =
-        "Email address is required.";
-    } else if (
-      !emailRegex.test(formData.email.trim())
-    ) {
-      newErrors.email =
-        "Enter a valid email address.";
-    }
-
-    // ========================================================
-    // PASSWORD
-    // ========================================================
-
-    if (!formData.password) {
-      newErrors.password =
-        "Password is required.";
-    } else if (formData.password.length < 8) {
-      newErrors.password =
-        "Password must contain at least 8 characters.";
-    } else if (!/[A-Z]/.test(formData.password)) {
-      newErrors.password =
-        "Password needs one uppercase letter.";
-    } else if (!/[a-z]/.test(formData.password)) {
-      newErrors.password =
-        "Password needs one lowercase letter.";
-    } else if (!/[0-9]/.test(formData.password)) {
-      newErrors.password =
-        "Password needs one number.";
-    } else if (
-      !/[!@#$%^&*(),.?":{}|<>]/.test(
-        formData.password
-      )
-    ) {
-      newErrors.password =
-        "Password needs one special character.";
-    }
-
-    // ========================================================
-    // CONFIRM PASSWORD
-    // ========================================================
-
-    if (!formData.confirmPassword) {
-      newErrors.confirmPassword =
-        "Please confirm your password.";
-    } else if (
-      formData.password !==
-      formData.confirmPassword
-    ) {
-      newErrors.confirmPassword =
-        "Password and Confirm Password do not match.";
-    }
-
-    setErrors(newErrors);
-
-    return Object.keys(newErrors).length === 0;
-  };
-
-  // ==========================================================
-  // HANDLE SUBMIT
-  // ==========================================================
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    setServerError("");
-
-    // Validate form
-    const isValid = validateForm();
-
-    if (!isValid) {
       return;
     }
 
     // ========================================================
-    // REGISTRATION DATA
+    // EMAIL VALIDATION
     // ========================================================
 
-    const registrationData = {
-      fullName: formData.fullName.trim(),
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        email
+      )
+    ) {
+      setLoginError(
+        "Please enter a valid email address."
+      );
 
-      dateOfBirth: formData.dateOfBirth,
-
-      gender: formData.gender,
-
-      mobileNumber:
-        formData.mobileNumber.trim(),
-
-      city: formData.city.trim(),
-
-      state: formData.state.trim(),
-
-      email: formData.email
-        .trim()
-        .toLowerCase(),
-
-      password: formData.password,
-    };
+      return;
+    }
 
     try {
+      isSendingRef.current = true;
       setIsSubmitting(true);
 
       // ======================================================
-      // IMPORTANT:
-      // CALL BACKEND RENDER SERVICE
+      // SEND OTP REQUEST
       // ======================================================
 
       const response = await fetch(
-        `${API_URL}/api/auth/signup`,
+        "/api/auth/send-otp",
         {
           method: "POST",
 
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
 
-          body: JSON.stringify(
-            registrationData
-          ),
+          body: JSON.stringify({
+            email,
+          }),
         }
       );
 
-      // ======================================================
-      // READ RESPONSE SAFELY
-      // ======================================================
+      const data =
+        await response.json();
 
-      const responseText = await response.text();
-
-      let data = {};
-
-      if (responseText) {
-        try {
-          data = JSON.parse(responseText);
-        } catch (jsonError) {
-          console.error(
-            "Invalid JSON response:",
-            responseText
-          );
-
-          setServerError(
-            `Server returned an invalid response. Status: ${response.status}`
-          );
-
-          return;
-        }
-      }
+      console.log(
+        "Send OTP Response:",
+        data
+      );
 
       // ======================================================
       // BACKEND ERROR
       // ======================================================
 
       if (!response.ok) {
-        setServerError(
+        if (response.status === 404) {
+          setLoginError(
+            data.message ||
+              "No FinanceOS account was found for this email address."
+          );
+        } else if (response.status === 429) {
+          setLoginError(
+            data.message ||
+              "Please wait before requesting another OTP."
+          );
+        } else if (response.status === 400) {
+          setLoginError(
+            data.message ||
+              "Please enter a valid email address."
+          );
+        } else {
+          setLoginError(
+            data.message ||
+              "Unable to send OTP right now. Please try again."
+          );
+        }
+
+        return;
+      }
+
+      // ======================================================
+      // OTP SUCCESS
+      // ======================================================
+
+      setFormData((previous) => ({
+        ...previous,
+        email,
+      }));
+
+      setOtpMode(true);
+
+      setOtpDigits(["", "", "", "", "", ""]);
+
+      startOtpTimer();
+
+      if (data.emailSent === false) {
+        setOtpNotice(
           data.message ||
-            "Unable to create your account."
+            "OTP generated. Email delivery failed. Development terminal OTP is available."
+        );
+      } else {
+        setOtpNotice("");
+      }
+
+    } catch (error) {
+      console.error(
+        "Send OTP Error:",
+        error
+      );
+
+      setLoginError(
+        "Unable to connect to the FinanceOS server. Please check your connection."
+      );
+
+    } finally {
+      isSendingRef.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
+  // ==========================================================
+  // VERIFY OTP
+  // ==========================================================
+
+  const handleVerifyOTP = async (e) => {
+    e.preventDefault();
+
+    setLoginError("");
+
+    // ========================================================
+    // OTP VALIDATION
+    // ========================================================
+
+    if (otp.length !== 6) {
+      setLoginError(
+        "Please enter the 6-digit OTP."
+      );
+
+      return;
+    }
+
+    const email =
+      formData.email
+        .trim()
+        .toLowerCase();
+
+    try {
+      setIsSubmitting(true);
+
+      // ======================================================
+      // VERIFY OTP REQUEST
+      // ======================================================
+
+      const response = await fetch(
+        "/api/auth/verify-otp",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            email,
+            otp,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
+
+      console.log(
+        "Verify OTP Response:",
+        data
+      );
+
+      // ======================================================
+      // BACKEND ERROR
+      // ======================================================
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          setLoginError(
+            data.message ||
+              "Authentication service endpoint is unavailable."
+          );
+        } else if (response.status === 401) {
+          setLoginError(
+            data.message ||
+              "Invalid or expired OTP. Please try again."
+          );
+        } else {
+          setLoginError(
+            data.message ||
+              "Unable to verify OTP right now."
+          );
+        }
+
+        return;
+      }
+
+      // ======================================================
+      // CHECK SERVER RESPONSE
+      // ======================================================
+
+      if (
+        !data.token ||
+        !data.user
+      ) {
+        setLoginError(
+          "Invalid response received from server."
         );
 
         return;
       }
 
       // ======================================================
-      // SUCCESS
+      // CLEAR OLD LOGIN
       // ======================================================
 
-      alert(
-        data.message ||
-          "FinanceOS account created successfully."
+      localStorage.removeItem(
+        "financeos_token"
       );
 
-      navigate("/signin");
+      localStorage.removeItem(
+        "financeos_user"
+      );
+
+      sessionStorage.removeItem(
+        "financeos_token"
+      );
+
+      sessionStorage.removeItem(
+        "financeos_user"
+      );
+
+      // ======================================================
+      // SELECT STORAGE
+      // ======================================================
+
+      const storage =
+        formData.rememberMe
+          ? localStorage
+          : sessionStorage;
+
+      // ======================================================
+      // SAVE TOKEN
+      // ======================================================
+
+      storage.setItem(
+        "financeos_token",
+        data.token
+      );
+
+      // ======================================================
+      // SAVE USER
+      // ======================================================
+
+      storage.setItem(
+        "financeos_user",
+        JSON.stringify(
+          data.user
+        )
+      );
+
+      // ======================================================
+      // UPDATE CONTEXT
+      // ======================================================
+
+      setUserData(data.user);
+
+      // ======================================================
+      // ROLE BASED REDIRECTION
+      // ======================================================
+
+      console.log(
+        "Logged in user:",
+        data.user
+      );
+
+      console.log(
+        "User role:",
+        data.user.role
+      );
+
+      // ======================================================
+      // ADMIN
+      // ======================================================
+
+      if (
+        data.user.role === "admin"
+      ) {
+        console.log(
+          "Admin detected → Admin Dashboard"
+        );
+
+        navigate(
+          "/admin/dashboard",
+          {
+            replace: true,
+          }
+        );
+
+        return;
+      }
+
+      // ======================================================
+      // NORMAL USER
+      // ======================================================
+
+      console.log(
+        "User detected → User Dashboard"
+      );
+
+      navigate(
+        "/dashboard",
+        {
+          replace: true,
+        }
+      );
 
     } catch (error) {
       console.error(
-        "Signup request failed:",
+        "Verify OTP Error:",
         error
       );
 
-      setServerError(
-        "Unable to connect to the FinanceOS server. Make sure the backend is running."
+      setLoginError(
+        "Unable to connect to the FinanceOS server."
       );
 
     } finally {
@@ -396,34 +755,52 @@ function SignUp() {
   };
 
   // ==========================================================
-  // INPUT CLASS
+  // RESEND OTP
   // ==========================================================
 
-  const inputClass = (field) => `
-    w-full
-    rounded-lg
-    border
-    bg-[#fbfcfa]
-    py-2
-    text-sm
-    text-[#173b2b]
-    outline-none
-    transition
-    placeholder:text-[#9aa69e]
-
-    ${
-      errors[field]
-        ? "border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100"
-        : "border-[#dce3d8] focus:border-[#9fbd82] focus:ring-2 focus:ring-[#eaf4df]"
+  const handleResendOTP = async () => {
+    if (
+      otpTimer > 0 ||
+      isSubmitting
+    ) {
+      return;
     }
-  `;
+
+    await handleSendOTP();
+  };
 
   // ==========================================================
-  // FIRST ERROR
+  // CHANGE EMAIL
   // ==========================================================
 
-  const firstError =
-    Object.values(errors)[0];
+  const handleChangeEmail = () => {
+    setOtpMode(false);
+
+    setOtpDigits(["", "", "", "", "", ""]);
+
+    setOtpTimer(0);
+
+    setLoginError("");
+    setOtpNotice("");
+  };
+
+  // ==========================================================
+  // FORMAT TIMER
+  // ==========================================================
+
+  const formatTimer = () => {
+    const minutes =
+      Math.floor(
+        otpTimer / 60
+      );
+
+    const seconds =
+      otpTimer % 60;
+
+    return `${minutes}:${seconds
+      .toString()
+      .padStart(2, "0")}`;
+  };
 
   // ==========================================================
   // UI
@@ -437,6 +814,7 @@ function SignUp() {
       ====================================================== */}
 
       <header className="h-[64px] border-b border-[#e1e7dc] bg-white">
+
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-6 lg:px-8">
 
           {/* LOGO */}
@@ -445,14 +823,18 @@ function SignUp() {
             to="/"
             className="flex items-center gap-3"
           >
+
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#edf7df]">
+
               <TrendingUp
                 size={20}
                 className="text-[#4f8d32]"
               />
+
             </div>
 
             <div>
+
               <p className="text-xl font-bold tracking-tight text-[#43822e]">
                 FinanceOS
               </p>
@@ -460,7 +842,9 @@ function SignUp() {
               <p className="text-[8px] font-medium tracking-wide text-[#6f846e]">
                 Manage Today, Secure Tomorrow
               </p>
+
             </div>
+
           </Link>
 
           {/* BACK HOME */}
@@ -469,11 +853,15 @@ function SignUp() {
             to="/"
             className="flex items-center gap-2 text-sm font-medium text-[#617268] transition hover:text-[#43822e]"
           >
+
             <ArrowLeft size={16} />
 
             Back to Home
+
           </Link>
+
         </div>
+
       </header>
 
       {/* ======================================================
@@ -495,7 +883,7 @@ function SignUp() {
             border-[#dfe6da]
             bg-white
             shadow-[0_15px_45px_rgba(50,80,55,0.07)]
-            lg:grid-cols-[0.85fr_1.15fr]
+            lg:grid-cols-[0.95fr_1.05fr]
           "
         >
 
@@ -516,59 +904,59 @@ function SignUp() {
             "
           >
 
-            {/* DECORATION */}
-
             <div className="absolute -left-28 -top-28 h-72 w-72 rounded-full bg-[#dcefc2]/60" />
 
             <div className="absolute -bottom-36 -right-24 h-80 w-80 rounded-full bg-[#dcefc2]/60" />
 
-            {/* HEADING */}
-
-            <div className="relative z-10 shrink-0">
+            <div className="relative z-10">
 
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#67964f]">
                 FinanceOS
               </p>
 
               <h1 className="mt-3 text-3xl font-bold leading-tight text-[#173b2b]">
-                Your financial journey
+
+                Your finances.
 
                 <span className="block text-[#57923d]">
-                  starts here.
+                  One connected system.
                 </span>
+
               </h1>
 
-              <p className="mt-3 max-w-sm text-sm leading-6 text-[#65786d]">
-                Create your FinanceOS account and build a
-                connected view of your financial life.
+              <p className="mt-3 max-w-md text-sm leading-6 text-[#65786d]">
+                Bring the important parts of your
+                financial life together and understand
+                how they connect.
               </p>
+
             </div>
 
-            {/* ACCOUNT CARD */}
+            {/* SECURITY CARD */}
 
             <div className="relative z-10 mt-5">
 
-              <div className="rounded-[22px] border border-[#d7e3d0] bg-white/85 p-5 shadow-sm backdrop-blur">
-
-                {/* CARD HEADER */}
+              <div className="rounded-[22px] border border-[#d7e3d0] bg-white/85 p-5 shadow-sm">
 
                 <div className="flex items-center gap-3">
 
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#e7f3d8]">
-                    <UserRound
-                      size={21}
+
+                    <ShieldCheck
+                      size={22}
                       className="text-[#57923d]"
                     />
+
                   </div>
 
                   <div>
 
                     <p className="font-semibold text-[#173b2b]">
-                      Your FinanceOS Account
+                      Secure Login
                     </p>
 
-                    <p className="mt-0.5 text-xs text-[#7a897f]">
-                      Personal and secure
+                    <p className="text-xs text-[#7a897f]">
+                      OTP protected access
                     </p>
 
                   </div>
@@ -577,56 +965,53 @@ function SignUp() {
 
                 <div className="my-4 h-px bg-[#e1e7dd]" />
 
-                {/* PERSONAL */}
+                <div className="flex items-center gap-3">
 
-                <AccountStep
-                  icon={<Users size={17} />}
-                  title="Personal Information"
-                  text="Your basic profile details"
-                />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#edf5e8]">
 
-                <Connector />
-
-                {/* ACCOUNT */}
-
-                <AccountStep
-                  icon={<Mail size={17} />}
-                  title="Account Information"
-                  text="Your FinanceOS sign-in email"
-                />
-
-                <Connector />
-
-                {/* SECURITY */}
-
-                <AccountStep
-                  icon={<LockKeyhole size={17} />}
-                  title="Secure Access"
-                  text="Protect your FinanceOS account"
-                />
-
-                {/* READY */}
-
-                <div className="mt-4 rounded-xl bg-[#e7f3d8] px-4 py-3">
-
-                  <div className="flex items-center justify-between">
-
-                    <div>
-
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6e8665]">
-                        Ready For
-                      </p>
-
-                      <p className="mt-0.5 text-sm font-semibold text-[#173b2b]">
-                        Your Financial Dashboard
-                      </p>
-
-                    </div>
-
-                    <TrendingUp
-                      size={20}
+                    <Mail
+                      size={17}
                       className="text-[#57923d]"
                     />
+
+                  </div>
+
+                  <div>
+
+                    <p className="text-sm font-semibold">
+                      Email Verification
+                    </p>
+
+                    <p className="text-xs text-[#7b8a80]">
+                      Receive a secure OTP
+                    </p>
+
+                  </div>
+
+                </div>
+
+                <div className="mx-auto ml-[17px] h-5 w-px bg-[#ccd9c4]" />
+
+                <div className="flex items-center gap-3">
+
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#edf5e8]">
+
+                    <ShieldCheck
+                      size={17}
+                      className="text-[#57923d]"
+                    />
+
+                  </div>
+
+                  <div>
+
+                    <p className="text-sm font-semibold">
+                      Automatic Role Access
+                    </p>
+
+                    <p className="text-xs text-[#7b8a80]">
+                      Admin or User dashboard
+                    </p>
 
                   </div>
 
@@ -642,550 +1027,359 @@ function SignUp() {
               RIGHT PANEL
           ================================================== */}
 
-          <section className="h-full overflow-hidden px-7 py-3 lg:px-10 lg:py-4">
+          <section className="h-full overflow-hidden px-7 py-5 lg:px-10">
 
-            <div className="mx-auto flex h-full w-full max-w-[580px] flex-col justify-center">
+            <div className="mx-auto flex h-full w-full max-w-[560px] flex-col justify-center">
 
               {/* HEADER */}
 
-              <div className="shrink-0">
+              <div>
 
-                <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#669451]">
-                  Create Account
+                <p className="text-[11px] font-semibold uppercase tracking-[0.17em] text-[#669451]">
+                  Secure Access
                 </p>
 
-                <h2 className="mt-0.5 text-[26px] font-bold leading-tight text-[#173b2b]">
-                  Join FinanceOS
+                <h2 className="mt-2 text-3xl font-bold leading-tight text-[#173b2b]">
+                  Welcome Back
                 </h2>
 
-                <p className="mt-0.5 text-xs text-[#718177]">
-                  Enter your details to create your account.
+                <p className="mt-1.5 text-sm text-[#718177]">
+
+                  {otpMode
+                    ? "Enter the OTP sent to your email."
+                    : "Sign in securely using email verification."}
+
                 </p>
 
               </div>
 
-              {/* FORM */}
-
-              <form
-                onSubmit={handleSubmit}
-                noValidate
-                className="mt-2.5 shrink-0"
-              >
-
-                {/* PERSONAL INFORMATION */}
-
-                <FormSectionTitle
-                  text="Personal Information"
-                />
-
-                {/* FULL NAME + DOB */}
-
-                <div className="grid grid-cols-2 gap-3">
-
-                  {/* FULL NAME */}
-
-                  <div>
-
-                    <label
-                      htmlFor="fullName"
-                      className="mb-1 block text-xs font-semibold text-[#344f42]"
-                    >
-                      Full Name
-                    </label>
-
-                    <div className="relative">
-
-                      <UserRound
-                        size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
-                      />
-
-                      <input
-                        id="fullName"
-                        type="text"
-                        name="fullName"
-                        value={formData.fullName}
-                        onChange={handleChange}
-                        placeholder="Enter full name"
-                        autoComplete="name"
-                        className={`${inputClass(
-                          "fullName"
-                        )} pl-9 pr-3`}
-                      />
-
-                    </div>
-
-                  </div>
-
-                  {/* DOB */}
-
-                  <div>
-
-                    <label
-                      htmlFor="dateOfBirth"
-                      className="mb-1 block text-xs font-semibold text-[#344f42]"
-                    >
-                      Date of Birth
-                    </label>
-
-                    <div className="relative">
-
-                      <Calendar
-                        size={15}
-                        className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-[#87958c]"
-                      />
-
-                      <input
-                        id="dateOfBirth"
-                        type="date"
-                        name="dateOfBirth"
-                        value={formData.dateOfBirth}
-                        onChange={handleChange}
-                        max={
-                          new Date()
-                            .toISOString()
-                            .split("T")[0]
-                        }
-                        autoComplete="bday"
-                        className={`${inputClass(
-                          "dateOfBirth"
-                        )} pl-9 pr-3`}
-                      />
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-                {/* GENDER + MOBILE */}
-
-                <div className="mt-2 grid grid-cols-2 gap-3">
-
-                  {/* GENDER */}
-
-                  <div>
-
-                    <label
-                      htmlFor="gender"
-                      className="mb-1 block text-xs font-semibold text-[#344f42]"
-                    >
-                      Gender
-                    </label>
-
-                    <select
-                      id="gender"
-                      name="gender"
-                      value={formData.gender}
-                      onChange={handleChange}
-                      className={`${inputClass(
-                        "gender"
-                      )} px-3`}
-                    >
-
-                      <option value="">
-                        Select Gender
-                      </option>
-
-                      <option value="male">
-                        Male
-                      </option>
-
-                      <option value="female">
-                        Female
-                      </option>
-
-                      <option value="other">
-                        Other
-                      </option>
-
-                      <option value="prefer-not-to-say">
-                        Prefer not to say
-                      </option>
-
-                    </select>
-
-                  </div>
-
-                  {/* MOBILE */}
-
-                  <div>
-
-                    <label
-                      htmlFor="mobileNumber"
-                      className="mb-1 block text-xs font-semibold text-[#344f42]"
-                    >
-                      Mobile Number
-                    </label>
-
-                    <div className="relative">
-
-                      <Phone
-                        size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
-                      />
-
-                      <input
-                        id="mobileNumber"
-                        type="tel"
-                        inputMode="numeric"
-                        name="mobileNumber"
-                        value={formData.mobileNumber}
-                        onChange={handleChange}
-                        placeholder="Enter 10-digit number"
-                        maxLength={10}
-                        autoComplete="tel"
-                        className={`${inputClass(
-                          "mobileNumber"
-                        )} pl-9 pr-3`}
-                      />
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-                {/* CITY + STATE */}
-
-                <div className="mt-2 grid grid-cols-2 gap-3">
-
-                  {/* CITY */}
-
-                  <div>
-
-                    <label
-                      htmlFor="city"
-                      className="mb-1 block text-xs font-semibold text-[#344f42]"
-                    >
-                      City
-                    </label>
-
-                    <div className="relative">
-
-                      <MapPin
-                        size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
-                      />
-
-                      <input
-                        id="city"
-                        type="text"
-                        name="city"
-                        value={formData.city}
-                        onChange={handleChange}
-                        placeholder="Enter city"
-                        autoComplete="address-level2"
-                        className={`${inputClass(
-                          "city"
-                        )} pl-9 pr-3`}
-                      />
-
-                    </div>
-
-                  </div>
-
-                  {/* STATE */}
-
-                  <div>
-
-                    <label
-                      htmlFor="state"
-                      className="mb-1 block text-xs font-semibold text-[#344f42]"
-                    >
-                      State
-                    </label>
-
-                    <div className="relative">
-
-                      <MapPin
-                        size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
-                      />
-
-                      <input
-                        id="state"
-                        type="text"
-                        name="state"
-                        value={formData.state}
-                        onChange={handleChange}
-                        placeholder="Enter state"
-                        autoComplete="address-level1"
-                        className={`${inputClass(
-                          "state"
-                        )} pl-9 pr-3`}
-                      />
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-                {/* ACCOUNT INFORMATION */}
-
-                <div className="mt-2.5">
-                  <FormSectionTitle
-                    text="Account Information"
-                  />
-                </div>
-
-                {/* EMAIL */}
-
-                <div>
-
-                  <label
-                    htmlFor="email"
-                    className="mb-1 block text-xs font-semibold text-[#344f42]"
+              {/* ==================================================
+                  CONTINUE WITH GOOGLE & EMAIL
+              ================================================== */}
+
+              {!otpMode && (
+                <div className="mt-6 space-y-4">
+
+                  {/* GOOGLE SIGN IN BUTTON */}
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    disabled={isSubmitting || isGoogleSubmitting}
+                    className="
+                      flex
+                      w-full
+                      items-center
+                      justify-center
+                      gap-3
+                      rounded-xl
+                      border
+                      border-[#d8e0d4]
+                      bg-white
+                      px-5
+                      py-3
+                      text-sm
+                      font-semibold
+                      text-[#1f3f30]
+                      shadow-sm
+                      transition-all
+                      duration-150
+                      hover:bg-[#f4f8f0]
+                      hover:border-[#adc7a4]
+                      hover:shadow
+                      active:scale-[0.99]
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
                   >
-                    Email Address
-                  </label>
+                    {isGoogleSubmitting ? (
+                      <RefreshCw size={18} className="animate-spin text-[#57923d]" />
+                    ) : (
+                      <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.27 21.39 7.33 24 12 24z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.27 2.61 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                        />
+                      </svg>
+                    )}
+                    <span>
+                      {isGoogleSubmitting
+                        ? "Signing in with Google..."
+                        : "Continue with Google"}
+                    </span>
+                  </button>
 
-                  <div className="relative">
-
-                    <Mail
-                      size={15}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
-                    />
-
-                    <input
-                      id="email"
-                      type="email"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleChange}
-                      placeholder="Enter email address"
-                      autoComplete="email"
-                      className={`${inputClass(
-                        "email"
-                      )} pl-9 pr-3`}
-                    />
-
+                  {/* DIVIDER */}
+                  <div className="flex items-center gap-3 py-1">
+                    <div className="h-px flex-1 bg-[#e1e7dc]" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#829589]">
+                      or continue with email
+                    </span>
+                    <div className="h-px flex-1 bg-[#e1e7dc]" />
                   </div>
 
-                </div>
-
-                {/* SECURITY */}
-
-                <div className="mt-2.5">
-                  <FormSectionTitle
-                    text="Security"
-                  />
-                </div>
-
-                {/* PASSWORDS */}
-
-                <div className="grid grid-cols-2 gap-3">
-
-                  {/* PASSWORD */}
-
+                  {/* EMAIL INPUT */}
                   <div>
-
                     <label
-                      htmlFor="password"
-                      className="mb-1 block text-xs font-semibold text-[#344f42]"
+                      htmlFor="email"
+                      className="mb-1.5 block text-sm font-semibold text-[#344f42]"
                     >
-                      Password
+                      Email Address
                     </label>
 
                     <div className="relative">
-
-                      <LockKeyhole
-                        size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
+                      <Mail
+                        size={17}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-[#87958c]"
                       />
 
                       <input
-                        id="password"
-                        type={
-                          showPassword
-                            ? "text"
-                            : "password"
-                        }
-                        name="password"
-                        value={formData.password}
+                        id="email"
+                        type="email"
+                        name="email"
+                        value={formData.email}
                         onChange={handleChange}
-                        placeholder="Enter password"
-                        autoComplete="new-password"
-                        className={`${inputClass(
-                          "password"
-                        )} pl-9 pr-9`}
+                        placeholder="Enter your email"
+                        autoComplete="email"
+                        className="
+                          w-full
+                          rounded-xl
+                          border
+                          border-[#dce3d8]
+                          bg-[#fbfcfa]
+                          py-3
+                          pl-11
+                          pr-4
+                          text-sm
+                          text-[#173b2b]
+                          outline-none
+                          focus:border-[#9fbd82]
+                          focus:ring-2
+                          focus:ring-[#eaf4df]
+                        "
                       />
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowPassword(
-                            (prev) => !prev
-                          )
-                        }
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#718177] transition hover:text-[#43822e]"
-                        aria-label={
-                          showPassword
-                            ? "Hide password"
-                            : "Show password"
-                        }
-                      >
-                        {showPassword ? (
-                          <EyeOff size={15} />
-                        ) : (
-                          <Eye size={15} />
-                        )}
-                      </button>
-
                     </div>
-
                   </div>
 
-                  {/* CONFIRM PASSWORD */}
-
-                  <div>
-
-                    <label
-                      htmlFor="confirmPassword"
-                      className="mb-1 block text-xs font-semibold text-[#344f42]"
-                    >
-                      Confirm Password
+                  {/* REMEMBER ME & HELPER */}
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="flex items-center gap-2 text-xs font-medium text-[#65796c] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="rememberMe"
+                        checked={formData.rememberMe}
+                        onChange={handleChange}
+                        className="h-4 w-4 rounded border-[#ccd8c6] text-[#57923d] focus:ring-[#eaf4df] accent-[#57923d]"
+                      />
+                      <span>Keep me signed in</span>
                     </label>
+                  </div>
 
-                    <div className="relative">
-
-                      <LockKeyhole
-                        size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
+                  {/* ERROR MESSAGE */}
+                  {loginError && (
+                    <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                      <AlertCircle
+                        size={16}
+                        className="mt-0.5 shrink-0 text-red-500"
                       />
-
-                      <input
-                        id="confirmPassword"
-                        type={
-                          showConfirmPassword
-                            ? "text"
-                            : "password"
-                        }
-                        name="confirmPassword"
-                        value={
-                          formData.confirmPassword
-                        }
-                        onChange={handleChange}
-                        placeholder="Confirm password"
-                        autoComplete="new-password"
-                        className={`${inputClass(
-                          "confirmPassword"
-                        )} pl-9 pr-9`}
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowConfirmPassword(
-                            (prev) => !prev
-                          )
-                        }
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#718177] transition hover:text-[#43822e]"
-                        aria-label={
-                          showConfirmPassword
-                            ? "Hide confirm password"
-                            : "Show confirm password"
-                        }
-                      >
-                        {showConfirmPassword ? (
-                          <EyeOff size={15} />
-                        ) : (
-                          <Eye size={15} />
-                        )}
-                      </button>
-
+                      <p className="text-xs font-medium leading-5 text-red-600">
+                        {loginError}
+                      </p>
                     </div>
-
-                  </div>
-
-                </div>
-
-                {/* VALIDATION ERROR */}
-
-                {firstError && (
-                  <div className="mt-2 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5">
-
-                    <AlertCircle
-                      size={14}
-                      className="shrink-0 text-red-500"
-                    />
-
-                    <p className="text-[11px] font-medium text-red-600">
-                      {firstError}
-                    </p>
-
-                  </div>
-                )}
-
-                {/* BACKEND ERROR */}
-
-                {!firstError && serverError && (
-                  <div className="mt-2 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5">
-
-                    <AlertCircle
-                      size={14}
-                      className="shrink-0 text-red-500"
-                    />
-
-                    <p className="text-[11px] font-medium text-red-600">
-                      {serverError}
-                    </p>
-
-                  </div>
-                )}
-
-                {/* CREATE ACCOUNT */}
-
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="
-                    mt-3
-                    flex
-                    w-full
-                    items-center
-                    justify-center
-                    gap-2
-                    rounded-xl
-                    bg-[#dff5b5]
-                    px-6
-                    py-2.5
-                    text-sm
-                    font-semibold
-                    text-[#173b2b]
-                    transition
-                    hover:bg-[#d2efa0]
-                    disabled:cursor-not-allowed
-                    disabled:opacity-60
-                  "
-                >
-
-                  {isSubmitting
-                    ? "Creating Account..."
-                    : "Create Account"}
-
-                  {!isSubmitting && (
-                    <ArrowRight size={16} />
                   )}
 
-                </button>
+                  {/* SEND OTP BUTTON */}
+                  <button
+                    type="button"
+                    onClick={handleSendOTP}
+                    disabled={isSubmitting || isGoogleSubmitting}
+                    className="
+                      flex
+                      w-full
+                      items-center
+                      justify-center
+                      gap-2
+                      rounded-xl
+                      bg-[#dff5b5]
+                      px-6
+                      py-3
+                      text-sm
+                      font-semibold
+                      text-[#173b2b]
+                      transition
+                      hover:bg-[#d2efa0]
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
+                  >
+                    {isSubmitting ? "Sending OTP..." : "Send OTP"}
+                    {!isSubmitting && <Mail size={17} />}
+                  </button>
 
-              </form>
+                </div>
+              )}
 
-              {/* SIGN IN */}
+              {/* ==================================================
+                  OTP VERIFICATION FORM
+              ================================================== */}
 
-              <div className="mt-2.5 border-t border-[#e7ebe4] pt-2.5 text-center">
+              {otpMode && (
+                <form onSubmit={handleVerifyOTP} className="mt-6">
+                  <div className="rounded-2xl border border-[#dce7d5] bg-[#f8fbf5] p-5">
+                    {/* OTP HEADER */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#e7f3d8]">
+                        <ShieldCheck size={21} className="text-[#57923d]" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-[#173b2b]">
+                          Verify Your Email
+                        </p>
+                        <p className="text-xs text-[#718177]">
+                          OTP sent to <strong>{formData.email}</strong>
+                        </p>
+                      </div>
+                    </div>
 
-                <p className="text-xs text-[#718177]">
+                    {/* 6 INDIVIDUAL OTP INPUT BOXES */}
+                    <div className="mt-5 flex items-center justify-center gap-2 sm:gap-3">
+                      {otpDigits.map((digit, idx) => (
+                        <input
+                          key={idx}
+                          ref={(el) => (otpRefs.current[idx] = el)}
+                          id={`otp-box-${idx}`}
+                          name={`otp-box-${idx}`}
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={1}
+                          autoComplete={idx === 0 ? "one-time-code" : "off"}
+                          value={digit}
+                          onChange={(e) => handleOtpChange(idx, e)}
+                          onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                          onPaste={handleOtpPaste}
+                          onFocus={(e) => e.target.select()}
+                          disabled={isSubmitting}
+                          aria-label={`Digit ${idx + 1} of 6-digit OTP`}
+                          className="
+                            h-12 w-11 sm:h-14 sm:w-13 md:h-14 md:w-14
+                            rounded-xl border border-[#dce3d8] bg-white
+                            text-center text-xl sm:text-2xl font-bold text-[#173b2b]
+                            outline-none transition-all duration-150
+                            focus:border-[#57923d] focus:ring-2 focus:ring-[#eaf4df]
+                            disabled:cursor-not-allowed disabled:bg-[#f5f7f3] disabled:text-[#8d9b92]
+                            shadow-sm
+                          "
+                        />
+                      ))}
+                    </div>
 
-                  Already have a FinanceOS account?{" "}
+                    {/* TIMER */}
+                    <div className="mt-3 text-center">
+                      {otpTimer > 0 ? (
+                        <p className="text-xs text-[#718177]">
+                          OTP expires in{" "}
+                          <strong className="text-[#57923d]">{formatTimer()}</strong>
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleResendOTP}
+                          disabled={isSubmitting}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#57923d] hover:underline"
+                        >
+                          <RefreshCw size={13} />
+                          Resend OTP
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* OTP NOTICE (DEVELOPMENT / TERMINAL NOTICE) */}
+                  {otpNotice && (
+                    <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                      <span className="text-amber-600 text-sm">ℹ️</span>
+                      <p className="text-xs font-medium leading-5 text-amber-800">
+                        {otpNotice}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* ERROR */}
+                  {loginError && (
+                    <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                      <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
+                      <p className="text-xs font-medium leading-5 text-red-600">
+                        {loginError}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* VERIFY BUTTON */}
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || otp.length !== 6}
+                    className="
+                      mt-4
+                      flex
+                      w-full
+                      items-center
+                      justify-center
+                      gap-2
+                      rounded-xl
+                      bg-[#dff5b5]
+                      px-6
+                      py-3
+                      text-sm
+                      font-semibold
+                      text-[#173b2b]
+                      transition
+                      hover:bg-[#d2efa0]
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
+                  >
+                    {isSubmitting ? "Verifying..." : "Verify OTP"}
+                    {!isSubmitting && <ArrowRight size={17} />}
+                  </button>
+
+                  {/* CHANGE EMAIL */}
+                  <button
+                    type="button"
+                    onClick={handleChangeEmail}
+                    className="mt-3 w-full text-center text-xs font-semibold text-[#57923d] hover:underline"
+                  >
+                    ← Change Email
+                  </button>
+                </form>
+              )}
+
+              {/* ==================================================
+                  CREATE ACCOUNT
+              ================================================== */}
+
+              <div className="mt-5 border-t border-[#e7ebe4] pt-4 text-center">
+
+                <p className="text-sm text-[#718177]">
+
+                  Don't have a FinanceOS account?{" "}
 
                   <Link
-                    to="/signin"
-                    className="font-semibold text-[#57923d] transition hover:text-[#3f762e]"
+                    to="/signup"
+                    className="font-semibold text-[#57923d]"
                   >
-                    Sign In
+                    Create Account
                   </Link>
 
                 </p>
@@ -1204,68 +1398,4 @@ function SignUp() {
   );
 }
 
-// ============================================================
-// FORM SECTION TITLE
-// ============================================================
-
-function FormSectionTitle({ text }) {
-  return (
-    <div className="mb-1.5 flex items-center gap-2">
-
-      <div className="h-1.5 w-1.5 rounded-full bg-[#74a957]" />
-
-      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#60765d]">
-        {text}
-      </p>
-
-    </div>
-  );
-}
-
-// ============================================================
-// ACCOUNT STEP
-// ============================================================
-
-function AccountStep({
-  icon,
-  title,
-  text,
-}) {
-  return (
-    <div className="flex items-center gap-3">
-
-      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#edf5e8] text-[#57923d]">
-        {icon}
-      </div>
-
-      <div>
-
-        <p className="text-sm font-semibold text-[#173b2b]">
-          {title}
-        </p>
-
-        <p className="text-xs text-[#7b8a80]">
-          {text}
-        </p>
-
-      </div>
-
-    </div>
-  );
-}
-
-// ============================================================
-// CONNECTOR
-// ============================================================
-
-function Connector() {
-  return (
-    <div className="ml-[17px] h-4 w-px bg-[#ccd9c4]" />
-  );
-}
-
-// ============================================================
-// EXPORT
-// ============================================================
-
-export default SignUp;
+export default SignIn;
