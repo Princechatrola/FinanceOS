@@ -19,6 +19,24 @@ import {
 } from "lucide-react";
 
 // ==========================================================
+// BACKEND API URL
+// ==========================================================
+
+const API_URL = (
+  import.meta.env.VITE_API_URL || ""
+).replace(/\/+$/, "");
+
+const getApiUrl = (path) => {
+  if (!API_URL) {
+    throw new Error(
+      "VITE_API_URL is not configured. Please configure it in Render Environment Variables and redeploy."
+    );
+  }
+
+  return `${API_URL}${path}`;
+};
+
+// ==========================================================
 // INDIAN STATES AND RELATED CITIES
 // ==========================================================
 
@@ -296,13 +314,11 @@ const stateCities = {
 
 const states = Object.keys(stateCities);
 
-
 // ==========================================================
 // SIGN UP COMPONENT
 // ==========================================================
 
 function SignUp() {
-
   // ==========================================================
   // NAVIGATION & CONTEXT
   // ==========================================================
@@ -319,6 +335,7 @@ function SignUp() {
   const [serverError, setServerError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+
   const [authModal, setAuthModal] = useState({
     isOpen: false,
     title: "Authentication Notice",
@@ -356,33 +373,50 @@ function SignUp() {
 
     const googleClientId =
       import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-      (typeof window !== "undefined" && window.__GOOGLE_CLIENT_ID__);
+      (typeof window !== "undefined" &&
+        window.__GOOGLE_CLIENT_ID__);
 
     const scriptId = "google-gsi-client-script";
+
     if (!document.getElementById(scriptId)) {
       const script = document.createElement("script");
+
       script.id = scriptId;
-      script.src = "https://accounts.google.com/gsi/client";
+      script.src =
+        "https://accounts.google.com/gsi/client";
+
       script.async = true;
       script.defer = true;
+
       script.onload = () => {
-        if (googleClientId && window.google?.accounts?.id) {
+        if (
+          googleClientId &&
+          window.google?.accounts?.id
+        ) {
           try {
             window.google.accounts.id.initialize({
               client_id: googleClientId,
+
               callback: (response) => {
                 if (response?.credential) {
-                  completeGoogleSignUp({ credential: response.credential });
+                  completeGoogleSignUp({
+                    credential: response.credential,
+                  });
                 }
               },
+
               auto_select: false,
               cancel_on_tap_outside: true,
             });
           } catch (initErr) {
-            console.warn("[AUTH] GSI initialization warning:", initErr);
+            console.warn(
+              "[AUTH] GSI initialization warning:",
+              initErr
+            );
           }
         }
       };
+
       document.body.appendChild(script);
     }
   }, [location.state]);
@@ -396,26 +430,47 @@ function SignUp() {
       setIsGoogleSubmitting(true);
       setServerError("");
 
-      const response = await fetch("/api/auth/google", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...payload,
-          intent: "signup",
-        }),
-      });
+      const response = await fetch(
+        getApiUrl("/api/auth/google"),
+        {
+          method: "POST",
 
-      const data = await response.json();
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            ...payload,
+            intent: "signup",
+          }),
+        }
+      );
+
+      const text = await response.text();
+
+      let data = {};
+
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = {
+          message:
+            "The server returned an invalid response.",
+        };
+      }
 
       if (!response.ok) {
         const errorMsg =
-          data.message || "Google authentication could not be completed. Please try again.";
+          data.message ||
+          "Google authentication could not be completed. Please try again.";
+
         setAuthModal({
           isOpen: true,
           title: "Google Registration",
           message: errorMsg,
           iconType: "error",
         });
+
         return;
       }
 
@@ -427,10 +482,10 @@ function SignUp() {
             data.message ||
             "An account with this Google email already exists. Please sign in.",
         });
+
         return;
       }
 
-      // Registration successful -> User must explicitly sign in (no auto-login)
       setSuccessModal({
         isOpen: true,
         title: "Registration Successful",
@@ -439,11 +494,17 @@ function SignUp() {
           "Your FinanceOS account has been created successfully via Google. Please sign in to continue.",
       });
     } catch (error) {
-      console.error("[AUTH] Google registration error:", error);
+      console.error(
+        "[AUTH] Google registration error:",
+        error
+      );
+
       setAuthModal({
         isOpen: true,
         title: "Google Registration",
-        message: "Google authentication could not be completed. Please try again.",
+        message:
+          error?.message ||
+          "Google authentication could not be completed. Please try again.",
         iconType: "error",
       });
     } finally {
@@ -460,16 +521,22 @@ function SignUp() {
 
     const googleClientId =
       import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-      (typeof window !== "undefined" && window.__GOOGLE_CLIENT_ID__);
+      (typeof window !== "undefined" &&
+        window.__GOOGLE_CLIENT_ID__);
 
     if (!googleClientId) {
-      console.warn("[AUTH] VITE_GOOGLE_CLIENT_ID is not configured in environment.");
+      console.warn(
+        "[AUTH] VITE_GOOGLE_CLIENT_ID is not configured in environment."
+      );
+
       setAuthModal({
         isOpen: true,
         title: "Google Registration",
-        message: "Google Sign-In could not be completed. Please try again.",
+        message:
+          "Google Sign-In could not be completed. Please try again.",
         iconType: "error",
       });
+
       return;
     }
 
@@ -477,9 +544,11 @@ function SignUp() {
       setAuthModal({
         isOpen: true,
         title: "Google Registration",
-        message: "Google authentication service is still loading. Please try again in a moment.",
+        message:
+          "Google authentication service is still loading. Please try again in a moment.",
         iconType: "info",
       });
+
       return;
     }
 
@@ -487,66 +556,94 @@ function SignUp() {
 
     try {
       if (window.google.accounts.oauth2) {
-        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+        const tokenClient =
+          window.google.accounts.oauth2.initTokenClient({
+            client_id: googleClientId,
+
+            scope: "openid email profile",
+
+            callback: async (tokenResponse) => {
+              if (
+                tokenResponse &&
+                tokenResponse.access_token
+              ) {
+                await completeGoogleSignUp({
+                  accessToken:
+                    tokenResponse.access_token,
+                });
+              } else {
+                setIsGoogleSubmitting(false);
+              }
+            },
+
+            error_callback: (err) => {
+              console.error(
+                "[AUTH] Google OAuth popup error:",
+                err
+              );
+
+              setIsGoogleSubmitting(false);
+
+              setAuthModal({
+                isOpen: true,
+                title: "Google Registration",
+                message:
+                  "Google Sign-In could not be completed. Please try again.",
+                iconType: "error",
+              });
+            },
+          });
+
+        tokenClient.requestAccessToken();
+      } else if (window.google.accounts.id) {
+        window.google.accounts.id.initialize({
           client_id: googleClientId,
-          scope: "openid email profile",
-          callback: async (tokenResponse) => {
-            if (tokenResponse && tokenResponse.access_token) {
-              await completeGoogleSignUp({
-                accessToken: tokenResponse.access_token,
+
+          callback: (response) => {
+            if (response?.credential) {
+              completeGoogleSignUp({
+                credential: response.credential,
               });
             } else {
               setIsGoogleSubmitting(false);
             }
           },
-          error_callback: (err) => {
-            console.error("[AUTH] Google OAuth popup error:", err);
-            setIsGoogleSubmitting(false);
-            setAuthModal({
-              isOpen: true,
-              title: "Google Registration",
-              message: "Google Sign-In could not be completed. Please try again.",
-              iconType: "error",
-            });
-          },
         });
-        tokenClient.requestAccessToken();
-      } else if (window.google.accounts.id) {
-        window.google.accounts.id.initialize({
-          client_id: googleClientId,
-          callback: (response) => {
-            if (response?.credential) {
-              completeGoogleSignUp({ credential: response.credential });
-            } else {
+
+        window.google.accounts.id.prompt(
+          (notification) => {
+            if (
+              notification.isNotDisplayed() ||
+              notification.isSkippedMoment()
+            ) {
               setIsGoogleSubmitting(false);
             }
-          },
-        });
-        window.google.accounts.id.prompt((notification) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            setIsGoogleSubmitting(false);
           }
-        });
+        );
       }
     } catch (err) {
-      console.error("[AUTH] Google sign up trigger error:", err);
+      console.error(
+        "[AUTH] Google sign up trigger error:",
+        err
+      );
+
       setIsGoogleSubmitting(false);
+
       setAuthModal({
         isOpen: true,
         title: "Google Registration",
-        message: "Google Sign-In could not be completed. Please try again.",
+        message:
+          "Google Sign-In could not be completed. Please try again.",
         iconType: "error",
       });
     }
   };
-
 
   // ==========================================================
   // HANDLE INPUT CHANGE
   // ==========================================================
 
   const handleChange = (e) => {
-
     const {
       name,
       value,
@@ -554,43 +651,28 @@ function SignUp() {
 
     let newValue = value;
 
-
     // ========================================================
     // MOBILE NUMBER
     // ========================================================
 
     if (name === "mobileNumber") {
-
-      newValue =
-        value
-          .replace(/\D/g, "")
-          .slice(0, 10);
-
+      newValue = value
+        .replace(/\D/g, "")
+        .slice(0, 10);
     }
-
 
     // ========================================================
     // STATE CHANGE
     // ========================================================
 
     if (name === "state") {
-
       setFormData((prev) => ({
-
         ...prev,
-
         state: newValue,
-
-        // Clear city whenever state changes
         city: "",
-
       }));
 
-
-      // Clear state and city errors
-
       setErrors((prev) => {
-
         const updatedErrors = {
           ...prev,
         };
@@ -599,9 +681,7 @@ function SignUp() {
         delete updatedErrors.city;
 
         return updatedErrors;
-
       });
-
 
       if (serverError) {
         setServerError("");
@@ -610,33 +690,21 @@ function SignUp() {
       return;
     }
 
-
     // ========================================================
     // NORMAL FIELD CHANGE
     // ========================================================
 
     setFormData((prev) => ({
-
       ...prev,
-
       [name]: newValue,
-
     }));
-
-
-    // Clear backend error
 
     if (serverError) {
       setServerError("");
     }
 
-
-    // Remove field error
-
     if (errors[name]) {
-
       setErrors((prev) => {
-
         const updatedErrors = {
           ...prev,
         };
@@ -644,27 +712,19 @@ function SignUp() {
         delete updatedErrors[name];
 
         return updatedErrors;
-
       });
-
     }
-
   };
-
 
   // ==========================================================
   // VALIDATE FORM
   // ==========================================================
 
   const validateForm = () => {
-
     const newErrors = {};
 
     const nameRegex =
       /^[A-Za-z\s]+$/;
-
-    const locationRegex =
-      /^[A-Za-z\s.'-]+$/;
 
     const emailRegex =
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -672,46 +732,35 @@ function SignUp() {
     const mobileRegex =
       /^[0-9]{10}$/;
 
-
     // ========================================================
     // FULL NAME
     // ========================================================
 
     if (!formData.fullName.trim()) {
-
       newErrors.fullName =
         "Full name is required.";
-
     } else if (
       formData.fullName.trim().length < 3
     ) {
-
       newErrors.fullName =
         "Enter a valid full name.";
-
     } else if (
       !nameRegex.test(
         formData.fullName.trim()
       )
     ) {
-
       newErrors.fullName =
         "Full name should contain letters only.";
-
     }
-
 
     // ========================================================
     // DATE OF BIRTH
     // ========================================================
 
     if (!formData.dateOfBirth) {
-
       newErrors.dateOfBirth =
         "Date of birth is required.";
-
     } else {
-
       const selectedDate =
         new Date(
           `${formData.dateOfBirth}T00:00:00`
@@ -726,39 +775,29 @@ function SignUp() {
         0
       );
 
-
       if (
         Number.isNaN(
           selectedDate.getTime()
         )
       ) {
-
         newErrors.dateOfBirth =
           "Enter a valid date of birth.";
-
       } else if (
         selectedDate > today
       ) {
-
         newErrors.dateOfBirth =
           "Date of birth cannot be in the future.";
-
       }
-
     }
-
 
     // ========================================================
     // GENDER
     // ========================================================
 
     if (!formData.gender) {
-
       newErrors.gender =
         "Please select gender.";
-
     }
-
 
     // ========================================================
     // MOBILE NUMBER
@@ -767,52 +806,40 @@ function SignUp() {
     if (
       !formData.mobileNumber.trim()
     ) {
-
       newErrors.mobileNumber =
         "Mobile number is required.";
-
     } else if (
       !mobileRegex.test(
         formData.mobileNumber.trim()
       )
     ) {
-
       newErrors.mobileNumber =
         "Enter a valid 10-digit mobile number.";
-
     }
-
 
     // ========================================================
     // STATE
     // ========================================================
 
     if (!formData.state) {
-
       newErrors.state =
         "Please select a state.";
-
     } else if (
       !states.includes(
         formData.state
       )
     ) {
-
       newErrors.state =
         "Please select a valid state.";
-
     }
-
 
     // ========================================================
     // CITY
     // ========================================================
 
     if (!formData.city) {
-
       newErrors.city =
         "Please select a city.";
-
     } else if (
       !stateCities[
         formData.state
@@ -820,33 +847,25 @@ function SignUp() {
         formData.city
       )
     ) {
-
       newErrors.city =
         "Please select a valid city for the selected state.";
-
     }
-
 
     // ========================================================
     // EMAIL
     // ========================================================
 
     if (!formData.email.trim()) {
-
       newErrors.email =
         "Email address is required.";
-
     } else if (
       !emailRegex.test(
         formData.email.trim()
       )
     ) {
-
       newErrors.email =
         "Enter a valid email address.";
-
     }
-
 
     // ========================================================
     // SET ERRORS
@@ -854,44 +873,32 @@ function SignUp() {
 
     setErrors(newErrors);
 
-
-    // ========================================================
-    // RETURN RESULT
-    // ========================================================
-
     return (
       Object.keys(newErrors).length === 0
     );
-
   };
-
 
   // ==========================================================
   // HANDLE SUBMIT
   // ==========================================================
 
   const handleSubmit = async (e) => {
-
     e.preventDefault();
 
     setServerError("");
 
-
     const isValid =
       validateForm();
-
 
     if (!isValid) {
       return;
     }
-
 
     // ========================================================
     // REGISTRATION DATA
     // ========================================================
 
     const registrationData = {
-
       fullName:
         formData.fullName.trim(),
 
@@ -914,9 +921,7 @@ function SignUp() {
         formData.email
           .trim()
           .toLowerCase(),
-
     };
-
 
     // ========================================================
     // SEND TO BACKEND
@@ -925,41 +930,107 @@ function SignUp() {
     try {
       setIsSubmitting(true);
 
-      const response = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(registrationData),
-      });
+      console.log(
+        "[AUTH] Signup API:",
+        getApiUrl("/api/auth/signup")
+      );
 
-      const data = await response.json();
+      const response = await fetch(
+        getApiUrl("/api/auth/signup"),
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify(
+            registrationData
+          ),
+        }
+      );
+
+      // ======================================================
+      // SAFE RESPONSE PARSING
+      // ======================================================
+
+      const text =
+        await response.text();
+
+      let data = {};
+
+      try {
+        data = text
+          ? JSON.parse(text)
+          : {};
+      } catch (parseError) {
+        console.error(
+          "[AUTH] Invalid JSON response:",
+          text
+        );
+
+        data = {
+          message:
+            "The server returned an invalid response.",
+        };
+      }
+
+      console.log(
+        "[AUTH] Signup response:",
+        response.status,
+        data
+      );
+
+      // ======================================================
+      // BACKEND ERROR
+      // ======================================================
 
       if (!response.ok) {
-        const errorMsg = data.message || "Unable to create your account.";
-        setServerError(errorMsg);
+        const errorMsg =
+          data.message ||
+          "Unable to create your account.";
+
+        setServerError(
+          errorMsg
+        );
+
         setAuthModal({
           isOpen: true,
           title: "Registration Failed",
           message: errorMsg,
           iconType: "error",
         });
+
         return;
       }
 
-      // MANUAL REGISTRATION: Normal flow with success modal and sign-in redirect
+      // ======================================================
+      // SUCCESS
+      // ======================================================
+
       setSuccessModal({
         isOpen: true,
-        title: "Account Created Successfully",
+        title:
+          "Account Created Successfully",
+
         message:
           data.message ||
           "Your FinanceOS account has been created successfully. Please sign in to continue.",
       });
     } catch (error) {
-      console.error("Signup request failed:", error);
+      console.error(
+        "[AUTH] Signup request failed:",
+        error
+      );
+
       const errorMsg =
+        error?.message ||
         "Unable to connect to the FinanceOS server. Make sure the backend is running.";
-      setServerError(errorMsg);
+
+      setServerError(
+        errorMsg
+      );
+
       setAuthModal({
         isOpen: true,
         title: "Connection Error",
@@ -971,43 +1042,28 @@ function SignUp() {
     }
   };
 
-
   // ==========================================================
   // FIELD BORDER
   // ==========================================================
 
   const inputClass = (field) => `
-
     w-full
-
     rounded-lg
-
     border
-
     bg-[#fbfcfa]
-
     py-2
-
     text-sm
-
     text-[#173b2b]
-
     outline-none
-
     transition
-
     placeholder:text-[#9aa69e]
 
     ${
       errors[field]
-
         ? "border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100"
-
         : "border-[#dce3d8] focus:border-[#9fbd82] focus:ring-2 focus:ring-[#eaf4df]"
     }
-
   `;
-
 
   // ==========================================================
   // FIRST ERROR
@@ -1016,15 +1072,12 @@ function SignUp() {
   const firstError =
     Object.values(errors)[0];
 
-
   // ==========================================================
   // UI
   // ==========================================================
 
   return (
-
     <div className="h-screen overflow-hidden bg-[#f7f9f4] text-[#173b2b]">
-
 
       {/* ======================================================
           HEADER
@@ -1034,14 +1087,12 @@ function SignUp() {
 
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-6 lg:px-8">
 
-
           {/* LOGO */}
 
           <Link
             to="/"
             className="flex items-center gap-3"
           >
-
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#edf7df]">
 
               <TrendingUp
@@ -1050,7 +1101,6 @@ function SignUp() {
               />
 
             </div>
-
 
             <div>
 
@@ -1065,7 +1115,6 @@ function SignUp() {
             </div>
 
           </Link>
-
 
           {/* BACK HOME */}
 
@@ -1083,7 +1132,6 @@ function SignUp() {
         </div>
 
       </header>
-
 
       {/* ======================================================
           MAIN
@@ -1108,7 +1156,6 @@ function SignUp() {
           "
         >
 
-
           {/* ==================================================
               LEFT PANEL
           ================================================== */}
@@ -1126,14 +1173,9 @@ function SignUp() {
             "
           >
 
-            {/* DECORATION */}
-
             <div className="absolute -left-28 -top-28 h-72 w-72 rounded-full bg-[#dcefc2]/60" />
 
             <div className="absolute -bottom-36 -right-24 h-80 w-80 rounded-full bg-[#dcefc2]/60" />
-
-
-            {/* HEADING */}
 
             <div className="relative z-10 shrink-0">
 
@@ -1160,15 +1202,9 @@ function SignUp() {
 
             </div>
 
-
-            {/* ACCOUNT CARD */}
-
             <div className="relative z-10 mt-5">
 
               <div className="rounded-[22px] border border-[#d7e3d0] bg-white/85 p-5 shadow-sm backdrop-blur">
-
-
-                {/* CARD HEADER */}
 
                 <div className="flex items-center gap-3">
 
@@ -1180,7 +1216,6 @@ function SignUp() {
                     />
 
                   </div>
-
 
                   <div>
 
@@ -1196,11 +1231,7 @@ function SignUp() {
 
                 </div>
 
-
                 <div className="my-4 h-px bg-[#e1e7dd]" />
-
-
-                {/* PERSONAL INFORMATION */}
 
                 <AccountStep
                   icon={<Users size={17} />}
@@ -1210,9 +1241,6 @@ function SignUp() {
 
                 <Connector />
 
-
-                {/* ACCOUNT INFORMATION */}
-
                 <AccountStep
                   icon={<Mail size={17} />}
                   title="Account Information"
@@ -1221,17 +1249,11 @@ function SignUp() {
 
                 <Connector />
 
-
-                {/* SECURITY */}
-
                 <AccountStep
                   icon={<Mail size={17} />}
                   title="Email OTP Login"
                   text="Secure passwordless access"
                 />
-
-
-                {/* READY */}
 
                 <div className="mt-4 rounded-xl bg-[#e7f3d8] px-4 py-3">
 
@@ -1264,7 +1286,6 @@ function SignUp() {
 
           </section>
 
-
           {/* ==================================================
               RIGHT PANEL
           ================================================== */}
@@ -1272,7 +1293,6 @@ function SignUp() {
           <section className="h-full overflow-hidden px-7 py-3 lg:px-10 lg:py-4">
 
             <div className="mx-auto flex h-full w-full max-w-[580px] flex-col justify-center">
-
 
               {/* HEADER */}
 
@@ -1302,18 +1322,15 @@ function SignUp() {
                 className="mt-1.5 shrink-0"
               >
 
-
                 {/* PERSONAL INFORMATION */}
 
                 <FormSectionTitle
                   text="Personal Information"
                 />
 
-
                 {/* FULL NAME + DOB */}
 
                 <div className="grid grid-cols-2 gap-3">
-
 
                   {/* FULL NAME */}
 
@@ -1325,7 +1342,6 @@ function SignUp() {
                     >
                       Full Name
                     </label>
-
 
                     <div className="relative">
 
@@ -1355,7 +1371,6 @@ function SignUp() {
 
                   </div>
 
-
                   {/* DOB */}
 
                   <div>
@@ -1366,7 +1381,6 @@ function SignUp() {
                     >
                       Date of Birth
                     </label>
-
 
                     <div className="relative">
 
@@ -1402,11 +1416,9 @@ function SignUp() {
 
                 </div>
 
-
                 {/* GENDER + MOBILE */}
 
                 <div className="mt-2 grid grid-cols-2 gap-3">
-
 
                   {/* GENDER */}
 
@@ -1418,7 +1430,6 @@ function SignUp() {
                     >
                       Gender
                     </label>
-
 
                     <select
                       id="gender"
@@ -1458,7 +1469,6 @@ function SignUp() {
 
                   </div>
 
-
                   {/* MOBILE */}
 
                   <div>
@@ -1469,7 +1479,6 @@ function SignUp() {
                     >
                       Mobile Number
                     </label>
-
 
                     <div className="relative">
 
@@ -1503,13 +1512,9 @@ function SignUp() {
 
                 </div>
 
-
-                {/* ==================================================
-                    STATE + CITY
-                ================================================== */}
+                {/* STATE + CITY */}
 
                 <div className="mt-2 grid grid-cols-2 gap-3">
-
 
                   {/* STATE */}
 
@@ -1522,14 +1527,12 @@ function SignUp() {
                       State
                     </label>
 
-
                     <div className="relative">
 
                       <MapPin
                         size={15}
                         className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-[#87958c]"
                       />
-
 
                       <select
                         id="state"
@@ -1550,17 +1553,14 @@ function SignUp() {
                           Select State
                         </option>
 
-
                         {states.map(
                           (state) => (
-
                             <option
                               key={state}
                               value={state}
                             >
                               {state}
                             </option>
-
                           )
                         )}
 
@@ -1569,7 +1569,6 @@ function SignUp() {
                     </div>
 
                   </div>
-
 
                   {/* CITY */}
 
@@ -1582,14 +1581,12 @@ function SignUp() {
                       City
                     </label>
 
-
                     <div className="relative">
 
                       <MapPin
                         size={15}
-                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
                       />
-
 
                       <select
                         id="city"
@@ -1614,27 +1611,22 @@ function SignUp() {
                       >
 
                         <option value="">
-
                           {formData.state
                             ? "Select City"
                             : "Select State First"}
-
                         </option>
-
 
                         {formData.state &&
                           stateCities[
                             formData.state
                           ]?.map(
                             (city) => (
-
                               <option
                                 key={city}
                                 value={city}
                               >
                                 {city}
                               </option>
-
                             )
                           )}
 
@@ -1646,7 +1638,6 @@ function SignUp() {
 
                 </div>
 
-
                 {/* ACCOUNT INFORMATION */}
 
                 <div className="mt-2.5">
@@ -1657,9 +1648,10 @@ function SignUp() {
 
                 </div>
 
-
                 {/* EMAIL */}
+
                 <div>
+
                   <label
                     htmlFor="email"
                     className="mb-1 block text-xs font-semibold text-[#344f42]"
@@ -1668,6 +1660,7 @@ function SignUp() {
                   </label>
 
                   <div className="relative">
+
                     <Mail
                       size={15}
                       className="absolute left-3 top-1/2 -translate-y-1/2 text-[#87958c]"
@@ -1677,20 +1670,26 @@ function SignUp() {
                       id="email"
                       type="email"
                       name="email"
-                      value={formData.email}
-                      onChange={handleChange}
+                      value={
+                        formData.email
+                      }
+                      onChange={
+                        handleChange
+                      }
                       placeholder="Enter email address"
                       autoComplete="email"
-                      className={`${inputClass("email")} pl-9 pr-3`}
+                      className={`${inputClass(
+                        "email"
+                      )} pl-9 pr-3`}
                     />
-                  </div>
-                </div>
 
+                  </div>
+
+                </div>
 
                 {/* VALIDATION ERROR */}
 
                 {firstError && (
-
                   <div className="mt-2 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5">
 
                     <AlertCircle
@@ -1703,15 +1702,12 @@ function SignUp() {
                     </p>
 
                   </div>
-
                 )}
-
 
                 {/* BACKEND ERROR */}
 
                 {!firstError &&
                   serverError && (
-
                     <div className="mt-2 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5">
 
                       <AlertCircle
@@ -1724,16 +1720,15 @@ function SignUp() {
                       </p>
 
                     </div>
-
                   )}
-
 
                 {/* SAVE & CONTINUE */}
 
                 <button
                   type="submit"
                   disabled={
-                    isSubmitting || isGoogleSubmitting
+                    isSubmitting ||
+                    isGoogleSubmitting
                   }
                   className="
                     mt-3
@@ -1763,24 +1758,40 @@ function SignUp() {
                   {!isSubmitting && (
                     <ArrowRight size={16} />
                   )}
+
                 </button>
+
               </form>
 
-              {/* GOOGLE SIGN UP AT BOTTOM */}
+              {/* GOOGLE SIGN UP */}
+
               <div className="mt-2.5 space-y-2 shrink-0">
+
                 {/* DIVIDER */}
+
                 <div className="flex items-center gap-3 py-0.5">
+
                   <div className="h-px flex-1 bg-[#e1e7dc]" />
+
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-[#829589]">
                     or
                   </span>
+
                   <div className="h-px flex-1 bg-[#e1e7dc]" />
+
                 </div>
+
+                {/* GOOGLE BUTTON */}
 
                 <button
                   type="button"
-                  onClick={handleGoogleSignUp}
-                  disabled={isSubmitting || isGoogleSubmitting}
+                  onClick={
+                    handleGoogleSignUp
+                  }
+                  disabled={
+                    isSubmitting ||
+                    isGoogleSubmitting
+                  }
                   className="
                     flex
                     w-full
@@ -1807,52 +1818,81 @@ function SignUp() {
                     disabled:opacity-60
                   "
                 >
+
                   {isGoogleSubmitting ? (
-                    <RefreshCw size={15} className="animate-spin text-[#57923d]" />
+                    <RefreshCw
+                      size={15}
+                      className="animate-spin text-[#57923d]"
+                    />
                   ) : (
-                    <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
+                    <svg
+                      className="h-4 w-4 shrink-0"
+                      viewBox="0 0 24 24"
+                    >
+
                       <path
                         fill="#4285F4"
                         d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
                       />
+
                       <path
                         fill="#34A853"
                         d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.27 21.39 7.33 24 12 24z"
                       />
+
                       <path
                         fill="#FBBC05"
                         d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
                       />
+
                       <path
                         fill="#EA4335"
                         d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.27 2.61 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
                       />
+
                     </svg>
                   )}
+
                   <span>
                     {isGoogleSubmitting
                       ? "Connecting..."
                       : "Continue with Google"}
                   </span>
+
                 </button>
+
               </div>
 
               {/* SIGN IN */}
+
               <div className="mt-2.5 border-t border-[#e7ebe4] pt-2 text-center shrink-0">
+
                 <p className="text-xs text-[#718177]">
+
                   Already have a FinanceOS account?{" "}
+
                   <Link
                     to="/signin"
                     className="font-semibold text-[#57923d] transition hover:text-[#3f762e]"
                   >
                     Sign In
                   </Link>
+
                 </p>
+
               </div>
+
             </div>
+
           </section>
+
         </div>
+
       </main>
+
+      {/* ======================================================
+          AUTH MODAL
+      ====================================================== */}
 
       <CenteredModal
         isOpen={authModal.isOpen}
@@ -1860,8 +1900,17 @@ function SignUp() {
         message={authModal.message}
         iconType={authModal.iconType}
         confirmText="OK"
-        onClose={() => setAuthModal((prev) => ({ ...prev, isOpen: false }))}
+        onClose={() =>
+          setAuthModal((prev) => ({
+            ...prev,
+            isOpen: false,
+          }))
+        }
       />
+
+      {/* ======================================================
+          SUCCESS MODAL
+      ====================================================== */}
 
       <CenteredModal
         isOpen={successModal.isOpen}
@@ -1870,30 +1919,35 @@ function SignUp() {
         type="success"
         confirmText="Sign In"
         onConfirm={() => {
-          setSuccessModal({ isOpen: false, title: "", message: "" });
+          setSuccessModal({
+            isOpen: false,
+            title: "",
+            message: "",
+          });
+
           navigate("/signin");
         }}
         onClose={() => {
-          setSuccessModal({ isOpen: false, title: "", message: "" });
+          setSuccessModal({
+            isOpen: false,
+            title: "",
+            message: "",
+          });
+
           navigate("/signin");
         }}
       />
-    </div>
 
+    </div>
   );
 }
-
 
 // ============================================================
 // FORM SECTION TITLE
 // ============================================================
 
-function FormSectionTitle({
-  text,
-}) {
-
+function FormSectionTitle({ text }) {
   return (
-
     <div className="mb-1.5 flex items-center gap-2">
 
       <div className="h-1.5 w-1.5 rounded-full bg-[#74a957]" />
@@ -1903,11 +1957,8 @@ function FormSectionTitle({
       </p>
 
     </div>
-
   );
-
 }
-
 
 // ============================================================
 // LEFT PANEL ACCOUNT STEP
@@ -1918,9 +1969,7 @@ function AccountStep({
   title,
   text,
 }) {
-
   return (
-
     <div className="flex items-center gap-3">
 
       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#edf5e8] text-[#57923d]">
@@ -1928,7 +1977,6 @@ function AccountStep({
         {icon}
 
       </div>
-
 
       <div>
 
@@ -1943,26 +1991,18 @@ function AccountStep({
       </div>
 
     </div>
-
   );
-
 }
-
 
 // ============================================================
 // LEFT PANEL CONNECTOR
 // ============================================================
 
 function Connector() {
-
   return (
-
     <div className="ml-[17px] h-4 w-px bg-[#ccd9c4]" />
-
   );
-
 }
-
 
 // ============================================================
 // EXPORT
