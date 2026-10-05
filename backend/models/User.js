@@ -53,6 +53,23 @@ const userSchema = new mongoose.Schema(
       default: "user",
     },
 
+    googleId: {
+      type: String,
+      default: null,
+      sparse: true,
+    },
+
+    avatar: {
+      type: String,
+      default: "",
+    },
+
+    authProvider: {
+      type: String,
+      enum: ["email", "google"],
+      default: "email",
+    },
+
     status: {
       type: String,
       enum: ["Active", "Inactive", "Suspended"],

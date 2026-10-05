@@ -8,16 +8,11 @@ import { Navigate } from "react-router-dom";
 function ProtectedRoute({ children }) {
 
   // ==========================================================
-  // GET AUTHENTICATION DATA
+  // GET AUTHENTICATION DATA (TAB-SCOPED)
   // ==========================================================
 
-  const token =
-    localStorage.getItem("financeos_token") ||
-    sessionStorage.getItem("financeos_token");
-
-  const storedUser =
-    localStorage.getItem("financeos_user") ||
-    sessionStorage.getItem("financeos_user");
+  const token = sessionStorage.getItem("financeos_token");
+  const storedUser = sessionStorage.getItem("financeos_user");
 
 
   // ==========================================================
@@ -52,9 +47,6 @@ function ProtectedRoute({ children }) {
       "Invalid FinanceOS user data:",
       error
     );
-
-    localStorage.removeItem("financeos_token");
-    localStorage.removeItem("financeos_user");
 
     sessionStorage.removeItem("financeos_token");
     sessionStorage.removeItem("financeos_user");

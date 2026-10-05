@@ -1,3 +1,5 @@
+import { getAuthToken, getAuthUser, clearAuthSession, onAccountDeleted } from "../utils/authStorage.js";
+import CenteredModal from "../components/common/CenteredModal.jsx";
 import { useMemo, useState, useEffect, useCallback } from "react";
 import FinanceContext from "./FinanceContext.js";
 import { isItemActiveInMonth, parseSelectedMonth, isDateInMonth } from "../utils/monthLifecycle.js";
@@ -199,13 +201,7 @@ function getInvestmentCurrentValue(investment) {
 function FinanceProvider({ children }) {
   const [userData, setUserData] = useState(() => {
     try {
-      const localUser = localStorage.getItem("financeos_user");
-      if (localUser) return JSON.parse(localUser);
-
-      const sessionUser = sessionStorage.getItem("financeos_user");
-      if (sessionUser) return JSON.parse(sessionUser);
-
-      return null;
+      return getAuthUser();
     } catch (error) {
       console.error("Unable to load logged-in FinanceOS user:", error);
       return null;
@@ -236,6 +232,53 @@ function FinanceProvider({ children }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiLoadingMessage, setAiLoadingMessage] = useState("Analyzing latest data...");
   const [aiError, setAiError] = useState(null);
+
+  // Account Deleted Modal State & Invalidation Listener
+  const [accountDeletedModalOpen, setAccountDeletedModalOpen] = useState(false);
+
+  useEffect(() => {
+    // 1. Subscribe to fetch interceptor account-deleted notification
+    const unsubscribe = onAccountDeleted(() => {
+      setAccountDeletedModalOpen(true);
+      setUserData(null);
+    });
+
+    // 2. Periodic & visibility-based lightweight check for open tabs
+    const checkAccountStatus = async () => {
+      const token = getAuthToken();
+      const user = getAuthUser();
+      if (!token || !user || user.role === "admin") return;
+
+      try {
+        await fetch("http://localhost:5000/api/auth/me", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch (_) {}
+    };
+
+    const intervalId = setInterval(checkAccountStatus, 15000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        checkAccountStatus();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      unsubscribe();
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  const handleAccountDeletedRedirect = () => {
+    setAccountDeletedModalOpen(false);
+    clearAuthSession();
+    window.location.href = "/signin";
+  };
 
   // Selected Dashboard View Month State (?month=YYYY-MM)
   const [selectedMonth, setSelectedMonthState] = useState(() => {
@@ -321,9 +364,7 @@ function FinanceProvider({ children }) {
 
   const loadMonthFinance = useCallback(async (targetYear, targetMonth) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return;
 
       const init = getInitialPeriod();
@@ -407,9 +448,7 @@ function FinanceProvider({ children }) {
 
   const loadMonthlyHistory = async () => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return;
 
       const response = await fetch("http://localhost:5000/api/monthly-finance", {
@@ -459,9 +498,7 @@ function FinanceProvider({ children }) {
 
   const loadSavingGoals = async () => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return;
 
       const response = await fetch("http://localhost:5000/api/saving-goals", {
@@ -490,9 +527,7 @@ function FinanceProvider({ children }) {
 
   const loadInvestments = async () => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return;
 
       const response = await fetch(
@@ -553,9 +588,7 @@ function FinanceProvider({ children }) {
 
   const loadInsurances = async () => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return;
 
       const response = await fetch("http://localhost:5000/api/insurances", {
@@ -579,9 +612,7 @@ function FinanceProvider({ children }) {
 
   const loadLiabilities = async () => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return;
 
       const response = await fetch("http://localhost:5000/api/liabilities", {
@@ -604,9 +635,7 @@ function FinanceProvider({ children }) {
 
   const loadUserReminders = async () => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return;
 
       const response = await fetch("http://localhost:5000/api/reminders", {
@@ -663,7 +692,7 @@ function FinanceProvider({ children }) {
 
   const updateItemReminder = async (sourceType, sourceId, reminderConfig) => {
     try {
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return { success: false, message: "Authentication required." };
 
       const response = await fetch(`http://localhost:5000/api/reminders/source/${sourceType}/${sourceId}`, {
@@ -692,7 +721,7 @@ function FinanceProvider({ children }) {
 
   const disableItemReminder = async (sourceType, sourceId) => {
     try {
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return { success: false };
 
       const response = await fetch(`http://localhost:5000/api/reminders/source/${sourceType}/${sourceId}/disable`, {
@@ -713,7 +742,7 @@ function FinanceProvider({ children }) {
 
   const enableItemReminder = async (sourceType, sourceId) => {
     try {
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return { success: false };
 
       const response = await fetch(`http://localhost:5000/api/reminders/source/${sourceType}/${sourceId}/enable`, {
@@ -734,7 +763,7 @@ function FinanceProvider({ children }) {
 
   const deleteItemReminder = async (sourceType, sourceId) => {
     try {
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return { success: false };
 
       const response = await fetch(`http://localhost:5000/api/reminders/source/${sourceType}/${sourceId}`, {
@@ -755,7 +784,7 @@ function FinanceProvider({ children }) {
 
   const createCustomReminder = async (reminderData) => {
     try {
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return { success: false };
 
       const response = await fetch("http://localhost:5000/api/reminders", {
@@ -779,7 +808,7 @@ function FinanceProvider({ children }) {
 
   const updateCustomReminder = async (reminderId, reminderData) => {
     try {
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return { success: false };
 
       const response = await fetch(`http://localhost:5000/api/reminders/${reminderId}`, {
@@ -803,7 +832,7 @@ function FinanceProvider({ children }) {
 
   const toggleCustomReminder = async (reminderId, enabled) => {
     try {
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return { success: false };
 
       const response = await fetch(`http://localhost:5000/api/reminders/${reminderId}/status`, {
@@ -827,7 +856,7 @@ function FinanceProvider({ children }) {
 
   const deleteCustomReminder = async (reminderId) => {
     try {
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return { success: false };
 
       const response = await fetch(`http://localhost:5000/api/reminders/${reminderId}`, {
@@ -849,9 +878,7 @@ function FinanceProvider({ children }) {
 
   const loadUserMessages = async () => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return;
 
       const response = await fetch("http://localhost:5000/api/messages", {
@@ -1077,9 +1104,7 @@ function FinanceProvider({ children }) {
 
   const recordFDInterest = async (investmentId, interestData = {}) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) {
         return { success: false, message: "Authentication token not found." };
@@ -1663,9 +1688,7 @@ function FinanceProvider({ children }) {
       lastFour: goal.fundLocation?.lastFour || goal.lastFour || "",
     };
 
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const payload = {
       goalName: goal.goalName || goal.name,
@@ -1715,9 +1738,7 @@ function FinanceProvider({ children }) {
   };
 
   const updateSavingGoal = async (id, updates = {}) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(`http://localhost:5000/api/saving-goals/${id}`, {
       method: "PUT",
@@ -1751,9 +1772,7 @@ function FinanceProvider({ children }) {
   };
 
   const deleteSavingGoal = async (id) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(`http://localhost:5000/api/saving-goals/${id}`, {
       method: "DELETE",
@@ -1774,9 +1793,7 @@ function FinanceProvider({ children }) {
   };
 
   const updateGoalFundLocation = async (id, location = {}) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(`http://localhost:5000/api/saving-goals/${id}`, {
       method: "PUT",
@@ -1809,9 +1826,7 @@ function FinanceProvider({ children }) {
   };
 
   const addGoalContribution = async (id, contributionData) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(
       `http://localhost:5000/api/saving-goals/${id}/contribution`,
@@ -1860,9 +1875,7 @@ function FinanceProvider({ children }) {
   };
 
   const updateGoalContribution = async (goalId, contributionId, updateData) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(
       `http://localhost:5000/api/saving-goals/${goalId}/contribution/${contributionId}`,
@@ -1897,9 +1910,7 @@ function FinanceProvider({ children }) {
   };
 
   const deleteGoalContribution = async (goalId, contributionId) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(
       `http://localhost:5000/api/saving-goals/${goalId}/contribution/${contributionId}`,
@@ -1939,9 +1950,7 @@ function FinanceProvider({ children }) {
       return { success: false, message: "Enter a valid withdrawal amount." };
     }
 
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(`http://localhost:5000/api/saving-goals/${id}/withdraw`, {
       method: "POST",
@@ -2013,9 +2022,7 @@ function FinanceProvider({ children }) {
 
   const addInvestment = async (investment = {}) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) {
         return { success: false, message: "Authentication token not found." };
@@ -2133,9 +2140,7 @@ function FinanceProvider({ children }) {
 
   const getSIPContributions = async (investmentId) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) {
         return {
@@ -2176,9 +2181,7 @@ function FinanceProvider({ children }) {
 
   const addSIPContribution = async (investmentId, contributionData = {}) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) {
         return {
@@ -2230,9 +2233,7 @@ function FinanceProvider({ children }) {
 
   const updateSIPContribution = async (investmentId, contributionId, updates = {}) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) {
         return {
@@ -2283,9 +2284,7 @@ function FinanceProvider({ children }) {
 
   const updateInvestment = async (id, updates = {}) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) {
         return { success: false, message: "Authentication token not found." };
@@ -2370,9 +2369,7 @@ function FinanceProvider({ children }) {
       const investmentId = id;
       if (!investmentId) return { success: false, message: "Invalid investment ID." };
 
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) return { success: false, message: "Authentication token not found." };
 
@@ -2507,9 +2504,7 @@ function FinanceProvider({ children }) {
 
   const recordInvestmentMaturity = async (id, payload = {}) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) return { success: false, message: "Authentication token not found." };
 
@@ -2554,9 +2549,7 @@ function FinanceProvider({ children }) {
 
   const getInvestmentMaturityAllocations = async (id) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) return { success: false, message: "Authentication token not found." };
 
@@ -2578,9 +2571,7 @@ function FinanceProvider({ children }) {
 
   const submitInvestmentMaturityAction = async (id, maturityData) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) return { success: false, message: "Authentication token not found." };
 
@@ -2671,9 +2662,7 @@ function FinanceProvider({ children }) {
 
   const renewInvestment = async (id, renewalData = {}) => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
 
       if (!token) return { success: false, message: "Authentication token not found." };
 
@@ -2735,9 +2724,7 @@ function FinanceProvider({ children }) {
   // ==========================================================
 
   const addInsurancePolicy = async (policy = {}) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const newPolicy = {
       ...policy,
@@ -2786,9 +2773,7 @@ function FinanceProvider({ children }) {
   };
 
   const updateInsurancePolicy = async (id, updates = {}) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(`http://localhost:5000/api/insurances/${id}`, {
       method: "PUT",
@@ -2819,9 +2804,7 @@ function FinanceProvider({ children }) {
   };
 
   const deleteInsurancePolicy = async (id) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(`http://localhost:5000/api/insurances/${id}`, {
       method: "DELETE",
@@ -2848,9 +2831,7 @@ function FinanceProvider({ children }) {
   }
 
   const addInsurancePayment = async (id, paymentData) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const payload = {
       ...(typeof paymentData === "object" ? paymentData : { amount: paymentData }),
@@ -2891,9 +2872,7 @@ function FinanceProvider({ children }) {
   };
 
   const renewInsurance = async (id, renewalData) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(`http://localhost:5000/api/insurances/${id}/renew`, {
       method: "POST",
@@ -2938,9 +2917,7 @@ function FinanceProvider({ children }) {
   };
 
   const recordInsuranceMaturity = async (id, maturityData) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(`http://localhost:5000/api/insurances/${id}/maturity`, {
       method: "POST",
@@ -2982,9 +2959,7 @@ function FinanceProvider({ children }) {
   // ==========================================================
 
   const addLiability = async (liability = {}) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const originalAmount = Number(liability.originalAmount || liability.principalAmount || 0);
     const remainingAmount = liability.remainingAmount !== undefined ? Number(liability.remainingAmount) : originalAmount;
@@ -3024,9 +2999,7 @@ function FinanceProvider({ children }) {
   };
 
   const updateLiability = async (id, updates = {}) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(`http://localhost:5000/api/liabilities/${id}`, {
       method: "PUT",
@@ -3057,9 +3030,7 @@ function FinanceProvider({ children }) {
   };
 
   const deleteLiability = async (id) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const response = await fetch(`http://localhost:5000/api/liabilities/${id}`, {
       method: "DELETE",
@@ -3075,9 +3046,7 @@ function FinanceProvider({ children }) {
   };
 
   const recordLiabilityPayment = async (id, paymentData = {}) => {
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     const baseData = typeof paymentData === "object" ? paymentData : { amount: paymentData };
     const dataPayload = {
@@ -3126,9 +3095,7 @@ function FinanceProvider({ children }) {
   // Fetch latest stored AI recommendation from MongoDB without calling Gemini
   const fetchLatestAISuggestion = async () => {
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) return null;
 
       const response = await fetch("http://localhost:5000/api/ai/latest", {
@@ -3165,9 +3132,7 @@ function FinanceProvider({ children }) {
     }, 1100);
 
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (!token) {
         throw new Error("You must be logged in to get AI suggestions.");
       }
@@ -3645,9 +3610,7 @@ function FinanceProvider({ children }) {
       current.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
 
-    const token =
-      localStorage.getItem("financeos_token") ||
-      sessionStorage.getItem("financeos_token");
+    const token = getAuthToken();
 
     if (String(id).startsWith("msg-")) {
       try {
@@ -3696,9 +3659,7 @@ function FinanceProvider({ children }) {
     );
 
     try {
-      const token =
-        localStorage.getItem("financeos_token") ||
-        sessionStorage.getItem("financeos_token");
+      const token = getAuthToken();
       if (token) {
         await Promise.allSettled([
           fetch(`http://localhost:5000/api/messages/mark-all-read`, {
@@ -3910,7 +3871,22 @@ function FinanceProvider({ children }) {
     generateAISuggestion,
   };
 
-  return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
+  return (
+    <FinanceContext.Provider value={value}>
+      {children}
+      <CenteredModal
+        isOpen={accountDeletedModalOpen}
+        onClose={handleAccountDeletedRedirect}
+        title="Account Deleted"
+        message="Your FinanceOS account has been deleted by an administrator. Please create a new account to continue."
+        confirmText="Go to Sign In"
+        confirmVariant="danger"
+        iconType="error"
+        type="alert"
+        onConfirm={handleAccountDeletedRedirect}
+      />
+    </FinanceContext.Provider>
+  );
 }
 
 export default FinanceProvider;

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
+  AlertTriangle,
   Archive,
+  CheckCircle2,
   ChevronDown,
   Eye,
   Filter,
@@ -11,7 +13,9 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Shield,
   ShieldAlert,
+  Trash2,
   UserCheck,
   Users,
   UserX,
@@ -71,6 +75,21 @@ export default function AdminUsers() {
   const [updatingUser, setUpdatingUser] =
     useState(null);
 
+  const [deleteConfirmUser, setDeleteConfirmUser] =
+    useState(null);
+
+  const [isDeleting, setIsDeleting] =
+    useState(false);
+
+  const [deleteSuccessModal, setDeleteSuccessModal] =
+    useState(false);
+
+  const [deleteErrorModal, setDeleteErrorModal] =
+    useState(null);
+
+  const [adminProtectedModal, setAdminProtectedModal] =
+    useState(false);
+
   // ==========================================================
   // FETCH USERS
   // ==========================================================
@@ -81,7 +100,7 @@ export default function AdminUsers() {
       setError("");
 
       const token =
-        localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+        sessionStorage.getItem("financeos_token");
 
       const response = await fetch(
         API_URL,
@@ -239,7 +258,7 @@ export default function AdminUsers() {
       setActionMenu(null);
 
       const token =
-        localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+        sessionStorage.getItem("financeos_token");
 
       const response = await fetch(
         `${API_URL}/${user._id}/status`,
@@ -318,84 +337,96 @@ export default function AdminUsers() {
   };
 
   // ==========================================================
-  // ARCHIVE USER
+  // PROTECTED ADMIN CHECK
+  // EXACTLY ONE Admin: financeos.system@gmail.com
+  // All other users are deletable
   // ==========================================================
 
-  const archiveUser = async (user) => {
-    const confirmed =
-      window.confirm(
-        `Are you sure you want to archive ${user.name}?`
-      );
+  const CANONICAL_ADMIN_EMAIL = "financeos.system@gmail.com";
 
-    if (!confirmed) {
+  const isProtectedAdmin = (target) => {
+    if (!target || !target.email) return false;
+    return String(target.email).trim().toLowerCase() === CANONICAL_ADMIN_EMAIL;
+  };
+
+  const handleDeleteClick = (user) => {
+    if (isProtectedAdmin(user)) {
+      setAdminProtectedModal(true);
       return;
     }
+    setDeleteConfirmUser(user);
+  };
+
+  // ==========================================================
+  // CONFIRM PERMANENT DELETE USER
+  // ==========================================================
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmUser || isDeleting) return;
 
     try {
-      setUpdatingUser(user._id);
-
-      setActionMenu(null);
+      setIsDeleting(true);
 
       const token =
-        localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+        sessionStorage.getItem("financeos_token");
 
-      const response = await fetch(
-        `${API_URL}/${user._id}`,
-        {
-          method: "DELETE",
+      const response = await fetch(`${API_URL}/${deleteConfirmUser._id}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
 
-          headers: {
-            "Content-Type":
-              "application/json",
+      const data = await response.json();
 
-            ...(token
-              ? {
-                Authorization:
-                  `Bearer ${token}`,
-              }
-              : {}),
-          },
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (
-        !response.ok ||
-        !data.success
-      ) {
+      if (!response.ok || !data.success) {
         throw new Error(
           data.message ||
-          "Failed to archive user"
+            "Unable to delete this user. No changes were completed."
         );
       }
 
-      setUsers(
-        (currentUsers) =>
-          currentUsers.filter(
-            (currentUser) =>
-              currentUser._id !==
-              user._id
-          )
+      const targetId = deleteConfirmUser._id;
+      const targetStatus = deleteConfirmUser.status;
+
+      // 1. Update frontend state immediately without page reload
+      setUsers((currentUsers) =>
+        currentUsers.filter((u) => u._id !== targetId)
       );
 
-      setSelectedUser(null);
+      // 2. Update statistics
+      setStats((prevStats) => ({
+        ...prevStats,
+        totalUsers: Math.max(0, (prevStats.totalUsers || 1) - 1),
+        activeUsers:
+          targetStatus === "Active"
+            ? Math.max(0, (prevStats.activeUsers || 1) - 1)
+            : prevStats.activeUsers,
+        inactiveUsers:
+          targetStatus === "Inactive"
+            ? Math.max(0, (prevStats.inactiveUsers || 1) - 1)
+            : prevStats.inactiveUsers,
+        suspendedUsers:
+          targetStatus === "Suspended"
+            ? Math.max(0, (prevStats.suspendedUsers || 1) - 1)
+            : prevStats.suspendedUsers,
+      }));
 
-      await fetchUsers();
+      // 3. Close confirmation modal and show centered success modal
+      setDeleteConfirmUser(null);
+      setDeleteSuccessModal(true);
 
-    } catch (error) {
-      console.error(
-        "Archive User Error:",
-        error
-      );
-
-      alert(
-        error.message ||
-        "Failed to archive user"
-      );
+    } catch (err) {
+      console.error("Delete User Error:", err);
+      setDeleteConfirmUser(null);
+      setDeleteErrorModal({
+        message:
+          err.message ||
+          "Unable to delete this user. No changes were completed.",
+      });
     } finally {
-      setUpdatingUser(null);
+      setIsDeleting(false);
     }
   };
 
@@ -883,6 +914,28 @@ export default function AdminUsers() {
 
                             </button>
 
+                            {/* DELETE USER / PROTECTED ADMIN */}
+
+                            {isProtectedAdmin(user) ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#dcebd8] bg-[#eef6ec] px-3 py-2 text-xs font-semibold text-[#315c46]">
+                                <Shield size={14} />
+                                Protected Admin
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                id={`delete-user-btn-${user._id}`}
+                                onClick={() =>
+                                  handleDeleteClick(user)
+                                }
+                                className="flex items-center gap-1.5 rounded-lg border border-[#fecaca] bg-[#fff5f5] px-3 py-2 text-xs font-semibold text-[#dc2626] transition hover:border-[#fca5a5] hover:bg-[#fee2e2]"
+                                title="Delete User"
+                              >
+                                <Trash2 size={14} />
+                                Delete
+                              </button>
+                            )}
+
                             {/* MANAGE */}
 
                             <div className="relative">
@@ -1027,22 +1080,28 @@ export default function AdminUsers() {
 
                                     <div className="my-2 border-t border-[#edf0eb]" />
 
-                                    {/* ARCHIVE */}
+                                    {/* DELETE USER / PROTECTED ADMIN */}
 
-                                    <ActionButton
-                                      icon={
-                                        <Archive
-                                          size={14}
-                                        />
-                                      }
-                                      text="Archive User"
-                                      danger
-                                      onClick={() =>
-                                        archiveUser(
-                                          user
-                                        )
-                                      }
-                                    />
+                                    {isProtectedAdmin(user) ? (
+                                      <div className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-[#315c46] bg-[#eef6ec] rounded-lg mx-1">
+                                        <Shield size={14} />
+                                        Protected Admin
+                                      </div>
+                                    ) : (
+                                      <ActionButton
+                                        icon={
+                                          <Trash2
+                                            size={14}
+                                          />
+                                        }
+                                        text="Delete User"
+                                        danger
+                                        onClick={() => {
+                                          setActionMenu(null);
+                                          handleDeleteClick(user);
+                                        }}
+                                      />
+                                    )}
 
                                   </div>
 
@@ -1146,6 +1205,177 @@ export default function AdminUsers() {
           }}
         />
 
+      )}
+
+      {/* ======================================================
+          DELETE CONFIRMATION MODAL (CENTERED)
+      ====================================================== */}
+
+      {deleteConfirmUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px] animate-fadeIn">
+          <div className="w-full max-w-[460px] overflow-hidden rounded-2xl border border-[#dfe6da] bg-white p-6 shadow-2xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#fee2e2] text-[#dc2626] mb-4">
+              <Trash2 size={24} />
+            </div>
+
+            <h3 className="text-xl font-bold text-[#173b2b]">
+              Are you sure you want to delete this user?
+            </h3>
+
+            <div className="mt-3 space-y-2 text-sm text-[#526459] leading-relaxed">
+              <p>
+                This will permanently delete the user's FinanceOS account and associated financial data.
+              </p>
+              <p>
+                The user will need to register again before they can use FinanceOS.
+              </p>
+              <div className="mt-3 rounded-xl bg-[#f8faf7] p-3 text-xs border border-[#e2e8df]">
+                <span className="font-semibold text-[#173b2b]">{deleteConfirmUser.name}</span>
+                <span className="mx-2 text-[#a3b1a8]">•</span>
+                <span className="font-mono text-[#639a48]">{deleteConfirmUser.userId}</span>
+                <br />
+                <span className="text-[#718177]">{deleteConfirmUser.email}</span>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                id="cancel-delete-user-btn"
+                disabled={isDeleting}
+                onClick={() => {
+                  if (!isDeleting) setDeleteConfirmUser(null);
+                }}
+                className="rounded-xl border border-[#dfe6da] px-5 py-2.5 text-sm font-semibold text-[#617268] transition hover:bg-[#f5f8f2] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                id="confirm-delete-user-btn"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="flex items-center gap-2 rounded-xl bg-[#dc2626] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#b91c1c] disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw size={15} className="animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete User"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================
+          DELETE SUCCESS MODAL (CENTERED)
+      ====================================================== */}
+
+      {deleteSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px] animate-fadeIn">
+          <div className="w-full max-w-[440px] overflow-hidden rounded-2xl border border-[#dfe6da] bg-white p-6 shadow-2xl text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#edf5e8] text-[#57923d] mb-4">
+              <CheckCircle2 size={30} />
+            </div>
+
+            <h3 className="text-xl font-bold text-[#173b2b]">
+              User Deleted
+            </h3>
+
+            <div className="mt-3 space-y-2 text-sm text-[#526459] leading-relaxed">
+              <p>
+                The user's FinanceOS account and associated data have been permanently deleted.
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                id="delete-success-ok-btn"
+                onClick={() => setDeleteSuccessModal(false)}
+                className="min-w-[120px] rounded-xl bg-[#57923d] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#487a32]"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================
+          ADMIN PROTECTED MODAL (CENTERED)
+      ====================================================== */}
+
+      {adminProtectedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px] animate-fadeIn">
+          <div className="w-full max-w-[440px] overflow-hidden rounded-2xl border border-[#dfe6da] bg-white p-6 shadow-2xl text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#eef6ec] text-[#315c46] mb-4">
+              <ShieldAlert size={30} />
+            </div>
+
+            <h3 className="text-xl font-bold text-[#173b2b]">
+              Admin Account Cannot Be Deleted
+            </h3>
+
+            <div className="mt-3 text-sm text-[#526459] leading-relaxed">
+              <p>
+                The FinanceOS system administrator account cannot be deleted.
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                id="admin-protected-ok-btn"
+                onClick={() => setAdminProtectedModal(false)}
+                className="min-w-[120px] rounded-xl bg-[#315c46] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================
+          DELETE ERROR MODAL (CENTERED)
+      ====================================================== */}
+
+      {deleteErrorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px] animate-fadeIn">
+          <div className="w-full max-w-[440px] overflow-hidden rounded-2xl border border-[#fee2e2] bg-white p-6 shadow-2xl text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#fee2e2] text-[#dc2626] mb-4">
+              <AlertTriangle size={30} />
+            </div>
+
+            <h3 className="text-xl font-bold text-[#991b1b]">
+              Unable to Delete User
+            </h3>
+
+            <div className="mt-3 text-sm text-[#526459] leading-relaxed">
+              <p>
+                {deleteErrorModal.message ||
+                  "Unable to delete this user. No changes were completed."}
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                id="delete-error-close-btn"
+                onClick={() => setDeleteErrorModal(null)}
+                className="min-w-[120px] rounded-xl border border-[#dfe6da] px-6 py-2.5 text-sm font-semibold text-[#617268] hover:bg-[#f5f8f2]"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

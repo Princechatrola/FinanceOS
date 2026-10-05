@@ -69,7 +69,6 @@ function AdminActivity() {
       // ------------------------------------------------------
 
       const token =
-        localStorage.getItem("financeos_token") ||
         sessionStorage.getItem("financeos_token");
 
       // ------------------------------------------------------

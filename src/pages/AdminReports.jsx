@@ -63,7 +63,6 @@ export default function AdminReports() {
       setError("");
 
       const token =
-        localStorage.getItem("financeos_token") ||
         sessionStorage.getItem("financeos_token");
 
       const response = await fetch(API_URL, {
@@ -337,7 +336,6 @@ export default function AdminReports() {
       setDownloadingRowId(targetDbId);
 
       const token =
-        localStorage.getItem("financeos_token") ||
         sessionStorage.getItem("financeos_token");
 
       const params = new URLSearchParams();

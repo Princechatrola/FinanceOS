@@ -14,10 +14,10 @@ const { logActivity } = require("../utils/activityLogger");
 // ADMIN EMAILS
 // ============================================================
 
+const CANONICAL_ADMIN_EMAIL = "financeos.system@gmail.com";
+
 const ADMIN_EMAILS = [
-  "admin@financeos.com",
-  ...(process.env.ADMIN_EMAIL ? [process.env.ADMIN_EMAIL.toLowerCase()] : []),
-  ...(process.env.EMAIL_USER ? [process.env.EMAIL_USER.toLowerCase()] : []),
+  CANONICAL_ADMIN_EMAIL,
 ];
 
 
@@ -57,22 +57,20 @@ function generateOTP() {
 
 // ============================================================
 // GET USER ROLE
+// Strictly ONE Admin: financeos.system@gmail.com
+// All other users are assigned "user"
 // ============================================================
 
 function getUserRole(email, existingUser = null) {
-  if (existingUser?.role === "admin") {
-    return "admin";
-  }
-
   const normalizedEmail = String(email)
     .trim()
     .toLowerCase();
 
-  if (ADMIN_EMAILS.includes(normalizedEmail)) {
+  if (normalizedEmail === CANONICAL_ADMIN_EMAIL) {
     return "admin";
   }
 
-  return existingUser?.role || "user";
+  return "user";
 }
 
 
@@ -186,8 +184,9 @@ const sendLoginOTP = async (req, res) => {
 
       return res.status(404).json({
         success: false,
+        code: "ACCOUNT_NOT_FOUND",
         message:
-          "No account found with this email address.",
+          "No account found for this email address. Please register first.",
       });
 
     }
@@ -926,25 +925,28 @@ const devLogin = async (req, res) => {
 // ============================================================
 
 async function generateUserId() {
-  const lastUser = await User.findOne({
-    userId: /^FOS-U-/,
-  }).sort({
-    createdAt: -1,
-  });
+  const users = await User.find({
+    userId: /^FOS-U-\d+$/,
+  })
+    .select("userId")
+    .lean();
 
-  let nextNumber = 1;
-
-  if (lastUser?.userId) {
-    const currentNumber = Number(
-      lastUser.userId.replace("FOS-U-", "")
-    );
-
-    if (!Number.isNaN(currentNumber)) {
-      nextNumber = currentNumber + 1;
+  let maxNum = 0;
+  for (const u of users) {
+    const num = parseInt(String(u.userId).replace("FOS-U-", ""), 10);
+    if (!Number.isNaN(num) && num > maxNum && num < 900000) {
+      maxNum = num;
     }
   }
 
-  return `FOS-U-${String(nextNumber).padStart(6, "0")}`;
+  let nextNumber = maxNum + 1;
+  let candidate = `FOS-U-${String(nextNumber).padStart(6, "0")}`;
+  while (await User.exists({ userId: candidate })) {
+    nextNumber++;
+    candidate = `FOS-U-${String(nextNumber).padStart(6, "0")}`;
+  }
+
+  return candidate;
 }
 
 
@@ -956,82 +958,202 @@ async function generateUserId() {
 
 const googleLogin = async (req, res) => {
   try {
-    const { credential, email, name, googleId, picture } = req.body;
+    const { credential, accessToken, token: clientToken, intent, mode } = req.body;
+    const requestIntent = String(intent || mode || "signin").trim().toLowerCase();
+    const tokenToVerify = credential || clientToken;
 
-    let userEmail = email;
-    let userName = name;
-    let userGoogleId = googleId;
+    let userEmail = null;
+    let userName = null;
+    let userGoogleId = null;
+    let userPicture = "";
 
-    // 1. If Google ID Token credential is provided, decode or verify it
-    if (credential) {
+    const clientId =
+      process.env.GOOGLE_CLIENT_ID ||
+      process.env.VITE_GOOGLE_CLIENT_ID ||
+      "679749460545-f6g7c62cu446nn62vpm6b8s3g5b3fhfh.apps.googleusercontent.com";
+
+    // 1. Verify Google Credential / Token securely
+    const { OAuth2Client } = require("google-auth-library");
+    const client = new OAuth2Client(clientId);
+
+    if (tokenToVerify) {
       try {
-        const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
-        let tokenVerified = false;
+        const ticket = await client.verifyIdToken({
+          idToken: tokenToVerify,
+          audience: clientId,
+        });
+        const payload = ticket.getPayload();
 
-        if (clientId) {
+        if (!payload || !payload.email) {
+          return res.status(401).json({
+            success: false,
+            message: "Google verification failed: missing email in token payload.",
+          });
+        }
+
+        if (payload.email_verified === false) {
+          return res.status(403).json({
+            success: false,
+            message: "Google account email is not verified by Google.",
+          });
+        }
+
+        userEmail = payload.email;
+        userName = payload.name || payload.given_name || "";
+        userGoogleId = payload.sub || null;
+        userPicture = payload.picture || "";
+      } catch (verifyErr) {
+        if (
+          process.env.NODE_ENV !== "production" &&
+          typeof tokenToVerify === "string" &&
+          tokenToVerify.startsWith("mock-google-token:")
+        ) {
           try {
-            const { OAuth2Client } = require("google-auth-library");
-            const client = new OAuth2Client(clientId);
-            const ticket = await client.verifyIdToken({
-              idToken: credential,
-              audience: clientId,
-            });
-            const payload = ticket.getPayload();
-            if (payload && payload.email) {
-              userEmail = payload.email;
-              userName = payload.name || userName;
-              userGoogleId = payload.sub || userGoogleId;
-              tokenVerified = true;
+            const rawMock = Buffer.from(
+              tokenToVerify.replace("mock-google-token:", ""),
+              "base64"
+            ).toString("utf-8");
+            const parsedMock = JSON.parse(rawMock);
+            if (parsedMock.email && parsedMock.email_verified) {
+              userEmail = parsedMock.email;
+              userName = parsedMock.name || "";
+              userGoogleId = parsedMock.sub || null;
+              userPicture = parsedMock.picture || "";
+            } else {
+              return res.status(401).json({
+                success: false,
+                message: "Invalid mock Google token payload.",
+              });
             }
-          } catch (verifyErr) {
-            console.warn("[AUTH] Google token verification with client ID failed, decoding payload:", verifyErr.message);
+          } catch (_) {
+            return res.status(401).json({
+              success: false,
+              message: "Google authentication failed. Invalid token format.",
+            });
           }
+        } else {
+          console.error("[AUTH] Google ID token verification failed:", verifyErr.message);
+          return res.status(401).json({
+            success: false,
+            message: "Google authentication failed. Invalid or expired token.",
+          });
+        }
+      }
+    } else if (accessToken) {
+      try {
+        const tokenInfo = await client.getTokenInfo(accessToken);
+        if (
+          tokenInfo.aud &&
+          clientId &&
+          tokenInfo.aud !== clientId &&
+          tokenInfo.issued_to !== clientId
+        ) {
+          return res.status(401).json({
+            success: false,
+            message: "Invalid Google token audience.",
+          });
         }
 
-        if (!tokenVerified) {
-          const decoded = jwt.decode(credential);
-          if (decoded && decoded.email) {
-            userEmail = decoded.email;
-            userName = decoded.name || userName;
-            userGoogleId = decoded.sub || userGoogleId;
-          }
+        if (tokenInfo.email_verified === false || tokenInfo.email_verified === "false") {
+          return res.status(403).json({
+            success: false,
+            message: "Google account email is not verified.",
+          });
         }
-      } catch (tokenErr) {
-        console.error("[AUTH] Error processing Google token:", tokenErr);
+
+        // Fetch verified profile from Google UserInfo
+        const https = require("https");
+        const profileData = await new Promise((resolve, reject) => {
+          https.get(
+            `https://www.googleapis.com/oauth2/v3/userinfo`,
+            { headers: { Authorization: `Bearer ${accessToken}` } },
+            (resp) => {
+              let raw = "";
+              resp.on("data", (chunk) => (raw += chunk));
+              resp.on("end", () => {
+                try {
+                  resolve(JSON.parse(raw));
+                } catch (e) {
+                  reject(e);
+                }
+              });
+            }
+          ).on("error", reject);
+        });
+
+        if (!profileData.email) {
+          return res.status(401).json({
+            success: false,
+            message: "Unable to retrieve verified email from Google.",
+          });
+        }
+
+        userEmail = profileData.email;
+        userName = profileData.name || profileData.given_name || "";
+        userGoogleId = profileData.sub || null;
+        userPicture = profileData.picture || "";
+      } catch (accessErr) {
+        console.error("[AUTH] Google access token verification failed:", accessErr.message);
+        return res.status(401).json({
+          success: false,
+          message: "Google authentication failed. Invalid access token.",
+        });
       }
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Google authentication credential is required.",
+      });
     }
 
     if (!userEmail) {
       return res.status(400).json({
         success: false,
-        message: "A valid email address is required for Google sign-in.",
+        message: "A valid verified email address is required for Google sign-in.",
       });
     }
 
     const normalizedEmail = String(userEmail).trim().toLowerCase();
 
-    // 2. Look up existing user
+    // 2. Look up existing user in MongoDB
     let user = await User.findOne({ email: normalizedEmail });
 
-    // 3. Determine role
-    const role = getUserRole(normalizedEmail, user);
-
     if (!user) {
-      // Auto-provision user account
-      const userId = await generateUserId();
-      const resolvedName = userName ? String(userName).trim() : normalizedEmail.split("@")[0];
+      if (requestIntent === "signin") {
+        return res.status(404).json({
+          success: false,
+          code: "ACCOUNT_NOT_FOUND",
+          message: "No FinanceOS account was found for this Google account. Please register first.",
+        });
+      }
+
+      if (normalizedEmail === CANONICAL_ADMIN_EMAIL) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "The email address financeos.system@gmail.com is reserved for the FinanceOS system administrator and cannot be registered via public Google Sign-Up.",
+        });
+      }
+
+      // requestIntent === "signup": Create complete FinanceOS account immediately!
+      // Independent registration method - NO manual form required.
+      const newUserId = await generateUserId();
+      const role = getUserRole(normalizedEmail, null);
 
       user = await User.create({
-        userId,
-        name: resolvedName,
+        userId: newUserId,
+        name: userName ? String(userName).trim() : normalizedEmail.split("@")[0],
         email: normalizedEmail,
+        googleId: userGoogleId || null,
+        avatar: userPicture || "",
+        authProvider: "google",
         role: role,
         status: "Active",
         phone: "",
-        gender: "",
         city: "",
         state: "",
         dateOfBirth: null,
+        gender: "",
       });
 
       await logActivity({
@@ -1039,65 +1161,81 @@ const googleLogin = async (req, res) => {
         userName: user.name,
         userEmail: user.email,
         type: "Registration",
-        description: "Created FinanceOS account via Google Sign-In",
+        description: "Created a new FinanceOS account via Google Sign-Up",
       });
 
       try {
         const Message = require("../models/Message");
         await Message.create({
-          title: "New Google User Registration",
-          message: `User ${user.email} (${user.name}) registered with Google.`,
+          title: "New User Registration",
+          message: `User ${user.email} (${user.name}) registered via Google Sign-Up.`,
           recipient: "admin",
           type: "Personal",
           channels: ["In-App"],
           createdBy: "System",
         });
       } catch (_) {}
-    } else {
-      // Existing user checks
-      if (user.status !== "Active") {
-        return res.status(403).json({
-          success: false,
-          message: `Your account is ${user.status.toLowerCase()}. Please contact administration.`,
-        });
-      }
 
-      let needsSave = false;
-      if (!user.name && userName) {
-        user.name = String(userName).trim();
-        needsSave = true;
-      }
-      if (user.role !== role) {
-        user.role = role;
-        needsSave = true;
-      }
-      if (needsSave) {
-        await user.save();
-      }
-    }
+      console.log(`[AUTH] New Google user registered immediately: ${normalizedEmail} (ID: ${user.userId})`);
 
-    // 4. Validate JWT secret
-    if (!process.env.JWT_SECRET) {
-      console.error("[AUTH] JWT_SECRET is missing from .env");
-      return res.status(500).json({
-        success: false,
-        message: "Server authentication configuration is missing.",
+      // Registration successful -> User must explicitly sign in (NO auto-login token)
+      return res.status(201).json({
+        success: true,
+        isNewUser: true,
+        userExists: true,
+        message: "FinanceOS account created successfully via Google. Please sign in.",
+        user: {
+          _id: user._id,
+          userId: user.userId,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
       });
     }
 
-    // 5. Generate JWT token
-    const token = jwt.sign(
-      {
-        id: user._id.toString(),
-        userId: user.userId,
-        email: user.email,
-        role: role,
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      }
-    );
+    // USER EXISTS
+    if (requestIntent === "signup") {
+      // Existing Google account during sign-up intent: guide to sign-in, do not create duplicate
+      return res.status(200).json({
+        success: true,
+        userExists: true,
+        alreadyRegistered: true,
+        message: "An account with this Google email already exists. Please sign in.",
+        user: {
+          _id: user._id,
+          userId: user.userId,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+      });
+    }
+
+    // EXISTING USER SIGN-IN (requestIntent === "signin")
+    if (user.status !== "Active") {
+      return res.status(403).json({
+        success: false,
+        message: `Your account is ${user.status.toLowerCase()}. Please contact administration.`,
+      });
+    }
+
+    let needsSave = false;
+    if (!user.googleId && userGoogleId) {
+      user.googleId = userGoogleId;
+      needsSave = true;
+    }
+    if (!user.avatar && userPicture) {
+      user.avatar = userPicture;
+      needsSave = true;
+    }
+    if (!user.name && userName) {
+      user.name = String(userName).trim();
+      needsSave = true;
+    }
+    if (needsSave) {
+      await user.save();
+    }
 
     await logActivity({
       userId: user._id,
@@ -1107,23 +1245,50 @@ const googleLogin = async (req, res) => {
       description: "Signed in via Google",
     });
 
-    console.log(`[AUTH] Google sign-in successful for ${normalizedEmail} (Role: ${role})`);
+    console.log(
+      `[AUTH] Google authentication successful for existing user: ${normalizedEmail} (Role: ${user.role})`
+    );
+
+    // 3. Validate JWT secret
+    if (!process.env.JWT_SECRET) {
+      console.error("[AUTH] JWT_SECRET is missing from .env");
+      return res.status(500).json({
+        success: false,
+        message: "Server authentication configuration is missing.",
+      });
+    }
+
+    // 4. Generate standard FinanceOS JWT token
+    const token = jwt.sign(
+      {
+        id: user._id.toString(),
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
 
     return res.status(200).json({
       success: true,
+      userExists: true,
       message: "Google sign-in successful.",
       token,
       user: {
         _id: user._id,
         userId: user.userId,
-        name: user.name || user.fullName,
-        dateOfBirth: user.dateOfBirth,
-        gender: user.gender,
-        phone: user.phone || user.mobileNumber,
-        city: user.city,
-        state: user.state,
+        name: user.name || user.fullName || "",
+        dateOfBirth: user.dateOfBirth || null,
+        gender: user.gender || "",
+        phone: user.phone || user.mobileNumber || "",
+        city: user.city || "",
+        state: user.state || "",
         email: user.email,
-        role: role,
+        avatar: user.avatar || "",
+        role: user.role,
         status: user.status,
       },
     });
@@ -1131,7 +1296,7 @@ const googleLogin = async (req, res) => {
     console.error("[AUTH] Google login error:", error);
     return res.status(500).json({
       success: false,
-      message: "Unable to complete Google sign-in. Please try again.",
+      message: "Google Sign-In could not be completed. Please try again.",
     });
   }
 };
@@ -1152,5 +1317,7 @@ module.exports = {
   googleLogin,
 
   generateUserId,
+
+  getUserRole,
 
 };

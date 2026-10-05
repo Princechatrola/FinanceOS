@@ -15,6 +15,13 @@ const Message = require("../models/Message");
 const AdditionalIncome = require("../models/AdditionalIncome");
 const Reminder = require("../models/Reminder");
 const InvestmentMaturityAction = require("../models/InvestmentMaturityAction");
+const AISuggestion = require("../models/AISuggestion");
+
+const CANONICAL_ADMIN_EMAIL = "financeos.system@gmail.com";
+
+const ADMIN_EMAILS = [
+  CANONICAL_ADMIN_EMAIL,
+];
 
 const { calculateMonthlyCashFlowBreakdown } = require("../utils/cashFlowBreakdown");
 const { buildFinancialReportForUser } = require("./reportController");
@@ -56,25 +63,28 @@ function getUserLookupQuery(id) {
 }
 
 async function generateUserId() {
-  const lastUser = await User.findOne({
-    userId: /^FOS-U-/,
-  }).sort({
-    createdAt: -1,
-  });
+  const users = await User.find({
+    userId: /^FOS-U-\d+$/,
+  })
+    .select("userId")
+    .lean();
 
-  let nextNumber = 1;
-
-  if (lastUser?.userId) {
-    const currentNumber = Number(
-      lastUser.userId.replace("FOS-U-", "")
-    );
-
-    if (!Number.isNaN(currentNumber)) {
-      nextNumber = currentNumber + 1;
+  let maxNum = 0;
+  for (const u of users) {
+    const num = parseInt(String(u.userId).replace("FOS-U-", ""), 10);
+    if (!Number.isNaN(num) && num > maxNum && num < 900000) {
+      maxNum = num;
     }
   }
 
-  return `FOS-U-${String(nextNumber).padStart(6, "0")}`;
+  let nextNumber = maxNum + 1;
+  let candidate = `FOS-U-${String(nextNumber).padStart(6, "0")}`;
+  while (await User.exists({ userId: candidate })) {
+    nextNumber++;
+    candidate = `FOS-U-${String(nextNumber).padStart(6, "0")}`;
+  }
+
+  return candidate;
 }
 
 function startOfCurrentMonth() {
@@ -805,11 +815,14 @@ const updateUserStatus = async (req, res) => {
 };
 
 // ============================================================
-// ARCHIVE USER
+// PERMANENT DELETE USER & ASSOCIATED FINANCIAL DATA
 // DELETE /api/admin/users/:id
 // ============================================================
 
-const archiveUser = async (req, res) => {
+const deleteUser = async (req, res) => {
+  let session = null;
+  let useTransaction = false;
+
   try {
     const { id } = req.params;
 
@@ -830,50 +843,170 @@ const archiveUser = async (req, res) => {
       });
     }
 
-    if (user.role === "admin" || user.role === "administrator") {
+    // --------------------------------------------------------
+    // PROTECT CANONICAL ADMIN ACCOUNT
+    // Only financeos.system@gmail.com is protected from deletion
+    // --------------------------------------------------------
+    const targetEmail = String(user.email).trim().toLowerCase();
+
+    if (targetEmail === CANONICAL_ADMIN_EMAIL) {
       return res.status(403).json({
         success: false,
-        message: "Super Admin accounts cannot be deleted.",
+        message: "The FinanceOS system administrator account cannot be deleted.",
       });
     }
 
+    const targetMongoId = user._id;
+    const targetUserId = user.userId;
+
     // --------------------------------------------------------
-    // Soft delete / archive
+    // INITIATE MONGO TRANSACTION (IF SUPPORTED BY DEPLOYMENT)
+    // Standalone MongoDB instances do not support replica set
+    // transactions and require direct sequential scoped deletion.
+    // --------------------------------------------------------
+    const topologyType =
+      mongoose.connection?.client?.topology?.description?.type || "";
+    const isReplicaSet =
+      topologyType.includes("ReplicaSet") || topologyType === "Sharded";
+
+    if (isReplicaSet) {
+      try {
+        session = await mongoose.startSession();
+        session.startTransaction();
+        useTransaction = true;
+      } catch (sessionError) {
+        console.warn(
+          "MongoDB session/transaction start failed; proceeding with direct scoped deletion:",
+          sessionError.message
+        );
+        session = null;
+        useTransaction = false;
+      }
+    } else {
+      console.log(
+        `[Admin Deletion] Standalone MongoDB deployment detected (${topologyType || "Single"}); executing safest direct scoped cascade deletion.`
+      );
+    }
+
+    const opts = useTransaction && session ? { session } : {};
+
+    // --------------------------------------------------------
+    // PERMANENTLY DELETE ASSOCIATED USER-OWNED DATA
+    // STRICTLY SCOPED TO TARGET USER ID
     // --------------------------------------------------------
 
-    user.status = "Inactive";
+    // 1. Monthly Financial Records
+    await MonthlyFinance.deleteMany({ user: targetMongoId }, opts);
 
-    // If your User model supports these fields,
-    // they will be useful later.
+    // 2. Additional Incomes
+    await AdditionalIncome.deleteMany({ user: targetMongoId }, opts);
 
-    await user.save();
+    // 3. Saving Goals
+    await SavingGoal.deleteMany({ user: targetMongoId }, opts);
 
-    await logActivity({
-      userId: user._id,
-      userName: user.name || "User",
-      userEmail: user.email,
-      type: "Account",
-      description: "Account was archived",
-    });
+    // 4. Investments
+    await Investment.deleteMany({ user: targetMongoId }, opts);
+
+    // 5. Investment Maturity Actions
+    await InvestmentMaturityAction.deleteMany({ user: targetMongoId }, opts);
+
+    // 6. Liabilities
+    await Liability.deleteMany({ user: targetMongoId }, opts);
+
+    // 7. Insurance Policies
+    await Insurance.deleteMany({ user: targetMongoId }, opts);
+
+    // 8. Reminders (userId: ObjectId, userCode: String)
+    await Reminder.deleteMany(
+      {
+        $or: [
+          { userId: targetMongoId },
+          ...(targetUserId ? [{ userCode: targetUserId }] : []),
+        ],
+      },
+      opts
+    );
+
+    // 9. AI Advice & Suggestions
+    await AISuggestion.deleteMany({ user: targetMongoId }, opts);
+
+    // 10. Direct / Personal Messages to this user
+    await Message.deleteMany(
+      {
+        $or: [
+          { recipientUser: targetMongoId },
+          ...(targetUserId ? [{ userId: targetUserId }] : []),
+          { recipientEmail: targetEmail },
+        ],
+      },
+      opts
+    );
+
+    // 11. User Activity Logs
+    await Activity.deleteMany({ userId: targetMongoId }, opts);
+
+    // 12. Finally, delete the User document itself
+    const deleteResult = await User.deleteOne({ _id: targetMongoId }, opts);
+
+    if (deleteResult.deletedCount === 0) {
+      throw new Error("Failed to delete user document from database.");
+    }
+
+    // --------------------------------------------------------
+    // COMMIT TRANSACTION
+    // --------------------------------------------------------
+    if (useTransaction && session) {
+      await session.commitTransaction();
+    }
+
+    // Log the deletion activity for the acting Super Admin
+    try {
+      await logActivity({
+        userId: callerId || targetMongoId,
+        userName: req.user?.name || "Super Admin",
+        userEmail: req.user?.email || "admin@financeos.com",
+        type: "Account",
+        description: `Permanently deleted user account ${user.name} (${targetUserId} - ${targetEmail}) and all associated records.`,
+      });
+    } catch (_) {}
 
     return res.status(200).json({
       success: true,
-      message: "User archived successfully.",
+      message: "User and associated data permanently deleted.",
+      deletedUser: {
+        _id: targetMongoId,
+        userId: targetUserId,
+        email: targetEmail,
+        name: user.name,
+      },
     });
 
   } catch (error) {
-    console.error(
-      "Archive User Error:",
-      error
-    );
+    if (useTransaction && session) {
+      try {
+        await session.abortTransaction();
+      } catch (abortErr) {
+        console.error("Failed to abort transaction:", abortErr);
+      }
+    }
+
+    console.error("Delete User Error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to archive user.",
+      message: "Unable to delete this user. No changes were completed.",
       error: error.message,
     });
+  } finally {
+    if (session) {
+      try {
+        session.endSession();
+      } catch (_) {}
+    }
   }
 };
+
+const archiveUser = deleteUser;
 
 // ============================================================
 // GET ADMIN ACTIVITIES
@@ -2131,6 +2264,7 @@ module.exports = {
   updateAdminUser,
   updateUserAccess,
   updateUserStatus,
+  deleteUser,
   archiveUser,
   getAdminActivities,
   getAdminReportUsers,

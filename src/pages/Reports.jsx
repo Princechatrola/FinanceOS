@@ -121,7 +121,6 @@ export default function Reports() {
   const loadSavedMonths = useCallback(async () => {
     try {
       const token =
-        localStorage.getItem("financeos_token") ||
         sessionStorage.getItem("financeos_token");
       if (!token) return;
       const res = await fetch("http://localhost:5000/api/reports/saved-months", {
@@ -193,7 +192,6 @@ export default function Reports() {
     setError(null);
     try {
       const token =
-        localStorage.getItem("financeos_token") ||
         sessionStorage.getItem("financeos_token");
 
       const params = new URLSearchParams({

@@ -40,7 +40,7 @@ export default function AdminEditUser() {
       try {
         setLoading(true);
         setError("");
-        const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+        const token = sessionStorage.getItem("financeos_token");
         const response = await fetch(`${API_URL}/${id}`, {
           headers: {
             "Content-Type": "application/json",
@@ -92,7 +92,7 @@ export default function AdminEditUser() {
       setSaving(true);
       setError("");
       setSaved(false);
-      const token = localStorage.getItem("financeos_token") || sessionStorage.getItem("financeos_token");
+      const token = sessionStorage.getItem("financeos_token");
       const response = await fetch(`${API_URL}/${id}`, {
         method: "PUT",
         headers: {

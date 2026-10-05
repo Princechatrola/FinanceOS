@@ -87,12 +87,7 @@ function preventWheelChange(event) {
 
 function getAuthToken() {
   return (
-    localStorage.getItem(
-      "financeos_token"
-    ) ||
-    sessionStorage.getItem(
-      "financeos_token"
-    )
+    sessionStorage.getItem("financeos_token")
   );
 }
 

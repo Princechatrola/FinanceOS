@@ -70,12 +70,7 @@ export default function AdminReminders() {
       setError("");
 
       const token =
-        localStorage.getItem(
-          "financeos_token"
-        ) ||
-        sessionStorage.getItem(
-          "financeos_token"
-        );
+        sessionStorage.getItem("financeos_token");
 
       const response = await fetch(
         API_URL,
@@ -269,12 +264,7 @@ export default function AdminReminders() {
 
     try {
       const token =
-        localStorage.getItem(
-          "financeos_token"
-        ) ||
-        sessionStorage.getItem(
-          "financeos_token"
-        );
+        sessionStorage.getItem("financeos_token");
 
       const response = await fetch(
         `${API_URL}/${id}/retry`,
