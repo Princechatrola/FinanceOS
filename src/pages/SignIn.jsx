@@ -1,511 +1,190 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import useFinance from "../context/useFinance.js";
 
 import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
-  Calendar,
   Mail,
-  MapPin,
-  Phone,
   TrendingUp,
-  UserRound,
-  X,
+  ShieldCheck,
+  RefreshCw,
 } from "lucide-react";
 
-import useFinance from "../context/useFinance.js";
-import { setAuthSession } from "../utils/authStorage.js";
-import API_URL from "../config/api.js";
+// ==========================================================
+// FINANCEOS BACKEND URL
+// ==========================================================
 
-// ======================================================
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  "https://financeos-giup.onrender.com";
+
+// ==========================================================
 // SAFE API RESPONSE PARSER
-// ======================================================
+// Prevents:
+// SyntaxError: Unexpected end of JSON input
+// ==========================================================
 
-async function parseApiResponse(response) {
-  const contentType = response.headers.get("content-type") || "";
+const parseApiResponse = async (response) => {
+  const contentType =
+    response.headers.get("content-type") || "";
 
+  // JSON response
   if (contentType.includes("application/json")) {
     try {
       return await response.json();
     } catch (error) {
-      console.error("JSON Parse Error:", error);
+      console.error(
+        "JSON parsing error:",
+        error
+      );
 
       return {
         success: false,
-        message: "Server returned invalid JSON.",
+        message:
+          "Server returned an invalid JSON response.",
       };
     }
   }
 
+  // Non-JSON response
   const text = await response.text();
 
-  console.error("Non-JSON Server Response:", text);
+  console.error(
+    "Non-JSON server response:",
+    text
+  );
 
   return {
     success: false,
     message:
       text ||
-      `Server returned HTTP ${response.status} ${response.statusText}`,
+      `Server returned HTTP ${response.status}`,
   };
-}
+};
 
-// ======================================================
-// SIGN IN COMPONENT
-// ======================================================
-
-export default function SignIn() {
+function SignIn() {
+  const { setUserData } = useFinance();
   const navigate = useNavigate();
 
-  const { setUser } = useFinance();
+  // ==========================================================
+  // STATE
+  // ==========================================================
 
-  // ====================================================
-  // STATES
-  // ====================================================
+  const [otpMode, setOtpMode] = useState(false);
 
-  const [email, setEmail] = useState("");
-  const [otp, setOtp] = useState("");
+  const [otpDigits, setOtpDigits] = useState([
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+  ]);
 
-  const [otpSent, setOtpSent] = useState(false);
+  const otpRefs = useRef([]);
 
-  const [loading, setLoading] = useState(false);
-  const [verifyLoading, setVerifyLoading] = useState(false);
+  const isSendingRef = useRef(false);
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const otp = otpDigits.join("");
 
-  const [timer, setTimer] = useState(0);
+  const [otpTimer, setOtpTimer] = useState(0);
 
-  const [otpAttempts, setOtpAttempts] = useState(0);
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
 
-  const otpInputRef = useRef(null);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] =
+    useState(false);
 
-  // ====================================================
-  // OTP TIMER
-  // ====================================================
+  const [loginError, setLoginError] = useState("");
+
+  const [otpNotice, setOtpNotice] =
+    useState("");
+
+  const [formData, setFormData] = useState({
+    email: "",
+    rememberMe: true,
+  });
+
+  // ==========================================================
+  // GOOGLE IDENTITY SERVICES INITIALIZATION
+  // ==========================================================
 
   useEffect(() => {
-    if (timer <= 0) return;
+    const googleClientId =
+      import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+      (typeof window !== "undefined" &&
+        window.__GOOGLE_CLIENT_ID__);
 
-    const interval = setInterval(() => {
-      setTimer((previousTimer) => previousTimer - 1);
-    }, 1000);
+    const scriptId =
+      "google-gsi-client-script";
 
-    return () => clearInterval(interval);
-  }, [timer]);
+    if (
+      !document.getElementById(scriptId)
+    ) {
+      const script =
+        document.createElement("script");
 
-  // ====================================================
-  // FORMAT TIMER
-  // ====================================================
+      script.id = scriptId;
 
-  const formatTimer = () => {
-    const minutes = Math.floor(timer / 60);
-    const seconds = timer % 60;
+      script.src =
+        "https://accounts.google.com/gsi/client";
 
-    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-  };
+      script.async = true;
+      script.defer = true;
 
-  // ====================================================
-  // EMAIL VALIDATION
-  // ====================================================
-
-  const isValidEmail = (value) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-  };
-
-  // ====================================================
-  // SEND OTP
-  // ====================================================
-
-  const handleSendOTP = async (event) => {
-    event?.preventDefault();
-
-    setError("");
-    setSuccess("");
-
-    // -------------------------------
-    // Validate email
-    // -------------------------------
-
-    const cleanEmail = email.trim().toLowerCase();
-
-    if (!cleanEmail) {
-      setError("Please enter your email address.");
-      return;
-    }
-
-    if (!isValidEmail(cleanEmail)) {
-      setError("Please enter a valid email address.");
-      return;
-    }
-
-    // -------------------------------
-    // Prevent duplicate request
-    // -------------------------------
-
-    if (loading) return;
-
-    try {
-      setLoading(true);
-
-      console.log("Sending OTP...");
-      console.log("API URL:", API_URL);
-      console.log(
-        "Endpoint:",
-        `${API_URL}/api/auth/send-otp`
-      );
-
-      // ==================================================
-      // IMPORTANT:
-      // Production uses:
-      //
-      // https://your-backend.com/api/auth/send-otp
-      //
-      // Local development can use:
-      //
-      // http://localhost:5000/api/auth/send-otp
-      // ==================================================
-
-      const response = await fetch(
-        `${API_URL}/api/auth/send-otp`,
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json",
-          },
-
-          body: JSON.stringify({
-            email: cleanEmail,
-          }),
-        }
-      );
-
-      console.log("Send OTP HTTP Status:", response.status);
-
-      const data = await parseApiResponse(response);
-
-      console.log("Send OTP Response:", data);
-
-      // -------------------------------
-      // HTTP ERROR
-      // -------------------------------
-
-      if (!response.ok) {
-        setError(
-          data?.message ||
-            `Unable to send OTP. Server returned ${response.status}.`
-        );
-
-        return;
-      }
-
-      // -------------------------------
-      // API ERROR
-      // -------------------------------
-
-      if (data?.success === false) {
-        setError(
-          data.message || "Unable to send OTP."
-        );
-
-        return;
-      }
-
-      // -------------------------------
-      // OTP SUCCESS
-      // -------------------------------
-
-      setEmail(cleanEmail);
-      setOtpSent(true);
-
-      setOtp("");
-      setTimer(300);
-      setOtpAttempts(0);
-
-      setSuccess(
-        data?.message ||
-          "OTP has been sent to your email."
-      );
-
-      // Focus OTP field
-      setTimeout(() => {
-        otpInputRef.current?.focus();
-      }, 100);
-
-    } catch (error) {
-      console.error("Send OTP Error:", error);
-
-      setError(
-        "Unable to connect to the FinanceOS server. Please check your backend URL or internet connection."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ====================================================
-  // VERIFY OTP
-  // ====================================================
-
-  const handleVerifyOTP = async (event) => {
-    event?.preventDefault();
-
-    setError("");
-    setSuccess("");
-
-    // -------------------------------
-    // Validate OTP
-    // -------------------------------
-
-    if (!otp) {
-      setError("Please enter the OTP.");
-      return;
-    }
-
-    if (!/^\d{6}$/.test(otp)) {
-      setError("OTP must contain exactly 6 digits.");
-      return;
-    }
-
-    if (verifyLoading) return;
-
-    try {
-      setVerifyLoading(true);
-
-      console.log("Verifying OTP...");
-      console.log("API URL:", API_URL);
-
-      const response = await fetch(
-        `${API_URL}/api/auth/verify-otp`,
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json",
-          },
-
-          body: JSON.stringify({
-            email: email.trim().toLowerCase(),
-            otp: otp.trim(),
-          }),
-        }
-      );
-
-      console.log(
-        "Verify OTP HTTP Status:",
-        response.status
-      );
-
-      const data = await parseApiResponse(response);
-
-      console.log("Verify OTP Response:", data);
-
-      // -------------------------------
-      // HTTP ERROR
-      // -------------------------------
-
-      if (!response.ok) {
-        setOtpAttempts((previous) => previous + 1);
-
-        setError(
-          data?.message ||
-            `OTP verification failed. Server returned ${response.status}.`
-        );
-
-        return;
-      }
-
-      // -------------------------------
-      // API ERROR
-      // -------------------------------
-
-      if (data?.success === false) {
-        setOtpAttempts((previous) => previous + 1);
-
-        setError(
-          data.message || "Invalid OTP."
-        );
-
-        return;
-      }
-
-      // -------------------------------
-      // TOKEN
-      // -------------------------------
-
-      const token =
-        data?.token ||
-        data?.data?.token ||
-        data?.accessToken;
-
-      // -------------------------------
-      // USER
-      // -------------------------------
-
-      const user =
-        data?.user ||
-        data?.data?.user ||
-        data?.data;
-
-      if (!token) {
-        console.error(
-          "Token missing from login response:",
-          data
-        );
-
-        setError(
-          "Login successful, but authentication token was not received from the server."
-        );
-
-        return;
-      }
-
-      // -------------------------------
-      // Save authentication session
-      // -------------------------------
-
-      try {
-        setAuthSession(token, user);
-      } catch (storageError) {
-        console.error(
-          "Auth storage error:",
-          storageError
-        );
-
-        localStorage.setItem(
-          "financeos_token",
-          token
-        );
-
-        if (user) {
-          localStorage.setItem(
-            "financeos_user",
-            JSON.stringify(user)
-          );
-        }
-      }
-
-      // -------------------------------
-      // Update Finance Context
-      // -------------------------------
-
-      if (typeof setUser === "function" && user) {
-        setUser(user);
-      }
-
-      setSuccess(
-        data?.message ||
-          "Login successful! Redirecting..."
-      );
-
-      // -------------------------------
-      // Determine Role
-      // -------------------------------
-
-      const role =
-        user?.role ||
-        data?.role ||
-        data?.data?.role;
-
-      console.log("Logged in user:", user);
-      console.log("User role:", role);
-
-      // -------------------------------
-      // Redirect
-      // -------------------------------
-
-      setTimeout(() => {
+      script.onload = () => {
         if (
-          role === "admin" ||
-          role === "Admin"
+          googleClientId &&
+          window.google?.accounts?.id
         ) {
-          navigate("/admin/dashboard", {
-            replace: true,
-          });
-        } else {
-          navigate("/dashboard", {
-            replace: true,
-          });
+          try {
+            window.google.accounts.id.initialize({
+              client_id: googleClientId,
+
+              callback: (response) => {
+                if (
+                  response?.credential
+                ) {
+                  completeGoogleSignIn({
+                    credential:
+                      response.credential,
+                  });
+                }
+              },
+
+              auto_select: false,
+              cancel_on_tap_outside: true,
+            });
+          } catch (initErr) {
+            console.warn(
+              "GSI initialization warning:",
+              initErr
+            );
+          }
         }
-      }, 700);
+      };
 
-    } catch (error) {
-      console.error(
-        "Verify OTP Error:",
-        error
-      );
-
-      setError(
-        "Unable to connect to the FinanceOS server. Please check your connection."
-      );
-    } finally {
-      setVerifyLoading(false);
+      document.body.appendChild(script);
     }
-  };
+  }, []);
 
-  // ====================================================
-  // RESEND OTP
-  // ====================================================
+  // ==========================================================
+  // COMPLETE GOOGLE SIGN IN
+  // ==========================================================
 
-  const handleResendOTP = async () => {
-    if (timer > 0 || loading) {
-      return;
-    }
-
-    await handleSendOTP();
-  };
-
-  // ====================================================
-  // CHANGE EMAIL
-  // ====================================================
-
-  const handleChangeEmail = () => {
-    setOtpSent(false);
-    setOtp("");
-    setTimer(0);
-
-    setError("");
-    setSuccess("");
-
-    setTimeout(() => {
-      document
-        .getElementById("email")
-        ?.focus();
-    }, 100);
-  };
-
-  // ====================================================
-  // OTP INPUT
-  // ====================================================
-
-  const handleOtpChange = (event) => {
-    const value = event.target.value;
-
-    // Only numbers
-    const numericValue = value.replace(
-      /\D/g,
-      ""
-    );
-
-    // Maximum 6 digits
-    setOtp(numericValue.slice(0, 6));
-
-    setError("");
-  };
-
-  // ====================================================
-  // GOOGLE LOGIN
-  // ====================================================
-
-  const handleGoogleLogin = async () => {
-    setError("");
-    setSuccess("");
-
+  const completeGoogleSignIn = async (
+    payload
+  ) => {
     try {
-      setLoading(true);
+      setIsGoogleSubmitting(true);
+      setLoginError("");
 
-      console.log("Google Login");
+      console.log(
+        "Google login API:",
+        `${API_URL}/api/auth/google`
+      );
 
       const response = await fetch(
         `${API_URL}/api/auth/google`,
@@ -513,597 +192,1955 @@ export default function SignIn() {
           method: "POST",
 
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
 
-          body: JSON.stringify({
-            // Google integration can be added here
-          }),
+          body: JSON.stringify(payload),
         }
       );
 
-      const data = await parseApiResponse(response);
+      console.log(
+        "Google login status:",
+        response.status
+      );
+
+      const data =
+        await parseApiResponse(response);
 
       console.log(
-        "Google Login Response:",
+        "Google login response:",
         data
       );
 
       if (!response.ok) {
-        setError(
+        setLoginError(
           data?.message ||
-            "Google login is currently unavailable."
+            "Google sign-in failed. Please try again."
         );
 
         return;
       }
 
-      if (data?.success === false) {
-        setError(
-          data.message ||
-            "Google login failed."
+      if (
+        !data?.token ||
+        !data?.user
+      ) {
+        setLoginError(
+          "Invalid response received from authentication server."
         );
 
         return;
       }
 
-      const token =
-        data?.token ||
-        data?.data?.token;
+      // ======================================================
+      // CLEAR PREVIOUS TOKENS
+      // ======================================================
 
-      const user =
-        data?.user ||
-        data?.data?.user ||
-        data?.data;
+      localStorage.removeItem(
+        "financeos_token"
+      );
 
-      if (token) {
-        setAuthSession(token, user);
+      localStorage.removeItem(
+        "financeos_user"
+      );
 
-        if (
-          typeof setUser === "function" &&
-          user
-        ) {
-          setUser(user);
-        }
+      sessionStorage.removeItem(
+        "financeos_token"
+      );
 
-        const role = user?.role;
+      sessionStorage.removeItem(
+        "financeos_user"
+      );
 
-        if (
-          role === "admin" ||
-          role === "Admin"
-        ) {
-          navigate("/admin/dashboard", {
+      // ======================================================
+      // SELECT STORAGE
+      // ======================================================
+
+      const storage =
+        formData.rememberMe
+          ? localStorage
+          : sessionStorage;
+
+      storage.setItem(
+        "financeos_token",
+        data.token
+      );
+
+      storage.setItem(
+        "financeos_user",
+        JSON.stringify(data.user)
+      );
+
+      // ======================================================
+      // UPDATE CONTEXT
+      // ======================================================
+
+      setUserData(data.user);
+
+      // ======================================================
+      // ROLE BASED REDIRECTION
+      // ======================================================
+
+      if (
+        data.user.role === "admin"
+      ) {
+        navigate(
+          "/admin/dashboard",
+          {
             replace: true,
-          });
-        } else {
-          navigate("/dashboard", {
+          }
+        );
+      } else {
+        navigate(
+          "/dashboard",
+          {
             replace: true,
-          });
-        }
+          }
+        );
       }
 
     } catch (error) {
       console.error(
-        "Google Login Error:",
+        "Google sign in error:",
         error
       );
 
-      setError(
-        "Unable to connect to the FinanceOS server."
+      setLoginError(
+        "Unable to connect to FinanceOS server for Google sign-in."
       );
+
     } finally {
-      setLoading(false);
+      setIsGoogleSubmitting(false);
     }
   };
 
-  // ====================================================
-  // RENDER
-  // ====================================================
+  // ==========================================================
+  // HANDLE GOOGLE SIGN IN CLICK
+  // ==========================================================
+
+  const handleGoogleSignIn = () => {
+    setLoginError("");
+
+    const googleClientId =
+      import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+      (typeof window !== "undefined" &&
+        window.__GOOGLE_CLIENT_ID__);
+
+    if (!googleClientId) {
+      setLoginError(
+        "Google Sign-In is not configured yet. Please configure VITE_GOOGLE_CLIENT_ID in your environment."
+      );
+
+      return;
+    }
+
+    if (
+      !window.google?.accounts
+    ) {
+      setLoginError(
+        "Google authentication service is still loading. Please try again in a moment."
+      );
+
+      return;
+    }
+
+    setIsGoogleSubmitting(true);
+
+    try {
+      // ======================================================
+      // GOOGLE OAUTH2 TOKEN CLIENT
+      // ======================================================
+
+      if (
+        window.google.accounts.oauth2
+      ) {
+        const tokenClient =
+          window.google.accounts.oauth2.initTokenClient(
+            {
+              client_id:
+                googleClientId,
+
+              scope:
+                "openid email profile",
+
+              callback:
+                async (
+                  tokenResponse
+                ) => {
+                  if (
+                    tokenResponse &&
+                    tokenResponse.access_token
+                  ) {
+                    try {
+                      const userInfoRes =
+                        await fetch(
+                          "https://www.googleapis.com/oauth2/v3/userinfo",
+                          {
+                            headers: {
+                              Authorization:
+                                `Bearer ${tokenResponse.access_token}`,
+                            },
+                          }
+                        );
+
+                      const userInfo =
+                        await userInfoRes.json();
+
+                      await completeGoogleSignIn(
+                        {
+                          email:
+                            userInfo.email,
+
+                          name:
+                            userInfo.name,
+
+                          googleId:
+                            userInfo.sub,
+
+                          picture:
+                            userInfo.picture,
+                        }
+                      );
+
+                    } catch (
+                      fetchErr
+                    ) {
+                      console.error(
+                        "Failed to fetch Google profile:",
+                        fetchErr
+                      );
+
+                      setLoginError(
+                        "Failed to retrieve Google profile information."
+                      );
+
+                      setIsGoogleSubmitting(
+                        false
+                      );
+                    }
+                  } else {
+                    setIsGoogleSubmitting(
+                      false
+                    );
+                  }
+                },
+            }
+          );
+
+        tokenClient.requestAccessToken();
+
+      } else if (
+        window.google.accounts.id
+      ) {
+        window.google.accounts.id.initialize(
+          {
+            client_id:
+              googleClientId,
+
+            callback: (
+              response
+            ) => {
+              if (
+                response?.credential
+              ) {
+                completeGoogleSignIn(
+                  {
+                    credential:
+                      response.credential,
+                  }
+                );
+              } else {
+                setIsGoogleSubmitting(
+                  false
+                );
+              }
+            },
+          }
+        );
+
+        window.google.accounts.id.prompt(
+          (notification) => {
+            if (
+              notification.isNotDisplayed() ||
+              notification.isSkippedMoment()
+            ) {
+              setIsGoogleSubmitting(
+                false
+              );
+            }
+          }
+        );
+      }
+
+    } catch (err) {
+      console.error(
+        "Google sign in trigger error:",
+        err
+      );
+
+      setLoginError(
+        "Unable to initiate Google sign-in."
+      );
+
+      setIsGoogleSubmitting(false);
+    }
+  };
+
+  // ==========================================================
+  // AUTO FOCUS FIRST OTP BOX
+  // ==========================================================
+
+  useEffect(() => {
+    if (otpMode) {
+      const timer =
+        setTimeout(() => {
+          const firstEmpty =
+            otpDigits.findIndex(
+              (d) => !d
+            );
+
+          const targetIdx =
+            firstEmpty !== -1
+              ? firstEmpty
+              : 0;
+
+          otpRefs.current[
+            targetIdx
+          ]?.focus();
+        }, 100);
+
+      return () =>
+        clearTimeout(timer);
+    }
+  }, [otpMode]);
+
+  // ==========================================================
+  // OTP INPUT HANDLER
+  // ==========================================================
+
+  const handleOtpChange = (
+    index,
+    e
+  ) => {
+    const rawValue =
+      e.target.value;
+
+    const digitsOnly =
+      rawValue.replace(
+        /\D/g,
+        ""
+      );
+
+    // Empty
+    if (!digitsOnly) {
+      const updated = [
+        ...otpDigits,
+      ];
+
+      updated[index] = "";
+
+      setOtpDigits(updated);
+
+      setLoginError("");
+
+      return;
+    }
+
+    // Multiple digits pasted
+    if (
+      digitsOnly.length > 1
+    ) {
+      const updated = [
+        ...otpDigits,
+      ];
+
+      let pasteIdx = index;
+
+      for (
+        let i = 0;
+        i < digitsOnly.length &&
+        pasteIdx < 6;
+        i++
+      ) {
+        updated[pasteIdx] =
+          digitsOnly[i];
+
+        pasteIdx++;
+      }
+
+      setOtpDigits(updated);
+
+      setLoginError("");
+
+      const nextFocus =
+        Math.min(
+          pasteIdx,
+          5
+        );
+
+      otpRefs.current[
+        nextFocus
+      ]?.focus();
+
+      return;
+    }
+
+    // Single digit
+    const updated = [
+      ...otpDigits,
+    ];
+
+    updated[index] =
+      digitsOnly.slice(-1);
+
+    setOtpDigits(updated);
+
+    setLoginError("");
+
+    // Move to next box
+    if (index < 5) {
+      setTimeout(() => {
+        otpRefs.current[
+          index + 1
+        ]?.focus();
+      }, 10);
+    }
+  };
+
+  // ==========================================================
+  // OTP KEYBOARD HANDLER
+  // ==========================================================
+
+  const handleOtpKeyDown = (
+    index,
+    e
+  ) => {
+    if (
+      e.key === "Backspace"
+    ) {
+      if (
+        otpDigits[index]
+      ) {
+        const updated = [
+          ...otpDigits,
+        ];
+
+        updated[index] = "";
+
+        setOtpDigits(updated);
+
+        setLoginError("");
+
+      } else if (
+        index > 0
+      ) {
+        const updated = [
+          ...otpDigits,
+        ];
+
+        updated[index - 1] = "";
+
+        setOtpDigits(updated);
+
+        setLoginError("");
+
+        setTimeout(() => {
+          otpRefs.current[
+            index - 1
+          ]?.focus();
+        }, 10);
+      }
+
+    } else if (
+      e.key === "ArrowLeft" &&
+      index > 0
+    ) {
+      e.preventDefault();
+
+      setTimeout(() => {
+        otpRefs.current[
+          index - 1
+        ]?.focus();
+      }, 10);
+
+    } else if (
+      e.key === "ArrowRight" &&
+      index < 5
+    ) {
+      e.preventDefault();
+
+      setTimeout(() => {
+        otpRefs.current[
+          index + 1
+        ]?.focus();
+      }, 10);
+    }
+  };
+
+  // ==========================================================
+  // OTP PASTE
+  // ==========================================================
+
+  const handleOtpPaste = (
+    e
+  ) => {
+    e.preventDefault();
+
+    const pasteData =
+      e.clipboardData
+        ? e.clipboardData.getData(
+            "text"
+          )
+        : "";
+
+    const cleanDigits =
+      pasteData
+        .replace(
+          /\D/g,
+          ""
+        )
+        .slice(0, 6);
+
+    if (!cleanDigits)
+      return;
+
+    const updated = [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ];
+
+    for (
+      let i = 0;
+      i < cleanDigits.length;
+      i++
+    ) {
+      updated[i] =
+        cleanDigits[i];
+    }
+
+    setOtpDigits(updated);
+
+    setLoginError("");
+
+    const nextFocus =
+      Math.min(
+        cleanDigits.length,
+        5
+      );
+
+    setTimeout(() => {
+      otpRefs.current[
+        nextFocus
+      ]?.focus();
+    }, 10);
+  };
+
+  // ==========================================================
+  // OTP TIMER
+  // ==========================================================
+
+  useEffect(() => {
+    if (otpTimer <= 0) {
+      return;
+    }
+
+    const timer =
+      setInterval(() => {
+        setOtpTimer(
+          (previous) => {
+            if (
+              previous <= 1
+            ) {
+              clearInterval(
+                timer
+              );
+
+              return 0;
+            }
+
+            return previous - 1;
+          }
+        );
+      }, 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [otpTimer]);
+
+  // ==========================================================
+  // FORM INPUT CHANGE
+  // ==========================================================
+
+  const handleChange = (
+    e
+  ) => {
+    const {
+      name,
+      value,
+      type,
+      checked,
+    } = e.target;
+
+    setFormData(
+      (previous) => ({
+        ...previous,
+
+        [name]:
+          type === "checkbox"
+            ? checked
+            : value,
+      })
+    );
+
+    setLoginError("");
+  };
+
+  // ==========================================================
+  // START OTP TIMER
+  // ==========================================================
+
+  const startOtpTimer = () => {
+    setOtpTimer(300);
+  };
+
+  // ==========================================================
+  // SEND OTP
+  // ==========================================================
+
+  const handleSendOTP =
+    async () => {
+      if (
+        isSendingRef.current ||
+        isSubmitting
+      ) {
+        return;
+      }
+
+      setLoginError("");
+      setOtpNotice("");
+
+      const email =
+        formData.email
+          .trim()
+          .toLowerCase();
+
+      // ====================================================
+      // EMAIL REQUIRED
+      // ====================================================
+
+      if (!email) {
+        setLoginError(
+          "Please enter your email address."
+        );
+
+        return;
+      }
+
+      // ====================================================
+      // EMAIL VALIDATION
+      // ====================================================
+
+      if (
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+          email
+        )
+      ) {
+        setLoginError(
+          "Please enter a valid email address."
+        );
+
+        return;
+      }
+
+      try {
+        isSendingRef.current =
+          true;
+
+        setIsSubmitting(true);
+
+        // ==================================================
+        // API URL LOG
+        // ==================================================
+
+        console.log(
+          "FinanceOS API URL:",
+          API_URL
+        );
+
+        console.log(
+          "Send OTP URL:",
+          `${API_URL}/api/auth/send-otp`
+        );
+
+        // ==================================================
+        // SEND OTP REQUEST
+        // ==================================================
+
+        const response =
+          await fetch(
+            `${API_URL}/api/auth/send-otp`,
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body: JSON.stringify({
+                email,
+              }),
+            }
+          );
+
+        console.log(
+          "Send OTP HTTP status:",
+          response.status
+        );
+
+        const data =
+          await parseApiResponse(
+            response
+          );
+
+        console.log(
+          "Send OTP Response:",
+          data
+        );
+
+        // ==================================================
+        // BACKEND ERROR
+        // ==================================================
+
+        if (!response.ok) {
+          if (
+            response.status ===
+            404
+          ) {
+            setLoginError(
+              data?.message ||
+                "Authentication endpoint was not found. Please check the FinanceOS backend deployment."
+            );
+
+          } else if (
+            response.status ===
+            429
+          ) {
+            setLoginError(
+              data?.message ||
+                "Please wait before requesting another OTP."
+            );
+
+          } else if (
+            response.status ===
+            400
+          ) {
+            setLoginError(
+              data?.message ||
+                "Please enter a valid email address."
+            );
+
+          } else if (
+            response.status >=
+            500
+          ) {
+            setLoginError(
+              data?.message ||
+                "FinanceOS server error. Please try again later."
+            );
+
+          } else {
+            setLoginError(
+              data?.message ||
+                "Unable to send OTP right now. Please try again."
+            );
+          }
+
+          return;
+        }
+
+        // ==================================================
+        // API SUCCESS CHECK
+        // ==================================================
+
+        if (
+          data?.success ===
+          false
+        ) {
+          setLoginError(
+            data.message ||
+              "Unable to send OTP."
+          );
+
+          return;
+        }
+
+        // ==================================================
+        // OTP SUCCESS
+        // ==================================================
+
+        setFormData(
+          (previous) => ({
+            ...previous,
+            email,
+          })
+        );
+
+        setOtpMode(true);
+
+        setOtpDigits([
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+        ]);
+
+        startOtpTimer();
+
+        // ==================================================
+        // EMAIL DELIVERY STATUS
+        // ==================================================
+
+        if (
+          data?.emailSent ===
+          false
+        ) {
+          setOtpNotice(
+            data?.message ||
+              "OTP generated, but email delivery failed. Check your backend email configuration."
+          );
+        } else {
+          setOtpNotice("");
+        }
+
+      } catch (error) {
+        console.error(
+          "Send OTP Error:",
+          error
+        );
+
+        setLoginError(
+          "Unable to connect to the FinanceOS server. Please check your backend URL or internet connection."
+        );
+
+      } finally {
+        isSendingRef.current =
+          false;
+
+        setIsSubmitting(false);
+      }
+    };
+
+  // ==========================================================
+  // VERIFY OTP
+  // ==========================================================
+
+  const handleVerifyOTP =
+    async (e) => {
+      e.preventDefault();
+
+      setLoginError("");
+
+      // ====================================================
+      // OTP VALIDATION
+      // ====================================================
+
+      if (
+        otp.length !== 6
+      ) {
+        setLoginError(
+          "Please enter the 6-digit OTP."
+        );
+
+        return;
+      }
+
+      const email =
+        formData.email
+          .trim()
+          .toLowerCase();
+
+      try {
+        setIsSubmitting(true);
+
+        // ==================================================
+        // API URL
+        // ==================================================
+
+        console.log(
+          "Verify OTP URL:",
+          `${API_URL}/api/auth/verify-otp`
+        );
+
+        // ==================================================
+        // VERIFY OTP REQUEST
+        // ==================================================
+
+        const response =
+          await fetch(
+            `${API_URL}/api/auth/verify-otp`,
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body: JSON.stringify({
+                email,
+                otp,
+              }),
+            }
+          );
+
+        console.log(
+          "Verify OTP HTTP status:",
+          response.status
+        );
+
+        const data =
+          await parseApiResponse(
+            response
+          );
+
+        console.log(
+          "Verify OTP Response:",
+          data
+        );
+
+        // ==================================================
+        // BACKEND ERROR
+        // ==================================================
+
+        if (!response.ok) {
+          if (
+            response.status ===
+            404
+          ) {
+            setLoginError(
+              data?.message ||
+                "Authentication service endpoint is unavailable."
+            );
+
+          } else if (
+            response.status ===
+            401
+          ) {
+            setLoginError(
+              data?.message ||
+                "Invalid or expired OTP. Please try again."
+            );
+
+          } else if (
+            response.status ===
+            400
+          ) {
+            setLoginError(
+              data?.message ||
+                "Invalid OTP request."
+            );
+
+          } else {
+            setLoginError(
+              data?.message ||
+                "Unable to verify OTP right now."
+            );
+          }
+
+          return;
+        }
+
+        // ==================================================
+        // CHECK SERVER RESPONSE
+        // ==================================================
+
+        if (
+          !data?.token ||
+          !data?.user
+        ) {
+          setLoginError(
+            "Invalid response received from authentication server."
+          );
+
+          console.error(
+            "Missing token/user:",
+            data
+          );
+
+          return;
+        }
+
+        // ==================================================
+        // CLEAR OLD LOGIN
+        // ==================================================
+
+        localStorage.removeItem(
+          "financeos_token"
+        );
+
+        localStorage.removeItem(
+          "financeos_user"
+        );
+
+        sessionStorage.removeItem(
+          "financeos_token"
+        );
+
+        sessionStorage.removeItem(
+          "financeos_user"
+        );
+
+        // ==================================================
+        // SELECT STORAGE
+        // ==================================================
+
+        const storage =
+          formData.rememberMe
+            ? localStorage
+            : sessionStorage;
+
+        // ==================================================
+        // SAVE TOKEN
+        // ==================================================
+
+        storage.setItem(
+          "financeos_token",
+          data.token
+        );
+
+        // ==================================================
+        // SAVE USER
+        // ==================================================
+
+        storage.setItem(
+          "financeos_user",
+          JSON.stringify(
+            data.user
+          )
+        );
+
+        // ==================================================
+        // UPDATE CONTEXT
+        // ==================================================
+
+        setUserData(
+          data.user
+        );
+
+        // ==================================================
+        // DEBUG
+        // ==================================================
+
+        console.log(
+          "Logged in user:",
+          data.user
+        );
+
+        console.log(
+          "User role:",
+          data.user.role
+        );
+
+        // ==================================================
+        // ADMIN
+        // ==================================================
+
+        if (
+          data.user.role ===
+          "admin"
+        ) {
+          console.log(
+            "Admin detected → Admin Dashboard"
+          );
+
+          navigate(
+            "/admin/dashboard",
+            {
+              replace: true,
+            }
+          );
+
+          return;
+        }
+
+        // ==================================================
+        // NORMAL USER
+        // ==================================================
+
+        console.log(
+          "User detected → User Dashboard"
+        );
+
+        navigate(
+          "/dashboard",
+          {
+            replace: true,
+          }
+        );
+
+      } catch (error) {
+        console.error(
+          "Verify OTP Error:",
+          error
+        );
+
+        setLoginError(
+          "Unable to connect to the FinanceOS server."
+        );
+
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+
+  // ==========================================================
+  // RESEND OTP
+  // ==========================================================
+
+  const handleResendOTP =
+    async () => {
+      if (
+        otpTimer > 0 ||
+        isSubmitting
+      ) {
+        return;
+      }
+
+      await handleSendOTP();
+    };
+
+  // ==========================================================
+  // CHANGE EMAIL
+  // ==========================================================
+
+  const handleChangeEmail =
+    () => {
+      setOtpMode(false);
+
+      setOtpDigits([
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+      ]);
+
+      setOtpTimer(0);
+
+      setLoginError("");
+
+      setOtpNotice("");
+    };
+
+  // ==========================================================
+  // FORMAT TIMER
+  // ==========================================================
+
+  const formatTimer = () => {
+    const minutes =
+      Math.floor(
+        otpTimer / 60
+      );
+
+    const seconds =
+      otpTimer % 60;
+
+    return `${minutes}:${seconds
+      .toString()
+      .padStart(2, "0")}`;
+  };
+
+  // ==========================================================
+  // UI
+  // ==========================================================
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="h-screen overflow-hidden bg-[#f7f9f4] text-[#173b2b]">
 
-      {/* ==================================================
-          LEFT SIDE
-      ================================================== */}
+      {/* ======================================================
+          HEADER
+      ====================================================== */}
 
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-green-950 via-green-900 to-emerald-900 text-white p-12 relative overflow-hidden">
+      <header className="h-[64px] border-b border-[#e1e7dc] bg-white">
 
-        {/* Background decoration */}
+        <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-6 lg:px-8">
 
-        <div className="absolute -top-24 -right-24 w-80 h-80 bg-green-400/10 rounded-full blur-3xl" />
+          {/* LOGO */}
 
-        <div className="absolute -bottom-32 -left-32 w-96 h-96 bg-emerald-400/10 rounded-full blur-3xl" />
+          <Link
+            to="/"
+            className="flex items-center gap-3"
+          >
 
-        <div className="relative z-10 flex flex-col justify-between w-full">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#edf7df]">
 
-          {/* Logo */}
-
-          <div>
-            <Link
-              to="/"
-              className="inline-flex items-center gap-3"
-            >
-              <div className="w-11 h-11 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center">
-                <TrendingUp size={24} />
-              </div>
-
-              <div>
-                <div className="font-bold text-xl">
-                  FinanceOS
-                </div>
-
-                <div className="text-xs text-green-200">
-                  Manage Today, Secure Tomorrow
-                </div>
-              </div>
-            </Link>
-          </div>
-
-          {/* Main content */}
-
-          <div className="max-w-lg">
-
-            <div className="mb-6 inline-flex items-center gap-2 px-3 py-2 rounded-full bg-white/10 border border-white/10 text-sm">
-              <span className="w-2 h-2 bg-green-400 rounded-full" />
-
-              Secure Financial Management
-            </div>
-
-            <h1 className="text-5xl font-bold leading-tight mb-6">
-              Your money.
-              <br />
-              Your future.
-              <br />
-
-              <span className="text-green-400">
-                Your control.
-              </span>
-            </h1>
-
-            <p className="text-green-100 text-lg leading-relaxed">
-              Manage your income, expenses,
-              investments, savings, and financial
-              goals from one powerful platform.
-            </p>
-
-            <div className="mt-10 grid grid-cols-2 gap-5">
-
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                <TrendingUp
-                  size={22}
-                  className="mb-3"
-                />
-
-                <div className="font-semibold">
-                  Track Wealth
-                </div>
-
-                <div className="text-sm text-green-200 mt-1">
-                  Monitor your complete financial
-                  position.
-                </div>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                <Calendar
-                  size={22}
-                  className="mb-3"
-                />
-
-                <div className="font-semibold">
-                  Plan Ahead
-                </div>
-
-                <div className="text-sm text-green-200 mt-1">
-                  Set goals and build better
-                  financial habits.
-                </div>
-              </div>
-
-            </div>
-          </div>
-
-          {/* Footer */}
-
-          <div className="text-sm text-green-200">
-            © {new Date().getFullYear()} FinanceOS.
-            All rights reserved.
-          </div>
-
-        </div>
-      </div>
-
-      {/* ==================================================
-          RIGHT SIDE
-      ================================================== */}
-
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6">
-
-        <div className="w-full max-w-md">
-
-          {/* Mobile logo */}
-
-          <div className="lg:hidden mb-8">
-
-            <Link
-              to="/"
-              className="inline-flex items-center gap-3"
-            >
-              <div className="w-10 h-10 rounded-xl bg-green-600 text-white flex items-center justify-center">
-                <TrendingUp size={21} />
-              </div>
-
-              <div>
-                <div className="font-bold text-xl text-slate-900">
-                  FinanceOS
-                </div>
-
-                <div className="text-xs text-slate-500">
-                  Manage Today, Secure Tomorrow
-                </div>
-              </div>
-            </Link>
-
-          </div>
-
-          {/* Header */}
-
-          <div className="mb-8">
-
-            <h2 className="text-3xl font-bold text-slate-900">
-              {otpSent
-                ? "Verify your OTP"
-                : "Welcome back"}
-            </h2>
-
-            <p className="text-slate-500 mt-2">
-
-              {otpSent
-                ? `Enter the 6-digit code sent to ${email}`
-                : "Sign in to continue to your FinanceOS account."}
-
-            </p>
-
-          </div>
-
-          {/* ==================================================
-              ERROR MESSAGE
-          ================================================== */}
-
-          {error && (
-            <div className="mb-5 flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700">
-
-              <AlertCircle
+              <TrendingUp
                 size={20}
-                className="mt-0.5 flex-shrink-0"
+                className="text-[#4f8d32]"
               />
 
-              <div className="text-sm">
-                {error}
-              </div>
+            </div>
 
-              <button
-                type="button"
-                onClick={() => setError("")}
-                className="ml-auto"
-              >
-                <X size={17} />
-              </button>
+            <div>
+
+              <p className="text-xl font-bold tracking-tight text-[#43822e]">
+                FinanceOS
+              </p>
+
+              <p className="text-[8px] font-medium tracking-wide text-[#6f846e]">
+                Manage Today, Secure Tomorrow
+              </p>
 
             </div>
-          )}
+
+          </Link>
+
+          {/* BACK HOME */}
+
+          <Link
+            to="/"
+            className="flex items-center gap-2 text-sm font-medium text-[#617268] transition hover:text-[#43822e]"
+          >
+
+            <ArrowLeft size={16} />
+
+            Back to Home
+
+          </Link>
+
+        </div>
+
+      </header>
+
+      {/* ======================================================
+          MAIN
+      ====================================================== */}
+
+      <main className="h-[calc(100vh-64px)] p-3 lg:p-4">
+
+        <div
+          className="
+            mx-auto
+            grid
+            h-full
+            w-full
+            max-w-6xl
+            overflow-hidden
+            rounded-[26px]
+            border
+            border-[#dfe6da]
+            bg-white
+            shadow-[0_15px_45px_rgba(50,80,55,0.07)]
+            lg:grid-cols-[0.95fr_1.05fr]
+          "
+        >
 
           {/* ==================================================
-              SUCCESS MESSAGE
+              LEFT PANEL
           ================================================== */}
 
-          {success && (
-            <div className="mb-5 p-4 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm">
-              {success}
+          <section
+            className="
+              relative
+              hidden
+              h-full
+              overflow-hidden
+              bg-[#edf5e8]
+              p-7
+              lg:flex
+              lg:flex-col
+            "
+          >
+
+            <div className="absolute -left-28 -top-28 h-72 w-72 rounded-full bg-[#dcefc2]/60" />
+
+            <div className="absolute -bottom-36 -right-24 h-80 w-80 rounded-full bg-[#dcefc2]/60" />
+
+            <div className="relative z-10">
+
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#67964f]">
+                FinanceOS
+              </p>
+
+              <h1 className="mt-3 text-3xl font-bold leading-tight text-[#173b2b]">
+
+                Your finances.
+
+                <span className="block text-[#57923d]">
+                  One connected system.
+                </span>
+
+              </h1>
+
+              <p className="mt-3 max-w-md text-sm leading-6 text-[#65786d]">
+                Bring the important parts of your
+                financial life together and understand
+                how they connect.
+              </p>
+
             </div>
-          )}
 
-          {/* ==================================================
-              EMAIL FORM
-          ================================================== */}
+            {/* SECURITY CARD */}
 
-          {!otpSent ? (
-            <form
-              onSubmit={handleSendOTP}
-              className="space-y-5"
-            >
+            <div className="relative z-10 mt-5">
 
-              {/* Email */}
+              <div className="rounded-[22px] border border-[#d7e3d0] bg-white/85 p-5 shadow-sm">
 
-              <div>
+                <div className="flex items-center gap-3">
 
-                <label
-                  htmlFor="email"
-                  className="block text-sm font-medium text-slate-700 mb-2"
-                >
-                  Email address
-                </label>
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#e7f3d8]">
 
-                <div className="relative">
+                    <ShieldCheck
+                      size={22}
+                      className="text-[#57923d]"
+                    />
 
-                  <Mail
-                    size={19}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
+                  </div>
 
-                  <input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(event) => {
-                      setEmail(
-                        event.target.value
-                      );
-                      setError("");
-                    }}
-                    placeholder="you@example.com"
-                    autoComplete="email"
-                    className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-slate-200 bg-white outline-none focus:border-green-500 focus:ring-4 focus:ring-green-500/10 transition"
-                  />
+                  <div>
+
+                    <p className="font-semibold text-[#173b2b]">
+                      Secure Login
+                    </p>
+
+                    <p className="text-xs text-[#7a897f]">
+                      OTP protected access
+                    </p>
+
+                  </div>
+
+                </div>
+
+                <div className="my-4 h-px bg-[#e1e7dd]" />
+
+                <div className="flex items-center gap-3">
+
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#edf5e8]">
+
+                    <Mail
+                      size={17}
+                      className="text-[#57923d]"
+                    />
+
+                  </div>
+
+                  <div>
+
+                    <p className="text-sm font-semibold">
+                      Email Verification
+                    </p>
+
+                    <p className="text-xs text-[#7b8a80]">
+                      Receive a secure OTP
+                    </p>
+
+                  </div>
+
+                </div>
+
+                <div className="mx-auto ml-[17px] h-5 w-px bg-[#ccd9c4]" />
+
+                <div className="flex items-center gap-3">
+
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#edf5e8]">
+
+                    <ShieldCheck
+                      size={17}
+                      className="text-[#57923d]"
+                    />
+
+                  </div>
+
+                  <div>
+
+                    <p className="text-sm font-semibold">
+                      Automatic Role Access
+                    </p>
+
+                    <p className="text-xs text-[#7b8a80]">
+                      Admin or User dashboard
+                    </p>
+
+                  </div>
 
                 </div>
 
               </div>
 
-              {/* Send OTP */}
+            </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3.5 rounded-xl bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold flex items-center justify-center gap-2 transition"
-              >
+          </section>
 
-                {loading ? (
-                  <>
-                    <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          {/* ==================================================
+              RIGHT PANEL
+          ================================================== */}
 
-                    Sending OTP...
-                  </>
-                ) : (
-                  <>
-                    Send OTP
+          <section className="h-full overflow-hidden px-7 py-5 lg:px-10">
 
-                    <ArrowRight size={19} />
-                  </>
-                )}
+            <div className="mx-auto flex h-full w-full max-w-[560px] flex-col justify-center">
 
-              </button>
-
-            </form>
-          ) : (
-            /* ==================================================
-               OTP FORM
-            ================================================== */
-
-            <form
-              onSubmit={handleVerifyOTP}
-              className="space-y-5"
-            >
-
-              {/* OTP */}
+              {/* HEADER */}
 
               <div>
 
-                <label
-                  htmlFor="otp"
-                  className="block text-sm font-medium text-slate-700 mb-2"
-                >
-                  Enter OTP
-                </label>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.17em] text-[#669451]">
+                  Secure Access
+                </p>
 
-                <input
-                  ref={otpInputRef}
-                  id="otp"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={otp}
-                  onChange={handleOtpChange}
-                  placeholder="000000"
-                  maxLength={6}
-                  className="w-full px-4 py-4 rounded-xl border border-slate-200 bg-white text-center text-2xl tracking-[0.5em] font-semibold outline-none focus:border-green-500 focus:ring-4 focus:ring-green-500/10"
-                />
+                <h2 className="mt-2 text-3xl font-bold leading-tight text-[#173b2b]">
+                  Welcome Back
+                </h2>
 
-                <div className="flex items-center justify-between mt-3 text-sm">
+                <p className="mt-1.5 text-sm text-[#718177]">
+
+                  {otpMode
+                    ? "Enter the OTP sent to your email."
+                    : "Sign in securely using email verification."}
+
+                </p>
+
+              </div>
+
+              {/* ==================================================
+                  EMAIL LOGIN
+              ================================================== */}
+
+              {!otpMode && (
+                <div className="mt-6 space-y-4">
+
+                  {/* GOOGLE */}
 
                   <button
                     type="button"
-                    onClick={handleChangeEmail}
-                    className="text-green-600 hover:text-green-700 font-medium flex items-center gap-1"
+                    onClick={handleGoogleSignIn}
+                    disabled={
+                      isSubmitting ||
+                      isGoogleSubmitting
+                    }
+                    className="
+                      flex
+                      w-full
+                      items-center
+                      justify-center
+                      gap-3
+                      rounded-xl
+                      border
+                      border-[#d8e0d4]
+                      bg-white
+                      px-5
+                      py-3
+                      text-sm
+                      font-semibold
+                      text-[#1f3f30]
+                      shadow-sm
+                      transition-all
+                      duration-150
+                      hover:bg-[#f4f8f0]
+                      hover:border-[#adc7a4]
+                      hover:shadow
+                      active:scale-[0.99]
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
                   >
-                    <ArrowLeft size={16} />
 
-                    Change email
+                    {isGoogleSubmitting ? (
+                      <RefreshCw
+                        size={18}
+                        className="animate-spin text-[#57923d]"
+                      />
+                    ) : (
+                      <svg
+                        className="h-5 w-5 shrink-0"
+                        viewBox="0 0 24 24"
+                      >
+
+                        <path
+                          fill="#4285F4"
+                          d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+                        />
+
+                        <path
+                          fill="#34A853"
+                          d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.27 21.39 7.33 24 12 24z"
+                        />
+
+                        <path
+                          fill="#FBBC05"
+                          d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                        />
+
+                        <path
+                          fill="#EA4335"
+                          d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.27 2.61 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                        />
+
+                      </svg>
+                    )}
+
+                    <span>
+                      {isGoogleSubmitting
+                        ? "Signing in with Google..."
+                        : "Continue with Google"}
+                    </span>
+
                   </button>
 
-                  <span className="text-slate-500">
-                    {timer > 0
-                      ? `Expires in ${formatTimer()}`
-                      : "OTP expired"}
-                  </span>
+                  {/* DIVIDER */}
+
+                  <div className="flex items-center gap-3 py-1">
+
+                    <div className="h-px flex-1 bg-[#e1e7dc]" />
+
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#829589]">
+                      or continue with email
+                    </span>
+
+                    <div className="h-px flex-1 bg-[#e1e7dc]" />
+
+                  </div>
+
+                  {/* EMAIL */}
+
+                  <div>
+
+                    <label
+                      htmlFor="email"
+                      className="mb-1.5 block text-sm font-semibold text-[#344f42]"
+                    >
+                      Email Address
+                    </label>
+
+                    <div className="relative">
+
+                      <Mail
+                        size={17}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-[#87958c]"
+                      />
+
+                      <input
+                        id="email"
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleChange}
+                        placeholder="Enter your email"
+                        autoComplete="email"
+                        className="
+                          w-full
+                          rounded-xl
+                          border
+                          border-[#dce3d8]
+                          bg-[#fbfcfa]
+                          py-3
+                          pl-11
+                          pr-4
+                          text-sm
+                          text-[#173b2b]
+                          outline-none
+                          focus:border-[#9fbd82]
+                          focus:ring-2
+                          focus:ring-[#eaf4df]
+                        "
+                      />
+
+                    </div>
+
+                  </div>
+
+                  {/* REMEMBER ME */}
+
+                  <div className="flex items-center justify-between pt-1">
+
+                    <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-[#65796c]">
+
+                      <input
+                        type="checkbox"
+                        name="rememberMe"
+                        checked={
+                          formData.rememberMe
+                        }
+                        onChange={
+                          handleChange
+                        }
+                        className="h-4 w-4 rounded border-[#ccd8c6] text-[#57923d] accent-[#57923d]"
+                      />
+
+                      <span>
+                        Keep me signed in
+                      </span>
+
+                    </label>
+
+                  </div>
+
+                  {/* ERROR */}
+
+                  {loginError && (
+                    <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+
+                      <AlertCircle
+                        size={16}
+                        className="mt-0.5 shrink-0 text-red-500"
+                      />
+
+                      <p className="text-xs font-medium leading-5 text-red-600">
+                        {loginError}
+                      </p>
+
+                    </div>
+                  )}
+
+                  {/* SEND OTP */}
+
+                  <button
+                    type="button"
+                    onClick={handleSendOTP}
+                    disabled={
+                      isSubmitting ||
+                      isGoogleSubmitting
+                    }
+                    className="
+                      flex
+                      w-full
+                      items-center
+                      justify-center
+                      gap-2
+                      rounded-xl
+                      bg-[#dff5b5]
+                      px-6
+                      py-3
+                      text-sm
+                      font-semibold
+                      text-[#173b2b]
+                      transition
+                      hover:bg-[#d2efa0]
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
+                  >
+
+                    {isSubmitting
+                      ? "Sending OTP..."
+                      : "Send OTP"}
+
+                    {!isSubmitting && (
+                      <Mail size={17} />
+                    )}
+
+                  </button>
 
                 </div>
+              )}
 
-              </div>
+              {/* ==================================================
+                  OTP FORM
+              ================================================== */}
 
-              {/* Verify */}
-
-              <button
-                type="submit"
-                disabled={
-                  verifyLoading ||
-                  otp.length !== 6
-                }
-                className="w-full py-3.5 rounded-xl bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold flex items-center justify-center gap-2 transition"
-              >
-
-                {verifyLoading ? (
-                  <>
-                    <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-
-                    Verifying...
-                  </>
-                ) : (
-                  <>
-                    Verify & Sign In
-
-                    <ArrowRight size={19} />
-                  </>
-                )}
-
-              </button>
-
-              {/* Resend */}
-
-              <div className="text-center">
-
-                <button
-                  type="button"
-                  onClick={handleResendOTP}
-                  disabled={
-                    timer > 0 || loading
+              {otpMode && (
+                <form
+                  onSubmit={
+                    handleVerifyOTP
                   }
-                  className="text-sm font-medium text-green-600 hover:text-green-700 disabled:text-slate-400 disabled:cursor-not-allowed"
+                  className="mt-6"
                 >
-                  {timer > 0
-                    ? `Resend OTP in ${formatTimer()}`
-                    : "Resend OTP"}
-                </button>
+
+                  <div className="rounded-2xl border border-[#dce7d5] bg-[#f8fbf5] p-5">
+
+                    {/* OTP HEADER */}
+
+                    <div className="flex items-center gap-3">
+
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#e7f3d8]">
+
+                        <ShieldCheck
+                          size={21}
+                          className="text-[#57923d]"
+                        />
+
+                      </div>
+
+                      <div>
+
+                        <p className="text-sm font-semibold text-[#173b2b]">
+                          Verify Your Email
+                        </p>
+
+                        <p className="text-xs text-[#718177]">
+
+                          OTP sent to{" "}
+
+                          <strong>
+                            {formData.email}
+                          </strong>
+
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                    {/* OTP BOXES */}
+
+                    <div className="mt-5 flex items-center justify-center gap-2 sm:gap-3">
+
+                      {otpDigits.map(
+                        (
+                          digit,
+                          idx
+                        ) => (
+                          <input
+                            key={idx}
+                            ref={(el) =>
+                              (otpRefs.current[
+                                idx
+                              ] = el)
+                            }
+                            id={`otp-box-${idx}`}
+                            name={`otp-box-${idx}`}
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={1}
+                            autoComplete={
+                              idx ===
+                              0
+                                ? "one-time-code"
+                                : "off"
+                            }
+                            value={
+                              digit
+                            }
+                            onChange={(
+                              e
+                            ) =>
+                              handleOtpChange(
+                                idx,
+                                e
+                              )
+                            }
+                            onKeyDown={(
+                              e
+                            ) =>
+                              handleOtpKeyDown(
+                                idx,
+                                e
+                              )
+                            }
+                            onPaste={
+                              handleOtpPaste
+                            }
+                            onFocus={(
+                              e
+                            ) =>
+                              e.target.select()
+                            }
+                            disabled={
+                              isSubmitting
+                            }
+                            aria-label={`Digit ${
+                              idx + 1
+                            } of 6-digit OTP`}
+                            className="
+                              h-12 w-11
+                              rounded-xl
+                              border
+                              border-[#dce3d8]
+                              bg-white
+                              text-center
+                              text-xl
+                              font-bold
+                              text-[#173b2b]
+                              outline-none
+                              transition-all
+                              duration-150
+                              focus:border-[#57923d]
+                              focus:ring-2
+                              focus:ring-[#eaf4df]
+                              disabled:cursor-not-allowed
+                              disabled:bg-[#f5f7f3]
+                              shadow-sm
+                              sm:h-14
+                              sm:w-13
+                              sm:text-2xl
+                              md:w-14
+                            "
+                          />
+                        )
+                      )}
+
+                    </div>
+
+                    {/* TIMER */}
+
+                    <div className="mt-3 text-center">
+
+                      {otpTimer >
+                      0 ? (
+                        <p className="text-xs text-[#718177]">
+
+                          OTP expires in{" "}
+
+                          <strong className="text-[#57923d]">
+                            {formatTimer()}
+                          </strong>
+
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={
+                            handleResendOTP
+                          }
+                          disabled={
+                            isSubmitting
+                          }
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#57923d] hover:underline"
+                        >
+
+                          <RefreshCw
+                            size={13}
+                          />
+
+                          Resend OTP
+
+                        </button>
+                      )}
+
+                    </div>
+
+                  </div>
+
+                  {/* OTP NOTICE */}
+
+                  {otpNotice && (
+                    <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+
+                      <span className="text-sm text-amber-600">
+                        ℹ️
+                      </span>
+
+                      <p className="text-xs font-medium leading-5 text-amber-800">
+                        {otpNotice}
+                      </p>
+
+                    </div>
+                  )}
+
+                  {/* ERROR */}
+
+                  {loginError && (
+                    <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+
+                      <AlertCircle
+                        size={16}
+                        className="mt-0.5 shrink-0 text-red-500"
+                      />
+
+                      <p className="text-xs font-medium leading-5 text-red-600">
+                        {loginError}
+                      </p>
+
+                    </div>
+                  )}
+
+                  {/* VERIFY BUTTON */}
+
+                  <button
+                    type="submit"
+                    disabled={
+                      isSubmitting ||
+                      otp.length !== 6
+                    }
+                    className="
+                      mt-4
+                      flex
+                      w-full
+                      items-center
+                      justify-center
+                      gap-2
+                      rounded-xl
+                      bg-[#dff5b5]
+                      px-6
+                      py-3
+                      text-sm
+                      font-semibold
+                      text-[#173b2b]
+                      transition
+                      hover:bg-[#d2efa0]
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
+                  >
+
+                    {isSubmitting
+                      ? "Verifying..."
+                      : "Verify OTP"}
+
+                    {!isSubmitting && (
+                      <ArrowRight
+                        size={17}
+                      />
+                    )}
+
+                  </button>
+
+                  {/* CHANGE EMAIL */}
+
+                  <button
+                    type="button"
+                    onClick={
+                      handleChangeEmail
+                    }
+                    className="mt-3 w-full text-center text-xs font-semibold text-[#57923d] hover:underline"
+                  >
+                    ← Change Email
+                  </button>
+
+                </form>
+              )}
+
+              {/* ==================================================
+                  CREATE ACCOUNT
+              ================================================== */}
+
+              <div className="mt-5 border-t border-[#e7ebe4] pt-4 text-center">
+
+                <p className="text-sm text-[#718177]">
+
+                  Don't have a FinanceOS account?{" "}
+
+                  <Link
+                    to="/signup"
+                    className="font-semibold text-[#57923d]"
+                  >
+                    Create Account
+                  </Link>
+
+                </p>
 
               </div>
-
-            </form>
-          )}
-
-          {/* ==================================================
-              GOOGLE LOGIN
-          ================================================== */}
-
-          {!otpSent && (
-            <>
-              <div className="my-7 flex items-center gap-4">
-
-                <div className="h-px bg-slate-200 flex-1" />
-
-                <span className="text-sm text-slate-400">
-                  OR
-                </span>
-
-                <div className="h-px bg-slate-200 flex-1" />
-
-              </div>
-
-              <button
-                type="button"
-                onClick={handleGoogleLogin}
-                disabled={loading}
-                className="w-full py-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold flex items-center justify-center gap-3 transition"
-              >
-
-                <span className="font-bold text-lg">
-                  G
-                </span>
-
-                Continue with Google
-
-              </button>
-            </>
-          )}
-
-          {/* ==================================================
-              SIGN UP
-          ================================================== */}
-
-          <p className="text-center text-sm text-slate-500 mt-7">
-
-            Don't have an account?{" "}
-
-            <Link
-              to="/signup"
-              className="text-green-600 hover:text-green-700 font-semibold"
-            >
-              Create account
-            </Link>
-
-          </p>
-
-          {/* ==================================================
-              SECURITY INFO
-          ================================================== */}
-
-          <div className="mt-8 grid grid-cols-3 gap-3">
-
-            <div className="text-center">
-
-              <div className="flex justify-center mb-2">
-                <Mail
-                  size={18}
-                  className="text-green-600"
-                />
-              </div>
-
-              <span className="text-xs text-slate-500">
-                Email OTP
-              </span>
 
             </div>
 
-            <div className="text-center">
-
-              <div className="flex justify-center mb-2">
-                <MapPin
-                  size={18}
-                  className="text-green-600"
-                />
-              </div>
-
-              <span className="text-xs text-slate-500">
-                Secure Access
-              </span>
-
-            </div>
-
-            <div className="text-center">
-
-              <div className="flex justify-center mb-2">
-                <UserRound
-                  size={18}
-                  className="text-green-600"
-                />
-              </div>
-
-              <span className="text-xs text-slate-500">
-                Private Account
-              </span>
-
-            </div>
-
-          </div>
-
-          {/* Back Home */}
-
-          <div className="text-center mt-6">
-
-            <Link
-              to="/"
-              className="text-sm text-slate-500 hover:text-slate-700 inline-flex items-center gap-1"
-            >
-              <ArrowLeft size={15} />
-
-              Back to home
-            </Link>
-
-          </div>
+          </section>
 
         </div>
-      </div>
+
+      </main>
 
     </div>
   );
 }
+
+export default SignIn;
