@@ -29,46 +29,54 @@ const PORT = process.env.PORT || 5000;
 // ============================================================
 
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
+  "https://financeos-1-wqtk.onrender.com",
   "http://localhost:5173",
   "http://localhost:3000",
 ].filter(Boolean);
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests without origin
-      // Example: Thunder Client, Postman, server-to-server
-      if (!origin) {
-        return callback(null, true);
-      }
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests without Origin
+    // Example: Postman, Thunder Client, server-to-server
+    if (!origin) {
+      return callback(null, true);
+    }
 
-      // Development / flexible mode
-      if (
-        process.env.NODE_ENV !== "production" &&
-        process.env.ALLOW_ALL_CORS === "true"
-      ) {
-        return callback(null, true);
-      }
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
 
-      // Production allowed frontend
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+    console.warn(
+      `[CORS] Blocked origin: ${origin}`
+    );
 
-      console.warn(
-        `[CORS] Blocked origin: ${origin}`
-      );
+    return callback(
+      new Error(`CORS blocked origin: ${origin}`)
+    );
+  },
 
-      return callback(
-        new Error("Not allowed by CORS")
-      );
-    },
+  credentials: true,
 
-    credentials: true,
-  })
-);
+  methods: [
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+  ],
 
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+  ],
+};
+
+// Enable CORS
+app.use(cors(corsOptions));
+
+// Handle browser preflight requests
+app.options(/.*/, cors(corsOptions));
 // ============================================================
 // BODY PARSER
 // ============================================================
