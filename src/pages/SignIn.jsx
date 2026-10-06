@@ -20,48 +20,116 @@ const API_URL =
   import.meta.env.VITE_API_URL ||
   "https://financeos-giup.onrender.com";
 
+// Remove trailing slash
+const API_BASE_URL = API_URL.replace(/\/+$/, "");
+
+// ==========================================================
+// DEBUG
+// ==========================================================
+
+console.log("=================================");
+console.log("FinanceOS API BASE URL:", API_BASE_URL);
+console.log("=================================");
+
 // ==========================================================
 // SAFE API RESPONSE PARSER
-// Prevents:
-// SyntaxError: Unexpected end of JSON input
 // ==========================================================
 
 const parseApiResponse = async (response) => {
   const contentType =
     response.headers.get("content-type") || "";
 
-  // JSON response
   if (contentType.includes("application/json")) {
     try {
       return await response.json();
     } catch (error) {
-      console.error(
-        "JSON parsing error:",
-        error
-      );
+      console.error("JSON parsing error:", error);
 
       return {
         success: false,
-        message:
-          "Server returned an invalid JSON response.",
+        message: `Server returned invalid JSON. HTTP ${response.status}`,
       };
     }
   }
 
-  // Non-JSON response
-  const text = await response.text();
+  try {
+    const text = await response.text();
 
-  console.error(
-    "Non-JSON server response:",
-    text
-  );
+    return {
+      success: false,
+      message:
+        text ||
+        `Server returned HTTP ${response.status}`,
+    };
+  } catch (error) {
+    console.error("Response reading error:", error);
 
-  return {
-    success: false,
-    message:
-      text ||
-      `Server returned HTTP ${response.status}`,
-  };
+    return {
+      success: false,
+      message: `Server returned HTTP ${response.status}`,
+    };
+  }
+};
+
+// ==========================================================
+// POST JSON HELPER
+// ==========================================================
+
+const postJson = async (endpoint, body) => {
+  const url = `${API_BASE_URL}${endpoint}`;
+
+  console.log("=================================");
+  console.log("API REQUEST");
+  console.log("Method: POST");
+  console.log("URL:", url);
+  console.log("Body:", body);
+  console.log("=================================");
+
+  // Abort request after 30 seconds
+  const controller = new AbortController();
+
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, 30000);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+
+      body: JSON.stringify(body),
+
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    console.log("API STATUS:", response.status);
+    console.log("API OK:", response.ok);
+
+    const data = await parseApiResponse(response);
+
+    console.log("API RESPONSE:", data);
+
+    return {
+      response,
+      data,
+    };
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error.name === "AbortError") {
+      throw new Error(
+        "Request timed out. The FinanceOS server may be waking up. Please try again."
+      );
+    }
+
+    throw error;
+  }
 };
 
 function SignIn() {
@@ -99,8 +167,7 @@ function SignIn() {
 
   const [loginError, setLoginError] = useState("");
 
-  const [otpNotice, setOtpNotice] =
-    useState("");
+  const [otpNotice, setOtpNotice] = useState("");
 
   const [formData, setFormData] = useState({
     email: "",
@@ -120,54 +187,77 @@ function SignIn() {
     const scriptId =
       "google-gsi-client-script";
 
-    if (
-      !document.getElementById(scriptId)
-    ) {
-      const script =
-        document.createElement("script");
+    const initializeGoogle = () => {
+      if (
+        googleClientId &&
+        window.google?.accounts?.id
+      ) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: googleClientId,
 
-      script.id = scriptId;
+            callback: (response) => {
+              if (response?.credential) {
+                completeGoogleSignIn({
+                  credential:
+                    response.credential,
+                });
+              }
+            },
 
-      script.src =
-        "https://accounts.google.com/gsi/client";
+            auto_select: false,
+            cancel_on_tap_outside: true,
+          });
 
-      script.async = true;
-      script.defer = true;
-
-      script.onload = () => {
-        if (
-          googleClientId &&
-          window.google?.accounts?.id
-        ) {
-          try {
-            window.google.accounts.id.initialize({
-              client_id: googleClientId,
-
-              callback: (response) => {
-                if (
-                  response?.credential
-                ) {
-                  completeGoogleSignIn({
-                    credential:
-                      response.credential,
-                  });
-                }
-              },
-
-              auto_select: false,
-              cancel_on_tap_outside: true,
-            });
-          } catch (initErr) {
-            console.warn(
-              "GSI initialization warning:",
-              initErr
-            );
-          }
+          console.log(
+            "Google Identity Services initialized."
+          );
+        } catch (error) {
+          console.warn(
+            "GSI initialization warning:",
+            error
+          );
         }
-      };
+      }
+    };
 
-      document.body.appendChild(script);
+    const existingScript =
+      document.getElementById(scriptId);
+
+    if (existingScript) {
+      if (window.google?.accounts?.id) {
+        initializeGoogle();
+      } else {
+        existingScript.addEventListener(
+          "load",
+          initializeGoogle,
+          { once: true }
+        );
+      }
+
+      return;
     }
+
+    const script =
+      document.createElement("script");
+
+    script.id = scriptId;
+
+    script.src =
+      "https://accounts.google.com/gsi/client";
+
+    script.async = true;
+    script.defer = true;
+
+    script.onload = initializeGoogle;
+
+    script.onerror = () => {
+      console.error(
+        "Failed to load Google Identity Services."
+      );
+    };
+
+    document.body.appendChild(script);
   }, []);
 
   // ==========================================================
@@ -181,42 +271,16 @@ function SignIn() {
       setIsGoogleSubmitting(true);
       setLoginError("");
 
-      console.log(
-        "Google login API:",
-        `${API_URL}/api/auth/google`
-      );
-
-      const response = await fetch(
-        `${API_URL}/api/auth/google`,
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-
-          body: JSON.stringify(payload),
-        }
-      );
-
-      console.log(
-        "Google login status:",
-        response.status
-      );
-
-      const data =
-        await parseApiResponse(response);
-
-      console.log(
-        "Google login response:",
-        data
-      );
+      const { response, data } =
+        await postJson(
+          "/api/auth/google",
+          payload
+        );
 
       if (!response.ok) {
         setLoginError(
           data?.message ||
-            "Google sign-in failed. Please try again."
+            `Google sign-in failed. HTTP ${response.status}`
         );
 
         return;
@@ -299,7 +363,6 @@ function SignIn() {
           }
         );
       }
-
     } catch (error) {
       console.error(
         "Google sign in error:",
@@ -307,9 +370,9 @@ function SignIn() {
       );
 
       setLoginError(
-        "Unable to connect to FinanceOS server for Google sign-in."
+        error?.message ||
+          "Unable to connect to FinanceOS server for Google sign-in."
       );
-
     } finally {
       setIsGoogleSubmitting(false);
     }
@@ -329,7 +392,7 @@ function SignIn() {
 
     if (!googleClientId) {
       setLoginError(
-        "Google Sign-In is not configured yet. Please configure VITE_GOOGLE_CLIENT_ID in your environment."
+        "Google Sign-In is not configured yet. Please configure VITE_GOOGLE_CLIENT_ID."
       );
 
       return;
@@ -339,7 +402,7 @@ function SignIn() {
       !window.google?.accounts
     ) {
       setLoginError(
-        "Google authentication service is still loading. Please try again in a moment."
+        "Google authentication service is still loading. Please try again."
       );
 
       return;
@@ -384,6 +447,14 @@ function SignIn() {
                           }
                         );
 
+                      if (
+                        !userInfoRes.ok
+                      ) {
+                        throw new Error(
+                          `Google profile request failed: ${userInfoRes.status}`
+                        );
+                      }
+
                       const userInfo =
                         await userInfoRes.json();
 
@@ -402,17 +473,17 @@ function SignIn() {
                             userInfo.picture,
                         }
                       );
-
                     } catch (
-                      fetchErr
+                      fetchError
                     ) {
                       console.error(
                         "Failed to fetch Google profile:",
-                        fetchErr
+                        fetchError
                       );
 
                       setLoginError(
-                        "Failed to retrieve Google profile information."
+                        fetchError?.message ||
+                          "Failed to retrieve Google profile information."
                       );
 
                       setIsGoogleSubmitting(
@@ -429,7 +500,6 @@ function SignIn() {
           );
 
         tokenClient.requestAccessToken();
-
       } else if (
         window.google.accounts.id
       ) {
@@ -444,12 +514,10 @@ function SignIn() {
               if (
                 response?.credential
               ) {
-                completeGoogleSignIn(
-                  {
-                    credential:
-                      response.credential,
-                  }
-                );
+                completeGoogleSignIn({
+                  credential:
+                    response.credential,
+                });
               } else {
                 setIsGoogleSubmitting(
                   false
@@ -472,11 +540,10 @@ function SignIn() {
           }
         );
       }
-
-    } catch (err) {
+    } catch (error) {
       console.error(
         "Google sign in trigger error:",
-        err
+        error
       );
 
       setLoginError(
@@ -497,16 +564,16 @@ function SignIn() {
         setTimeout(() => {
           const firstEmpty =
             otpDigits.findIndex(
-              (d) => !d
+              (digit) => !digit
             );
 
-          const targetIdx =
+          const targetIndex =
             firstEmpty !== -1
               ? firstEmpty
               : 0;
 
           otpRefs.current[
-            targetIdx
+            targetIndex
           ]?.focus();
         }, 100);
 
@@ -532,7 +599,6 @@ function SignIn() {
         ""
       );
 
-    // Empty
     if (!digitsOnly) {
       const updated = [
         ...otpDigits,
@@ -541,13 +607,12 @@ function SignIn() {
       updated[index] = "";
 
       setOtpDigits(updated);
-
       setLoginError("");
 
       return;
     }
 
-    // Multiple digits pasted
+    // Multiple digits
     if (
       digitsOnly.length > 1
     ) {
@@ -555,27 +620,26 @@ function SignIn() {
         ...otpDigits,
       ];
 
-      let pasteIdx = index;
+      let pasteIndex = index;
 
       for (
         let i = 0;
         i < digitsOnly.length &&
-        pasteIdx < 6;
+        pasteIndex < 6;
         i++
       ) {
-        updated[pasteIdx] =
+        updated[pasteIndex] =
           digitsOnly[i];
 
-        pasteIdx++;
+        pasteIndex++;
       }
 
       setOtpDigits(updated);
-
       setLoginError("");
 
       const nextFocus =
         Math.min(
-          pasteIdx,
+          pasteIndex,
           5
         );
 
@@ -595,10 +659,8 @@ function SignIn() {
       digitsOnly.slice(-1);
 
     setOtpDigits(updated);
-
     setLoginError("");
 
-    // Move to next box
     if (index < 5) {
       setTimeout(() => {
         otpRefs.current[
@@ -629,9 +691,7 @@ function SignIn() {
         updated[index] = "";
 
         setOtpDigits(updated);
-
         setLoginError("");
-
       } else if (
         index > 0
       ) {
@@ -642,7 +702,6 @@ function SignIn() {
         updated[index - 1] = "";
 
         setOtpDigits(updated);
-
         setLoginError("");
 
         setTimeout(() => {
@@ -651,30 +710,24 @@ function SignIn() {
           ]?.focus();
         }, 10);
       }
-
     } else if (
       e.key === "ArrowLeft" &&
       index > 0
     ) {
       e.preventDefault();
 
-      setTimeout(() => {
-        otpRefs.current[
-          index - 1
-        ]?.focus();
-      }, 10);
-
+      otpRefs.current[
+        index - 1
+      ]?.focus();
     } else if (
       e.key === "ArrowRight" &&
       index < 5
     ) {
       e.preventDefault();
 
-      setTimeout(() => {
-        otpRefs.current[
-          index + 1
-        ]?.focus();
-      }, 10);
+      otpRefs.current[
+        index + 1
+      ]?.focus();
     }
   };
 
@@ -702,8 +755,9 @@ function SignIn() {
         )
         .slice(0, 6);
 
-    if (!cleanDigits)
+    if (!cleanDigits) {
       return;
+    }
 
     const updated = [
       "",
@@ -724,7 +778,6 @@ function SignIn() {
     }
 
     setOtpDigits(updated);
-
     setLoginError("");
 
     const nextFocus =
@@ -864,101 +917,70 @@ function SignIn() {
 
         setIsSubmitting(true);
 
-        // ==================================================
-        // API URL LOG
-        // ==================================================
-
         console.log(
-          "FinanceOS API URL:",
-          API_URL
+          "Sending login OTP..."
         );
 
         console.log(
-          "Send OTP URL:",
-          `${API_URL}/api/auth/send-otp`
+          "POST:",
+          `${API_BASE_URL}/api/auth/send-otp`
         );
 
         // ==================================================
-        // SEND OTP REQUEST
+        // IMPORTANT:
+        // THIS IS POST, NOT GET
         // ==================================================
 
-        const response =
-          await fetch(
-            `${API_URL}/api/auth/send-otp`,
+        const { response, data } =
+          await postJson(
+            "/api/auth/send-otp",
             {
-              method: "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-
-              body: JSON.stringify({
-                email,
-              }),
+              email,
             }
           );
-
-        console.log(
-          "Send OTP HTTP status:",
-          response.status
-        );
-
-        const data =
-          await parseApiResponse(
-            response
-          );
-
-        console.log(
-          "Send OTP Response:",
-          data
-        );
 
         // ==================================================
         // BACKEND ERROR
         // ==================================================
 
         if (!response.ok) {
+          console.error(
+            "Send OTP failed:",
+            response.status,
+            data
+          );
+
           if (
-            response.status ===
-            404
+            response.status === 404
           ) {
             setLoginError(
-              data?.message ||
-                "Authentication endpoint was not found. Please check the FinanceOS backend deployment."
+              `OTP endpoint not found (404). Make sure Render has POST /api/auth/send-otp.`
             );
-
           } else if (
-            response.status ===
-            429
+            response.status === 429
           ) {
             setLoginError(
               data?.message ||
                 "Please wait before requesting another OTP."
             );
-
           } else if (
-            response.status ===
-            400
+            response.status === 400
           ) {
             setLoginError(
               data?.message ||
                 "Please enter a valid email address."
             );
-
           } else if (
-            response.status >=
-            500
+            response.status >= 500
           ) {
             setLoginError(
               data?.message ||
-                "FinanceOS server error. Please try again later."
+                `FinanceOS backend error (${response.status}).`
             );
-
           } else {
             setLoginError(
               data?.message ||
-                "Unable to send OTP right now. Please try again."
+                `Unable to send OTP. HTTP ${response.status}`
             );
           }
 
@@ -970,11 +992,10 @@ function SignIn() {
         // ==================================================
 
         if (
-          data?.success ===
-          false
+          data?.success === false
         ) {
           setLoginError(
-            data.message ||
+            data?.message ||
               "Unable to send OTP."
           );
 
@@ -1010,27 +1031,45 @@ function SignIn() {
         // ==================================================
 
         if (
-          data?.emailSent ===
-          false
+          data?.emailSent === false
         ) {
           setOtpNotice(
             data?.message ||
-              "OTP generated, but email delivery failed. Check your backend email configuration."
+              "OTP generated, but email delivery failed. Please check backend email configuration."
           );
         } else {
           setOtpNotice("");
         }
 
+        console.log(
+          "OTP sent successfully."
+        );
       } catch (error) {
         console.error(
           "Send OTP Error:",
           error
         );
 
-        setLoginError(
-          "Unable to connect to the FinanceOS server. Please check your backend URL or internet connection."
-        );
-
+        // More useful error messages
+        if (
+          error?.message?.includes(
+            "timed out"
+          )
+        ) {
+          setLoginError(
+            error.message
+          );
+        } else if (
+          error?.message
+        ) {
+          setLoginError(
+            `Connection error: ${error.message}`
+          );
+        } else {
+          setLoginError(
+            "Unable to connect to FinanceOS backend. Please check your Render server and internet connection."
+          );
+        }
       } finally {
         isSendingRef.current =
           false;
@@ -1048,10 +1087,6 @@ function SignIn() {
       e.preventDefault();
 
       setLoginError("");
-
-      // ====================================================
-      // OTP VALIDATION
-      // ====================================================
 
       if (
         otp.length !== 6
@@ -1071,88 +1106,59 @@ function SignIn() {
       try {
         setIsSubmitting(true);
 
-        // ==================================================
-        // API URL
-        // ==================================================
-
         console.log(
-          "Verify OTP URL:",
-          `${API_URL}/api/auth/verify-otp`
+          "Verifying OTP..."
         );
 
-        // ==================================================
-        // VERIFY OTP REQUEST
-        // ==================================================
+        console.log(
+          "POST:",
+          `${API_BASE_URL}/api/auth/verify-otp`
+        );
 
-        const response =
-          await fetch(
-            `${API_URL}/api/auth/verify-otp`,
+        const { response, data } =
+          await postJson(
+            "/api/auth/verify-otp",
             {
-              method: "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-
-              body: JSON.stringify({
-                email,
-                otp,
-              }),
+              email,
+              otp,
             }
           );
-
-        console.log(
-          "Verify OTP HTTP status:",
-          response.status
-        );
-
-        const data =
-          await parseApiResponse(
-            response
-          );
-
-        console.log(
-          "Verify OTP Response:",
-          data
-        );
 
         // ==================================================
         // BACKEND ERROR
         // ==================================================
 
         if (!response.ok) {
+          console.error(
+            "Verify OTP failed:",
+            response.status,
+            data
+          );
+
           if (
-            response.status ===
-            404
+            response.status === 404
           ) {
             setLoginError(
-              data?.message ||
-                "Authentication service endpoint is unavailable."
+              "OTP verification endpoint was not found."
             );
-
           } else if (
-            response.status ===
-            401
+            response.status === 401
           ) {
             setLoginError(
               data?.message ||
                 "Invalid or expired OTP. Please try again."
             );
-
           } else if (
-            response.status ===
-            400
+            response.status === 400
           ) {
             setLoginError(
               data?.message ||
                 "Invalid OTP request."
             );
-
           } else {
             setLoginError(
               data?.message ||
-                "Unable to verify OTP right now."
+                `Unable to verify OTP. HTTP ${response.status}`
             );
           }
 
@@ -1167,13 +1173,13 @@ function SignIn() {
           !data?.token ||
           !data?.user
         ) {
-          setLoginError(
-            "Invalid response received from authentication server."
+          console.error(
+            "Invalid login response:",
+            data
           );
 
-          console.error(
-            "Missing token/user:",
-            data
+          setLoginError(
+            "Invalid response received from authentication server."
           );
 
           return;
@@ -1236,22 +1242,13 @@ function SignIn() {
           data.user
         );
 
-        // ==================================================
-        // DEBUG
-        // ==================================================
-
         console.log(
-          "Logged in user:",
+          "Login successful:",
           data.user
         );
 
-        console.log(
-          "User role:",
-          data.user.role
-        );
-
         // ==================================================
-        // ADMIN
+        // ROLE BASED REDIRECT
         // ==================================================
 
         if (
@@ -1272,10 +1269,6 @@ function SignIn() {
           return;
         }
 
-        // ==================================================
-        // NORMAL USER
-        // ==================================================
-
         console.log(
           "User detected → User Dashboard"
         );
@@ -1286,7 +1279,6 @@ function SignIn() {
             replace: true,
           }
         );
-
       } catch (error) {
         console.error(
           "Verify OTP Error:",
@@ -1294,9 +1286,9 @@ function SignIn() {
         );
 
         setLoginError(
-          "Unable to connect to the FinanceOS server."
+          error?.message ||
+            "Unable to connect to the FinanceOS backend."
         );
-
       } finally {
         setIsSubmitting(false);
       }
@@ -1338,7 +1330,6 @@ function SignIn() {
       setOtpTimer(0);
 
       setLoginError("");
-
       setOtpNotice("");
     };
 
@@ -1375,8 +1366,6 @@ function SignIn() {
 
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-6 lg:px-8">
 
-          {/* LOGO */}
-
           <Link
             to="/"
             className="flex items-center gap-3"
@@ -1404,8 +1393,6 @@ function SignIn() {
             </div>
 
           </Link>
-
-          {/* BACK HOME */}
 
           <Link
             to="/"
@@ -1489,8 +1476,6 @@ function SignIn() {
               </p>
 
             </div>
-
-            {/* SECURITY CARD */}
 
             <div className="relative z-10 mt-5">
 
@@ -1589,8 +1574,6 @@ function SignIn() {
 
             <div className="mx-auto flex h-full w-full max-w-[560px] flex-col justify-center">
 
-              {/* HEADER */}
-
               <div>
 
                 <p className="text-[11px] font-semibold uppercase tracking-[0.17em] text-[#669451]">
@@ -1622,7 +1605,9 @@ function SignIn() {
 
                   <button
                     type="button"
-                    onClick={handleGoogleSignIn}
+                    onClick={
+                      handleGoogleSignIn
+                    }
                     disabled={
                       isSubmitting ||
                       isGoogleSubmitting
@@ -1677,7 +1662,7 @@ function SignIn() {
 
                         <path
                           fill="#FBBC05"
-                          d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                          d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 1.25 17.42l4.03-3.15z"
                         />
 
                         <path
@@ -1732,8 +1717,12 @@ function SignIn() {
                         id="email"
                         type="email"
                         name="email"
-                        value={formData.email}
-                        onChange={handleChange}
+                        value={
+                          formData.email
+                        }
+                        onChange={
+                          handleChange
+                        }
                         placeholder="Enter your email"
                         autoComplete="email"
                         className="
@@ -1805,7 +1794,9 @@ function SignIn() {
 
                   <button
                     type="button"
-                    onClick={handleSendOTP}
+                    onClick={
+                      handleSendOTP
+                    }
                     disabled={
                       isSubmitting ||
                       isGoogleSubmitting
@@ -1857,8 +1848,6 @@ function SignIn() {
 
                   <div className="rounded-2xl border border-[#dce7d5] bg-[#f8fbf5] p-5">
 
-                    {/* OTP HEADER */}
-
                     <div className="flex items-center gap-3">
 
                       <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#e7f3d8]">
@@ -1897,23 +1886,23 @@ function SignIn() {
                       {otpDigits.map(
                         (
                           digit,
-                          idx
+                          index
                         ) => (
                           <input
-                            key={idx}
-                            ref={(el) =>
-                              (otpRefs.current[
-                                idx
-                              ] = el)
-                            }
-                            id={`otp-box-${idx}`}
-                            name={`otp-box-${idx}`}
+                            key={index}
+                            ref={(element) => {
+                              otpRefs.current[
+                                index
+                              ] = element;
+                            }}
+                            id={`otp-box-${index}`}
+                            name={`otp-box-${index}`}
                             type="text"
                             inputMode="numeric"
                             pattern="[0-9]*"
                             maxLength={1}
                             autoComplete={
-                              idx ===
+                              index ===
                               0
                                 ? "one-time-code"
                                 : "off"
@@ -1925,7 +1914,7 @@ function SignIn() {
                               e
                             ) =>
                               handleOtpChange(
-                                idx,
+                                index,
                                 e
                               )
                             }
@@ -1933,7 +1922,7 @@ function SignIn() {
                               e
                             ) =>
                               handleOtpKeyDown(
-                                idx,
+                                index,
                                 e
                               )
                             }
@@ -1949,10 +1938,11 @@ function SignIn() {
                               isSubmitting
                             }
                             aria-label={`Digit ${
-                              idx + 1
+                              index + 1
                             } of 6-digit OTP`}
                             className="
-                              h-12 w-11
+                              h-12
+                              w-11
                               rounded-xl
                               border
                               border-[#dce3d8]
@@ -1985,8 +1975,7 @@ function SignIn() {
 
                     <div className="mt-3 text-center">
 
-                      {otpTimer >
-                      0 ? (
+                      {otpTimer > 0 ? (
                         <p className="text-xs text-[#718177]">
 
                           OTP expires in{" "}
