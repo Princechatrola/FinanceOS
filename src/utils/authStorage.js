@@ -45,8 +45,12 @@ export function notifyAccountDeleted() {
  */
 export function getAuthToken() {
   try {
-    if (typeof window === "undefined" || !window.sessionStorage) return null;
-    return sessionStorage.getItem(TOKEN_KEY);
+    if (typeof window === "undefined") return null;
+    return (
+      (window.sessionStorage && sessionStorage.getItem(TOKEN_KEY)) ||
+      (window.localStorage && localStorage.getItem(TOKEN_KEY)) ||
+      null
+    );
   } catch (err) {
     console.error("[AUTH] Error reading tab auth token:", err);
     return null;
@@ -58,8 +62,11 @@ export function getAuthToken() {
  */
 export function getAuthUser() {
   try {
-    if (typeof window === "undefined" || !window.sessionStorage) return null;
-    const raw = sessionStorage.getItem(USER_KEY);
+    if (typeof window === "undefined") return null;
+    const raw =
+      (window.sessionStorage && sessionStorage.getItem(USER_KEY)) ||
+      (window.localStorage && localStorage.getItem(USER_KEY)) ||
+      null;
     return raw ? JSON.parse(raw) : null;
   } catch (err) {
     console.error("[AUTH] Error reading tab auth user:", err);
@@ -68,30 +75,28 @@ export function getAuthUser() {
 }
 
 /**
- * Store the authenticated session (JWT token + user object) strictly in the CURRENT tab's sessionStorage.
- * Also cleans up any legacy localStorage entries so they do not leak into other tabs.
+ * Store the authenticated session (JWT token + user object).
  */
-export function setAuthSession(token, user) {
+export function setAuthSession(token, user, rememberMe = false) {
   try {
-    if (typeof window === "undefined" || !window.sessionStorage) return;
+    if (typeof window === "undefined") return;
 
     if (token) {
-      sessionStorage.setItem(TOKEN_KEY, token);
+      if (window.sessionStorage) sessionStorage.setItem(TOKEN_KEY, token);
+      if (rememberMe && window.localStorage) localStorage.setItem(TOKEN_KEY, token);
     } else {
-      sessionStorage.removeItem(TOKEN_KEY);
+      if (window.sessionStorage) sessionStorage.removeItem(TOKEN_KEY);
+      if (window.localStorage) localStorage.removeItem(TOKEN_KEY);
     }
 
     if (user) {
-      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+      const userStr = JSON.stringify(user);
+      if (window.sessionStorage) sessionStorage.setItem(USER_KEY, userStr);
+      if (rememberMe && window.localStorage) localStorage.setItem(USER_KEY, userStr);
     } else {
-      sessionStorage.removeItem(USER_KEY);
+      if (window.sessionStorage) sessionStorage.removeItem(USER_KEY);
+      if (window.localStorage) localStorage.removeItem(USER_KEY);
     }
-
-    // Clean up any old cross-tab localStorage entries
-    try {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-    } catch (_) {}
   } catch (err) {
     console.error("[AUTH] Error saving tab auth session:", err);
   }

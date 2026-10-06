@@ -8,11 +8,15 @@ import { Navigate } from "react-router-dom";
 function ProtectedRoute({ children }) {
 
   // ==========================================================
-  // GET AUTHENTICATION DATA (TAB-SCOPED)
+  // GET AUTHENTICATION DATA (SESSION & LOCAL STORAGE)
   // ==========================================================
 
-  const token = sessionStorage.getItem("financeos_token");
-  const storedUser = sessionStorage.getItem("financeos_user");
+  const token =
+    sessionStorage.getItem("financeos_token") ||
+    localStorage.getItem("financeos_token");
+  const storedUser =
+    sessionStorage.getItem("financeos_user") ||
+    localStorage.getItem("financeos_user");
 
 
   // ==========================================================
@@ -50,6 +54,8 @@ function ProtectedRoute({ children }) {
 
     sessionStorage.removeItem("financeos_token");
     sessionStorage.removeItem("financeos_user");
+    localStorage.removeItem("financeos_token");
+    localStorage.removeItem("financeos_user");
 
     return (
       <Navigate
@@ -65,7 +71,17 @@ function ProtectedRoute({ children }) {
   // USER ROLE CHECK
   // ==========================================================
 
-  if (!user || user.role !== "user") {
+  const userRole = (user?.role || "").toLowerCase();
+
+  if (!user || userRole !== "user") {
+    if (userRole === "admin" || userRole === "administrator") {
+      return (
+        <Navigate
+          to="/admin/dashboard"
+          replace
+        />
+      );
+    }
 
     return (
       <Navigate

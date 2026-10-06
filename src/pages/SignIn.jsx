@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import useFinance from "../context/useFinance.js";
+import { setAuthSession } from "../utils/authStorage.js";
 
 import {
   AlertCircle,
@@ -18,7 +19,7 @@ import {
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
-  "https://financeos-giup.onrender.com";
+  (import.meta.env.DEV ? "http://localhost:5000" : "https://financeos-giup.onrender.com");
 
 // Remove trailing slash
 const API_BASE_URL = API_URL.replace(/\/+$/, "");
@@ -318,22 +319,13 @@ function SignIn() {
       );
 
       // ======================================================
-      // SELECT STORAGE
+      // SAVE SESSION DATA (TAB + PERSISTENT IF REMEMBER ME)
       // ======================================================
 
-      const storage =
-        formData.rememberMe
-          ? localStorage
-          : sessionStorage;
-
-      storage.setItem(
-        "financeos_token",
-        data.token
-      );
-
-      storage.setItem(
-        "financeos_user",
-        JSON.stringify(data.user)
+      setAuthSession(
+        data.token,
+        data.user,
+        Boolean(formData.rememberMe)
       );
 
       // ======================================================
@@ -1206,32 +1198,13 @@ function SignIn() {
         );
 
         // ==================================================
-        // SELECT STORAGE
+        // SAVE SESSION DATA (TAB + PERSISTENT IF REMEMBER ME)
         // ==================================================
 
-        const storage =
-          formData.rememberMe
-            ? localStorage
-            : sessionStorage;
-
-        // ==================================================
-        // SAVE TOKEN
-        // ==================================================
-
-        storage.setItem(
-          "financeos_token",
-          data.token
-        );
-
-        // ==================================================
-        // SAVE USER
-        // ==================================================
-
-        storage.setItem(
-          "financeos_user",
-          JSON.stringify(
-            data.user
-          )
+        setAuthSession(
+          data.token,
+          data.user,
+          Boolean(formData.rememberMe)
         );
 
         // ==================================================

@@ -7,11 +7,15 @@ import { Navigate } from "react-router-dom";
 function AdminProtectedRoute({ children }) {
 
   // ==========================================================
-  // GET AUTHENTICATION DATA (TAB-SCOPED)
+  // GET AUTHENTICATION DATA (SESSION & LOCAL STORAGE)
   // ==========================================================
 
-  const token = sessionStorage.getItem("financeos_token");
-  const storedUser = sessionStorage.getItem("financeos_user");
+  const token =
+    sessionStorage.getItem("financeos_token") ||
+    localStorage.getItem("financeos_token");
+  const storedUser =
+    sessionStorage.getItem("financeos_user") ||
+    localStorage.getItem("financeos_user");
 
 
   // ==========================================================
@@ -44,6 +48,8 @@ function AdminProtectedRoute({ children }) {
 
     sessionStorage.removeItem("financeos_token");
     sessionStorage.removeItem("financeos_user");
+    localStorage.removeItem("financeos_token");
+    localStorage.removeItem("financeos_user");
 
     return (
       <Navigate
@@ -58,7 +64,18 @@ function AdminProtectedRoute({ children }) {
   // USER ROLE CHECK (ADMIN)
   // ==========================================================
 
-  if (!user || (user.role !== "admin" && user.role !== "administrator")) {
+  const userRole = (user?.role || "").toLowerCase();
+
+  if (!user || (userRole !== "admin" && userRole !== "administrator")) {
+    if (userRole === "user") {
+      return (
+        <Navigate
+          to="/dashboard"
+          replace
+        />
+      );
+    }
+
     return (
       <Navigate
         to="/signin"

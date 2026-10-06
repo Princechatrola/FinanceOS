@@ -91,9 +91,9 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER || "",
     pass: normalizedEmailPassword,
   },
-  connectionTimeout: 10000,
-  greetingTimeout: 5000,
-  socketTimeout: 10000,
+  connectionTimeout: 7000,
+  greetingTimeout: 4000,
+  socketTimeout: 7000,
 });
 
 /**
@@ -167,7 +167,11 @@ async function sendEmail({ to, subject, text, html, icalEvent, attachments }) {
   };
 
   try {
-    const info = await transporter.sendMail(mailOptions);
+    const sendPromise = transporter.sendMail(mailOptions);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("SMTP connection timed out after 8s")), 8000)
+    );
+    const info = await Promise.race([sendPromise, timeoutPromise]);
     const accepted = Array.isArray(info.accepted) ? info.accepted : [];
     const rejected = Array.isArray(info.rejected) ? info.rejected : [];
     const isAccepted = accepted.length > 0 && !rejected.includes(cleanTo);
