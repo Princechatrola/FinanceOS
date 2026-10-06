@@ -8,26 +8,86 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const path = require("path");
 
-dotenv.config({ path: path.resolve(__dirname, ".env") });
+dotenv.config({
+  path: path.resolve(__dirname, ".env"),
+});
 
 // ============================================================
-// EXPRESS
+// EXPRESS APP
 // ============================================================
 
 const app = express();
 
 // ============================================================
-// MIDDLEWARE
+// PORT
 // ============================================================
+
+const PORT = process.env.PORT || 5000;
+
+// ============================================================
+// CORS
+// ============================================================
+
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  "http://localhost:5173",
+  "http://localhost:3000",
+].filter(Boolean);
 
 app.use(
   cors({
-    origin: true,
+    origin: function (origin, callback) {
+      // Allow requests without origin
+      // Example: Thunder Client, Postman, server-to-server
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // Development / flexible mode
+      if (
+        process.env.NODE_ENV !== "production" &&
+        process.env.ALLOW_ALL_CORS === "true"
+      ) {
+        return callback(null, true);
+      }
+
+      // Production allowed frontend
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.warn(
+        `[CORS] Blocked origin: ${origin}`
+      );
+
+      return callback(
+        new Error("Not allowed by CORS")
+      );
+    },
+
     credentials: true,
   })
 );
 
+// ============================================================
+// BODY PARSER
+// ============================================================
+
 app.use(express.json());
+
+app.use(express.urlencoded({ extended: true }));
+
+// ============================================================
+// REQUEST LOGGER
+// ============================================================
+
+app.use((req, res, next) => {
+  console.log(
+    `[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`
+  );
+
+  next();
+});
 
 // ============================================================
 // ROUTES
@@ -57,14 +117,23 @@ const reminderRoutes =
 const userReminderRoutes =
   require("./routes/userReminderRoutes");
 
-const liabilityRoutes = require("./routes/liabilityRoutes");
-const insuranceRoutes = require("./routes/insuranceRoutes");
-const messageRoutes = require("./routes/messageRoutes");
-const aiRoutes = require("./routes/aiRoutes");
-const reportRoutes = require("./routes/reportRoutes");
+const liabilityRoutes =
+  require("./routes/liabilityRoutes");
+
+const insuranceRoutes =
+  require("./routes/insuranceRoutes");
+
+const messageRoutes =
+  require("./routes/messageRoutes");
+
+const aiRoutes =
+  require("./routes/aiRoutes");
+
+const reportRoutes =
+  require("./routes/reportRoutes");
 
 // ============================================================
-// AUTH
+// AUTH ROUTES
 // ============================================================
 
 app.use(
@@ -73,7 +142,7 @@ app.use(
 );
 
 // ============================================================
-// ADMIN
+// ADMIN ROUTES
 // ============================================================
 
 app.use(
@@ -87,7 +156,7 @@ app.use(
 );
 
 // ============================================================
-// FINANCE
+// FINANCE ROUTES
 // ============================================================
 
 app.use(
@@ -140,219 +209,412 @@ app.use(
   reportRoutes
 );
 
-const { startScheduler } = require("./services/schedulerService");
-const { verifyTransporter } = require("./services/emailService");
-const { migrateRecurringSchedules } = require("./utils/migrateDueDates");
-const { cleanupLegacySmsPreferences } = require("./utils/cleanupLegacySms");
+// ============================================================
+// SERVICES
+// ============================================================
+
+const {
+  startScheduler,
+} = require("./services/schedulerService");
+
+const {
+  verifyTransporter,
+} = require("./services/emailService");
+
+const {
+  migrateRecurringSchedules,
+} = require("./utils/migrateDueDates");
+
+const {
+  cleanupLegacySmsPreferences,
+} = require("./utils/cleanupLegacySms");
 
 // ============================================================
-// TEST
+// ROOT TEST
 // ============================================================
 
 app.get("/", (req, res) => {
-  res.json({
+  res.status(200).json({
     success: true,
     message: "FinanceOS Backend API is running",
+    environment:
+      process.env.NODE_ENV || "development",
   });
 });
 
-
 // ============================================================
-// HEALTH ENDPOINT
-//
-// GET /api/health
-//
-// Safe development endpoint for exam-day troubleshooting.
-// Does not expose secrets.
+// API HEALTH
 // ============================================================
 
 app.get("/api/health", (req, res) => {
-  const dbState = mongoose.connection.readyState;
-  const dbStatus =
-    dbState === 1
-      ? "connected"
-      : dbState === 2
-      ? "connecting"
-      : dbState === 3
-      ? "disconnecting"
-      : "disconnected";
+  const dbState =
+    mongoose.connection.readyState;
 
-  res.json({
+  let dbStatus = "disconnected";
+
+  if (dbState === 1) {
+    dbStatus = "connected";
+  } else if (dbState === 2) {
+    dbStatus = "connecting";
+  } else if (dbState === 3) {
+    dbStatus = "disconnecting";
+  }
+
+  res.status(200).json({
     success: true,
+
     server: "ok",
+
     database: dbStatus,
-    email: process.env.EMAIL_USER ? "configured" : "not configured",
-    environment: process.env.NODE_ENV || "development",
-    otpTerminalMode:
-      process.env.NODE_ENV !== "production" &&
-      process.env.SHOW_OTP_IN_TERMINAL === "true"
-        ? "enabled"
-        : "disabled",
-    devAuthBypass:
-      process.env.NODE_ENV === "development" &&
-      process.env.DEV_AUTH_BYPASS === "true"
-        ? "enabled"
-        : "disabled",
-    uptime: Math.floor(process.uptime()) + "s",
+
+    email: process.env.EMAIL_USER
+      ? "configured"
+      : "not configured",
+
+    environment:
+      process.env.NODE_ENV || "development",
+
+    uptime:
+      Math.floor(process.uptime()) + "s",
   });
 });
 
+// ============================================================
+// AUTH API TEST
+// ============================================================
+
+app.get("/api/auth-test", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "FinanceOS authentication API is reachable.",
+    endpoints: {
+      sendOTP: "POST /api/auth/send-otp",
+      verifyOTP: "POST /api/auth/verify-otp",
+      google: "POST /api/auth/google",
+    },
+  });
+});
 
 // ============================================================
-// 404
+// 404 HANDLER
 // ============================================================
 
 app.use((req, res) => {
+  console.warn(
+    `[404] ${req.method} ${req.originalUrl}`
+  );
+
   res.status(404).json({
     success: false,
     message: `API route not found: ${req.method} ${req.originalUrl}`,
   });
 });
 
-
 // ============================================================
-// GLOBAL ERROR HANDLERS — BACKEND STABILITY
-//
-// Prevent the Node process from crashing on unhandled errors.
-// These handlers log useful diagnostics without swallowing
-// the error silently.
-//
-// IMPORTANT: These are safety nets, not substitutes for
-// proper error handling in routes/controllers.
+// GLOBAL ERROR HANDLER
 // ============================================================
 
-process.on("uncaughtException", (error) => {
-  console.error("=================================================");
-  console.error("[FINANCEOS] UNCAUGHT EXCEPTION (process survived)");
-  console.error("Error:", error.message);
-  console.error("Stack:", error.stack);
-  console.error("=================================================");
-  // Do NOT exit — keep backend running for exam stability.
-  // In production you would typically exit after cleanup.
-});
+app.use(
+  (error, req, res, next) => {
+    console.error(
+      "================================================="
+    );
 
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("=================================================");
-  console.error("[FINANCEOS] UNHANDLED PROMISE REJECTION (process survived)");
-  console.error("Reason:", reason instanceof Error ? reason.message : reason);
-  if (reason instanceof Error && reason.stack) {
-    console.error("Stack:", reason.stack);
+    console.error(
+      "[FINANCEOS] GLOBAL ERROR"
+    );
+
+    console.error(
+      "Message:",
+      error.message
+    );
+
+    console.error(
+      "Stack:",
+      error.stack
+    );
+
+    console.error(
+      "================================================="
+    );
+
+    if (res.headersSent) {
+      return next(error);
+    }
+
+    res.status(500).json({
+      success: false,
+      message:
+        "Internal FinanceOS server error.",
+    });
   }
-  console.error("=================================================");
-  // Do NOT exit — keep backend running for exam stability.
-});
-
+);
 
 // ============================================================
-// MONGODB CONNECTION + RESILIENCE
+// PROCESS ERROR HANDLERS
 // ============================================================
 
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(async () => {
+process.on(
+  "uncaughtException",
+  (error) => {
+    console.error(
+      "================================================="
+    );
+
+    console.error(
+      "[FINANCEOS] UNCAUGHT EXCEPTION"
+    );
+
+    console.error(
+      "Error:",
+      error.message
+    );
+
+    console.error(
+      "Stack:",
+      error.stack
+    );
+
+    console.error(
+      "================================================="
+    );
+  }
+);
+
+process.on(
+  "unhandledRejection",
+  (reason) => {
+    console.error(
+      "================================================="
+    );
+
+    console.error(
+      "[FINANCEOS] UNHANDLED PROMISE REJECTION"
+    );
+
+    console.error(
+      "Reason:",
+      reason
+    );
+
+    console.error(
+      "================================================="
+    );
+  }
+);
+
+// ============================================================
+// MONGODB
+// ============================================================
+
+async function startServer() {
+  try {
+    // ----------------------------------------------------------
+    // CHECK MONGO URI
+    // ----------------------------------------------------------
+
+    if (!process.env.MONGO_URI) {
+      throw new Error(
+        "MONGO_URI is not configured."
+      );
+    }
+
+    // ----------------------------------------------------------
+    // CONNECT MONGODB
+    // ----------------------------------------------------------
+
+    await mongoose.connect(
+      process.env.MONGO_URI
+    );
+
     console.log(
       "MongoDB connected successfully"
     );
 
-    // ---------------------------------------------------------
-    // MongoDB disconnect/error event handlers
-    // Prevent silent connection loss from crashing the process
-    // ---------------------------------------------------------
+    // ----------------------------------------------------------
+    // MONGODB EVENTS
+    // ----------------------------------------------------------
 
-    mongoose.connection.on("error", (err) => {
-      console.error(
-        "[MongoDB] Connection error:",
-        err.message
-      );
-    });
+    mongoose.connection.on(
+      "error",
+      (error) => {
+        console.error(
+          "[MongoDB] Connection error:",
+          error.message
+        );
+      }
+    );
 
-    mongoose.connection.on("disconnected", () => {
-      console.warn(
-        "[MongoDB] Disconnected. Mongoose will attempt to reconnect automatically."
-      );
-    });
+    mongoose.connection.on(
+      "disconnected",
+      () => {
+        console.warn(
+          "[MongoDB] Disconnected."
+        );
+      }
+    );
 
-    mongoose.connection.on("reconnected", () => {
-      console.log(
-        "[MongoDB] Reconnected successfully."
-      );
-    });
+    mongoose.connection.on(
+      "reconnected",
+      () => {
+        console.log(
+          "[MongoDB] Reconnected successfully."
+        );
+      }
+    );
 
-    // Verify SMTP configuration safely without logging secrets
+    // ----------------------------------------------------------
+    // VERIFY EMAIL
+    // ----------------------------------------------------------
+
     try {
       await verifyTransporter();
-    } catch (err) {
-      console.error("[Startup] SMTP verification failed:", err.message);
+
+      console.log(
+        "SMTP transporter verified successfully"
+      );
+    } catch (error) {
+      console.error(
+        "[Startup] SMTP verification failed:",
+        error.message
+      );
     }
 
-    // Safely migrate any existing plans to recurring schedule model
+    // ----------------------------------------------------------
+    // MIGRATION
+    // ----------------------------------------------------------
+
     try {
       await migrateRecurringSchedules();
-    } catch (err) {
-      console.error("[Startup] Migration error:", err.message);
+
+      console.log(
+        "Recurring schedule migration completed"
+      );
+    } catch (error) {
+      console.error(
+        "[Startup] Migration error:",
+        error.message
+      );
     }
 
-    // Safely remove legacy SMS preference fields from existing documents without altering financial data
+    // ----------------------------------------------------------
+    // CLEANUP
+    // ----------------------------------------------------------
+
     try {
       await cleanupLegacySmsPreferences();
-    } catch (err) {
-      console.error("[Startup] SMS cleanup error:", err.message);
+
+      console.log(
+        "Legacy SMS cleanup completed"
+      );
+    } catch (error) {
+      console.error(
+        "[Startup] SMS cleanup error:",
+        error.message
+      );
     }
 
-    // Start background scheduler worker
+    // ----------------------------------------------------------
+    // SCHEDULER
+    // ----------------------------------------------------------
+
     try {
       startScheduler();
-    } catch (err) {
-      console.error("[Startup] Scheduler failed to start:", err.message);
+
+      console.log(
+        "Scheduler started successfully"
+      );
+    } catch (error) {
+      console.error(
+        "[Startup] Scheduler failed:",
+        error.message
+      );
     }
 
-    const PORT =
-      process.env.PORT || 5000;
+    // ----------------------------------------------------------
+    // START EXPRESS
+    // ----------------------------------------------------------
 
-    app.listen(PORT, () => {
+    app.listen(
+      PORT,
+      () => {
+        console.log("");
+        console.log(
+          "================================================="
+        );
+        console.log(
+          "FinanceOS Backend"
+        );
+        console.log(
+          "-------------------------------------------------"
+        );
 
-      // -------------------------------------------------------
-      // SAFE STARTUP BANNER
-      // -------------------------------------------------------
+        console.log(
+          `Environment: ${process.env.NODE_ENV || "development"}`
+        );
 
-      console.log("");
-      console.log("=================================================");
-      console.log("FinanceOS Backend");
-      console.log("-------------------------------------------------");
-      console.log(`Environment:       ${process.env.NODE_ENV || "development"}`);
-      console.log(`Server:            running`);
-      console.log(`Port:              ${PORT}`);
-      console.log(`URL:               http://localhost:${PORT}`);
-      console.log(`MongoDB:           connected`);
-      console.log(`Email:             ${process.env.EMAIL_USER ? "configured" : "NOT configured"}`);
-      console.log(`SMTP:              verified`);
-      console.log(
-        `OTP terminal mode: ${
-          process.env.NODE_ENV !== "production" &&
-          process.env.SHOW_OTP_IN_TERMINAL === "true"
-            ? "ENABLED (development only)"
-            : "disabled"
-        }`
-      );
-      console.log(
-        `Dev Login mode:    ${
-          process.env.NODE_ENV === "development" &&
-          process.env.DEV_AUTH_BYPASS === "true"
-            ? "ENABLED (development only)"
-            : "disabled"
-        }`
-      );
-      console.log(`Scheduler:         running`);
-      console.log("=================================================");
-      console.log("");
-    });
-  })
+        console.log(
+          `Port:        ${PORT}`
+        );
 
-  .catch((error) => {
+        console.log(
+          `MongoDB:     connected`
+        );
+
+        console.log(
+          `Email:       ${
+            process.env.EMAIL_USER
+              ? "configured"
+              : "NOT configured"
+          }`
+        );
+
+        console.log(
+          `Frontend:    ${
+            process.env.FRONTEND_URL ||
+            "not configured"
+          }`
+        );
+
+        console.log(
+          "Auth API:    /api/auth"
+        );
+
+        console.log(
+          "Health:      /api/health"
+        );
+
+        console.log(
+          "================================================="
+        );
+
+        console.log("");
+      }
+    );
+  } catch (error) {
     console.error(
-      "MongoDB connection failed:",
+      "================================================="
+    );
+
+    console.error(
+      "FinanceOS backend startup failed"
+    );
+
+    console.error(
+      "Error:",
       error.message
     );
 
+    console.error(
+      "================================================="
+    );
+
     process.exit(1);
-  });
+  }
+}
+
+// ============================================================
+// START
+// ============================================================
+
+startServer();
